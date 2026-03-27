@@ -1,18 +1,10 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import * as fs from 'node:fs';
+import type { StoredReviewResult } from '../types.js';
 
-/**
- * レビュー結果の保存形式
- */
-interface StoredReviewResult {
-  checkItemContent: string;
-  ratingLabel: string;
-  ratingDefinition: string;
-  comment: string;
-  isError: boolean;
-  errorMessage?: string;
-}
+// Atomics.waitによる同期スリープ用バッファ
+const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
 
 /**
  * ファイルロックを取得する（mkdir を利用したアトミックロック）
@@ -25,10 +17,7 @@ function acquireLock(lockPath: string, timeout = 5000): void {
       return;
     } catch {
       // ロックが既に存在する場合は短時間待機してリトライ
-      const wait = new Date(Date.now() + 50);
-      while (new Date() < wait) {
-        /* spin */
-      }
+      Atomics.wait(sleepBuffer, 0, 0, 50);
     }
   }
   throw new Error('Failed to acquire file lock');

@@ -55,8 +55,8 @@ describe('GitLabMrGateway', () => {
       const result = await gateway.getMrContext('123', '42');
 
       // API呼び出しの検証
-      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42');
-      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42/changes');
+      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42');
+      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42/changes');
 
       // マッピング結果の検証
       expect(result).toBeInstanceOf(MrContext);
@@ -118,7 +118,7 @@ describe('GitLabMrGateway', () => {
 
       const result = await gateway.getCommitsSince('123', '42', 'sinceCommit');
 
-      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42/commits');
+      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42/commits');
       // sinceCommit以降（sinceCommit自体は含まない）のコミットメッセージを返す
       expect(result).toEqual(['feat: third commit', 'fix: second commit', 'feat: first commit']);
     });
@@ -174,10 +174,10 @@ describe('GitLabMrGateway', () => {
       const result = await gateway.getDiffSince('123', '42', 'sinceCommitHash');
 
       // MR情報の取得
-      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42');
+      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42');
       // compareエンドポイントの呼び出し
       expect(mockClient.get).toHaveBeenCalledWith(
-        '/api/v4/projects/123/repository/compare?from=sinceCommitHash&to=currentSha123',
+        '/projects/123/repository/compare?from=sinceCommitHash&to=currentSha123',
       );
 
       expect(result).toBe(

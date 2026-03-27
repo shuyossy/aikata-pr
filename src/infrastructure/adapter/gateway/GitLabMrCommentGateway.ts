@@ -29,7 +29,7 @@ export class GitLabMrCommentGateway implements MrCommentGateway {
    */
   async getComments(projectId: string, mrIid: string): Promise<MrComment[]> {
     const notes = await this.client.get<GitLabNote[]>(
-      `/api/v4/projects/${projectId}/merge_requests/${mrIid}/notes`,
+      `/projects/${projectId}/merge_requests/${mrIid}/notes`,
     );
 
     return notes.map((note) => ({
@@ -43,6 +43,6 @@ export class GitLabMrCommentGateway implements MrCommentGateway {
    * MRにコメントを投稿する
    */
   async postComment(projectId: string, mrIid: string, body: string): Promise<void> {
-    await this.client.post(`/api/v4/projects/${projectId}/merge_requests/${mrIid}/notes`, { body });
+    await this.client.post(`/projects/${projectId}/merge_requests/${mrIid}/notes`, { body });
   }
 }

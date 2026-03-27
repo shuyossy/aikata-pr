@@ -61,10 +61,8 @@ export class GitLabMrGateway implements MrGateway {
    */
   async getMrContext(projectId: string, mrIid: string): Promise<MrContext> {
     const [mrInfo, mrChanges] = await Promise.all([
-      this.client.get<GitLabMrInfo>(`/api/v4/projects/${projectId}/merge_requests/${mrIid}`),
-      this.client.get<GitLabMrChanges>(
-        `/api/v4/projects/${projectId}/merge_requests/${mrIid}/changes`,
-      ),
+      this.client.get<GitLabMrInfo>(`/projects/${projectId}/merge_requests/${mrIid}`),
+      this.client.get<GitLabMrChanges>(`/projects/${projectId}/merge_requests/${mrIid}/changes`),
     ]);
 
     const diff = this.combineDiffs(mrChanges.changes.map((c) => c.diff));
@@ -90,7 +88,7 @@ export class GitLabMrGateway implements MrGateway {
     sinceCommitHash: string,
   ): Promise<string[]> {
     const commits = await this.client.get<GitLabCommit[]>(
-      `/api/v4/projects/${projectId}/merge_requests/${mrIid}/commits`,
+      `/projects/${projectId}/merge_requests/${mrIid}/commits`,
     );
 
     // sinceCommitHashの位置を探す
@@ -112,12 +110,12 @@ export class GitLabMrGateway implements MrGateway {
   async getDiffSince(projectId: string, mrIid: string, sinceCommitHash: string): Promise<string> {
     // MR情報から現在のshaを取得
     const mrInfo = await this.client.get<GitLabMrInfo>(
-      `/api/v4/projects/${projectId}/merge_requests/${mrIid}`,
+      `/projects/${projectId}/merge_requests/${mrIid}`,
     );
 
     // compareエンドポイントで差分を取得
     const compareResult = await this.client.get<GitLabCompareResult>(
-      `/api/v4/projects/${projectId}/repository/compare?from=${sinceCommitHash}&to=${mrInfo.sha}`,
+      `/projects/${projectId}/repository/compare?from=${sinceCommitHash}&to=${mrInfo.sha}`,
     );
 
     return this.combineDiffs(compareResult.diffs.map((d) => d.diff));

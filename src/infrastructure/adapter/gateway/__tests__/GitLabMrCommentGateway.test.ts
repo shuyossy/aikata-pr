@@ -35,7 +35,7 @@ describe('GitLabMrCommentGateway', () => {
       const result = await gateway.getComments('123', '42');
 
       // API呼び出しの検証
-      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42/notes');
+      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42/notes');
 
       // マッピング結果の検証
       expect(result).toEqual([
@@ -49,7 +49,7 @@ describe('GitLabMrCommentGateway', () => {
 
       const result = await gateway.getComments('456', '10');
 
-      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/456/merge_requests/10/notes');
+      expect(mockClient.get).toHaveBeenCalledWith('/projects/456/merge_requests/10/notes');
       expect(result).toEqual([]);
     });
   });
@@ -61,7 +61,7 @@ describe('GitLabMrCommentGateway', () => {
       await gateway.postComment('123', '42', 'New comment');
 
       // API呼び出しの検証
-      expect(mockClient.post).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42/notes', {
+      expect(mockClient.post).toHaveBeenCalledWith('/projects/123/merge_requests/42/notes', {
         body: 'New comment',
       });
     });

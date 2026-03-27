@@ -1,4 +1,4 @@
-import { parseCliOptions } from './lib/cli.js';
+import { parseCliOptions, type CliOptions } from './lib/cli.js';
 import { initializeLogger, getLogger } from './lib/logger.js';
 import { ChecklistParser } from './application/shared/parser/index.js';
 import { ReviewSettingsParser } from './application/shared/parser/index.js';
@@ -49,6 +49,50 @@ class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
 }
 
 /**
+ * バリデーション済みの必須パラメータ
+ */
+interface ValidatedParams {
+  userId: string;
+  projectId: string;
+  mrIid: string;
+  gitlabToken: string;
+  checklistPath: string;
+  aiApiKey: string;
+  aiApiEndpointUrl: string;
+}
+
+/**
+ * 必須パラメータの存在をバリデーションする
+ */
+function validateRequiredParams(
+  options: CliOptions,
+  env: Record<string, string | undefined>,
+): ValidatedParams {
+  const missing: string[] = [];
+  if (!options.userId) missing.push('--user-id or USER_ID');
+  if (!options.projectId) missing.push('--project-id or GITLAB_PROJECT_ID');
+  if (!options.mrIid) missing.push('--mr-iid or GITLAB_MR_IID');
+  if (!options.gitlabToken) missing.push('--gitlab-token or GITLAB_TOKEN');
+  if (!options.checklist) missing.push('--checklist or CHECKLIST_PATH');
+  if (!env['AI_API_KEY']) missing.push('AI_API_KEY');
+  if (!env['AI_API_ENDPOINT_URL']) missing.push('AI_API_ENDPOINT_URL');
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required parameters: ${missing.join(', ')}`);
+  }
+
+  return {
+    userId: options.userId!,
+    projectId: options.projectId!,
+    mrIid: options.mrIid!,
+    gitlabToken: options.gitlabToken!,
+    checklistPath: options.checklist!,
+    aiApiKey: env['AI_API_KEY']!,
+    aiApiEndpointUrl: env['AI_API_ENDPOINT_URL']!,
+  };
+}
+
+/**
  * チェックロジックのエントリーポイント
  */
 async function main(): Promise<void> {
@@ -63,8 +107,14 @@ async function main(): Promise<void> {
   logger.info('aikata-pr started');
 
   try {
+    // 必須パラメータのバリデーション
+    const validated = validateRequiredParams(
+      options,
+      process.env as Record<string, string | undefined>,
+    );
+
     // 入力ファイル読み込み
-    const checklistCsv = fs.readFileSync(options.checklist!, 'utf-8');
+    const checklistCsv = fs.readFileSync(validated.checklistPath, 'utf-8');
     const checklist = ChecklistParser.parse(checklistCsv);
 
     const reviewSettings = options.reviewSettings
@@ -76,7 +126,7 @@ async function main(): Promise<void> {
       process.env['GITLAB_API_URL'] ?? process.env['CI_API_V4_URL'] ?? 'https://gitlab.com/api/v4';
 
     // DI組み立て
-    const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, options.gitlabToken!);
+    const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
     const mrGateway = new GitLabMrGateway(gitlabClient);
     const mrCommentGateway = new GitLabMrCommentGateway(gitlabClient);
     const workflowRunner = new MastraReviewWorkflowRunner();
@@ -84,16 +134,16 @@ async function main(): Promise<void> {
     const service = new ExecuteReviewService(mrGateway, mrCommentGateway, workflowRunner);
 
     const result = await service.execute({
-      userId: options.userId!,
-      projectId: options.projectId!,
-      mrIid: options.mrIid!,
+      userId: validated.userId,
+      projectId: validated.projectId,
+      mrIid: validated.mrIid,
       checklist,
       reviewSettings,
       skillsPaths: options.skills ? [options.skills] : [],
-      aiApiKey: process.env['AI_API_KEY']!,
-      aiApiEndpointUrl: process.env['AI_API_ENDPOINT_URL']!,
+      aiApiKey: validated.aiApiKey,
+      aiApiEndpointUrl: validated.aiApiEndpointUrl,
       aiModelName: options.aiModelName,
-      gitlabToken: options.gitlabToken!,
+      gitlabToken: validated.gitlabToken,
     });
 
     logger.info(

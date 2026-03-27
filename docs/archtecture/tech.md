@@ -37,12 +37,13 @@
     - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス
     - `--review-settings` / `REVIEW_SETTINGS_PATH`: レビュー設定ファイルパス
     - `--skills` / `SKILLS_PATH`: skillsパス
+    - `--gitlab-token` / `GITLAB_TOKEN`: GitLab APIトークン
+    - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
     - `--log-level` / `LOG_LEVEL`: ログレベル
     - `--verbose-error` / `VERBOSE_ERROR`: エラーログ詳細表示の有無
   - 環境変数のみ（秘密情報・環境固有）
     - `AI_API_KEY`: AI APIキー
     - `AI_API_ENDPOINT_URL`: AI APIエンドポイントURL
-    - `GITLAB_API_TOKEN`: GitLab APIトークン
 
 # CI/CD設計
 このセクションは本プロジェクトで利用するCI/CDパイプラインに関するものなので注意。

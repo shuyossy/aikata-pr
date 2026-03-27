@@ -5,6 +5,7 @@ import { CheckItem } from '../../../domain/checkItem/index.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
 import { Rating } from '../../../domain/rating/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
+import type { StoredReviewResult } from '../../types.js';
 
 /**
  * レビュー実行ステップの設定
@@ -18,18 +19,6 @@ export interface ReviewExecutionConfig {
   agent: Agent<string, Record<string, any>, any, any>;
   requestContext: RequestContext<ReviewAgentRequestContext>;
   resultFilePath: string;
-}
-
-/**
- * 結果ファイルに保存されるレビュー結果の形式
- */
-interface StoredReviewResult {
-  checkItemContent: string;
-  ratingLabel: string;
-  ratingDefinition: string;
-  comment: string;
-  isError: boolean;
-  errorMessage?: string;
 }
 
 /**

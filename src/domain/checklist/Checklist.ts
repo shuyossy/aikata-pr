@@ -5,29 +5,33 @@ import { CheckItem } from '../checkItem/index.js';
  * 複数のチェック項目で構成される
  */
 export class Checklist {
-  readonly items: CheckItem[];
+  private readonly _items: ReadonlyArray<CheckItem>;
 
   constructor(items: CheckItem[]) {
     if (items.length === 0) {
       throw new Error('Checklist must contain at least one item');
     }
-    this.items = [...items];
+    this._items = Object.freeze([...items]);
+  }
+
+  get items(): ReadonlyArray<CheckItem> {
+    return this._items;
   }
 
   get size(): number {
-    return this.items.length;
+    return this._items.length;
   }
 
   /**
    * 指定された数ごとにチェック項目を機械的に分割する
    */
   splitByCount(count: number): CheckItem[][] {
-    if (count >= this.items.length) {
-      return [[...this.items]];
+    if (count >= this._items.length) {
+      return [[...this._items]];
     }
     const groups: CheckItem[][] = [];
-    for (let i = 0; i < this.items.length; i += count) {
-      groups.push(this.items.slice(i, i + count));
+    for (let i = 0; i < this._items.length; i += count) {
+      groups.push(this._items.slice(i, i + count));
     }
     return groups;
   }
