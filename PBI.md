@@ -16,15 +16,45 @@
   - ID:1以降にスムーズに開発作業に入れる様に、環境を準備しておく必要がある
 - 受け入れ基準
   - ロガーが整備できていること
-    - どのモジュールでも`getLogger`を実行してロガーを取得すると、ユーザIDと時刻が付与されているロガーが取得できる
+    - MastraのPinoLoggerの再利用可否を調査し、結論をドキュメントに記載していること
+    - どのモジュールからでも`getLogger`を呼び出してロガーを取得できること
+    - 取得したロガーの出力にユーザIDと時刻が自動付与されていること
+    - エラーオブジェクトのログ出力に`pino-std-serializers`の`errWithCause`シリアライザーが利用されていること
+    - ロガーのテストが存在し、パスすること
   - `.gitlab-ci.yml`が整備できていること
-    - vitestが実行できる
-    - チェックロジックがバンドルできる
-      - バンドルしたチェックロジックをCLI上で呼び出すことができている（バンドルして呼び出せていればよい）
-  - formatter,eslintが整備されている
+    - `npm run test`でvitestが実行されるジョブが定義されていること
+    - ESLint/Prettierのチェックが実行されるジョブが定義されていること
+    - CLI用バンドル（esbuild/tsup等）を実行し`dist/`に出力するジョブが定義されていること
+    - バンドルされた成果物がGitLab Package RegistryのGeneric Packagesに公開されるジョブが定義されていること
+    - semantic-releaseによるバージョン管理が導入されていること
+      - コミットメッセージに基づいてバージョンが自動決定されること
+      - GitLabのCI/CDパイプライン上でリリースが自動実行されること
+  - formatter/ESLintが整備されていること
+    - Prettierの設定ファイルが存在し、`npm run format`で実行できること
+    - ESLintの設定ファイルが存在し、`npm run lint`で実行できること
+    - husky + lint-stagedが導入され、コミット時にlint/formatが自動実行されること
+    - `.gitlab-ci.yml`のジョブでlint/formatチェックが実行されること
   - `.ci-template`が整備されていること
-    - 現時点で必要であると考えられる環境変数も入力しておく
-  - 整備の結果として主要コマンドが`AGENTS.md`にまとめられている
+    - `.ci-template/pipelines/template.yml`が存在すること
+    - `.ci-template/variable/variables.yml`が存在し、以下の環境変数のデフォルト値が定義されていること
+      - AI関連: `AI_API_KEY`、`AI_API_ENDPOINT_URL`
+      - GitLab関連: `GITLAB_API_TOKEN`、`GITLAB_PROJECT_ID`、`GITLAB_MR_IID`
+      - チェックロジック入力: `CHECKLIST_PATH`、`REVIEW_SETTINGS_PATH`、`SKILLS_PATH`
+      - 動作設定: `USER_ID`、`LOG_LEVEL`、`VERBOSE_ERROR`
+    - `.env.example`にも同様の環境変数が記載されていること
+    - `docs/config/env_val.md`に環境変数の一覧と説明が記載されていること
+  - vitestが整備されていること
+    - vitestがdevDependenciesに追加されていること
+    - vitest設定ファイルが存在し、`npm run test`で実行できること
+    - カバレッジ設定が組み込まれ、分岐カバレッジ（branch coverage）の閾値が80%に設定されていること
+    - PBI ID:0で実装したモジュール（ロガー等）のテストが存在し、分岐カバレッジ80%以上でパスすること
+  - チェックロジックがバンドルでき、CLI上で呼び出せること
+    - esbuild/tsup等によるCLI用バンドルスクリプトが存在し、`dist/`に出力されること
+    - `node dist/index.js`でバンドル済みファイルが正常に起動すること
+    - CLIオプション（`--user-id`）または環境変数（`USER_ID`）でユーザIDを受け取れること
+    - 起動時にロガーが動作し、ユーザID付きのログが出力されること
+  - 整備の結果として主要コマンドが`AGENTS.md`にまとめられていること
+    - PBI ID:0で追加・変更したコマンド（テスト実行、lint、format、バンドル等）が`AGENTS.md`の`# コマンド`セクションに記載されていること
 - 注意事項
   - Mastraで定義されているロガーを再利用できないか調べる必要がある
 - 指摘事項（in progressの場合のみ）

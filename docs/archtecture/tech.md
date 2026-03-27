@@ -28,12 +28,21 @@
     - 入力時のオプションはoptions?引数として一括管理
 - インフラ層
 - プレゼンテーション層
-  - 実行時引数
-    - 実行ユーザID
-  - オプション
-    - ログレベル
-    - エラーログ詳細表示の有無
-    - ...
+  - CLIインターフェース: `node dist/index.js [options]`
+  - 全パラメータはCLIオプションと環境変数の両方で指定可能（優先順位: CLIオプション > 環境変数 > デフォルト値）
+  - CLIオプション（環境変数フォールバック付き）
+    - `--user-id` / `USER_ID`: 実行ユーザID
+    - `--project-id` / `GITLAB_PROJECT_ID`: GitLabプロジェクトID
+    - `--mr-iid` / `GITLAB_MR_IID`: MR IID
+    - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス
+    - `--review-settings` / `REVIEW_SETTINGS_PATH`: レビュー設定ファイルパス
+    - `--skills` / `SKILLS_PATH`: skillsパス
+    - `--log-level` / `LOG_LEVEL`: ログレベル
+    - `--verbose-error` / `VERBOSE_ERROR`: エラーログ詳細表示の有無
+  - 環境変数のみ（秘密情報・環境固有）
+    - `AI_API_KEY`: AI APIキー
+    - `AI_API_ENDPOINT_URL`: AI APIエンドポイントURL
+    - `GITLAB_API_TOKEN`: GitLab APIトークン
 
 # CI/CD設計
 このセクションは本プロジェクトで利用するCI/CDパイプラインに関するものなので注意。
