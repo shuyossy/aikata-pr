@@ -30,6 +30,8 @@
     "@mastra/loggers": "^1.0.3",
     "@mastra/memory": "^1.10.0",
     "@mastra/observability": "^1.5.1",
+    "pino": "^10.3.1",
+    "pino-std-serializers": "^7.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
