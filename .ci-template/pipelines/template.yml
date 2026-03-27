@@ -1,0 +1,34 @@
+# .ci-template/pipelines/template.yml
+# 提供先プロジェクトで include して利用するCIテンプレート
+#
+# 使い方:
+#   include:
+#     - project: '<本プロジェクトのパス>'
+#       file: '.ci-template/pipelines/template.yml'
+
+include:
+  - local: '.ci-template/variable/variables.yml'
+
+stages:
+  - review
+
+ai-review:
+  stage: review
+  image: node:22
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    # チェックロジックをGeneric PackagesからDL
+    - |
+      PACKAGE_URL="${CI_API_V4_URL}/projects/${AIKATA_PROJECT_ID}/packages/generic/aikata-pr/${AIKATA_VERSION}/index.js"
+      curl --header "PRIVATE-TOKEN: ${AIKATA_DOWNLOAD_TOKEN}" -o index.js "${PACKAGE_URL}"
+    # チェックロジック実行
+    - node index.js
+      --user-id "${USER_ID}"
+      --project-id "${GITLAB_PROJECT_ID}"
+      --mr-iid "${GITLAB_MR_IID}"
+      --checklist "${CHECKLIST_PATH}"
+      --review-settings "${REVIEW_SETTINGS_PATH}"
+      --skills "${SKILLS_PATH}"
+      --log-level "${LOG_LEVEL}"
+      --verbose-error "${VERBOSE_ERROR}"
