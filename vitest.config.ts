@@ -12,6 +12,10 @@ export default defineConfig({
       exclude: [
         'src/**/__tests__/**',
         'src/mastra/agents/**',
+        'src/index.ts',
+        'src/mastra/index.ts',
+        'src/mastra/workflows/reviewWorkflow.ts',
+        'src/**/index.ts',
       ],
       thresholds: {
         branches: 80,

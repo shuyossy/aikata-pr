@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { CheckItem } from '../../../../domain/checkItem/index.js';
-import { splitChecklist } from '../checklistSplitStep.js';
+import { splitChecklist, adjustGroups } from '../checklistSplitStep.js';
 import type { Agent } from '@mastra/core/agent';
 
 /**
@@ -248,6 +248,53 @@ describe('splitChecklist', () => {
       expect(generateSpy).not.toHaveBeenCalled();
       expect(result).toHaveLength(1);
       expect(result[0]).toHaveLength(2);
+    });
+  });
+
+  describe('adjustGroups', () => {
+    it('漏れた項目がプール内に残り、既存グループを埋めた後に新グループとして追加される', () => {
+      // allItemsに6項目あるが、groupsには2項目しかない（4項目が漏れ）
+      const allItems = makeItems(['a', 'b', 'c', 'd', 'e', 'f']);
+      // groupsには2項目のみ
+      const groups = [allItems.slice(0, 2)]; // [a, b]
+
+      const result = adjustGroups(groups, allItems, 2);
+
+      // 全項目が含まれていること
+      const allContents = result
+        .flat()
+        .map((i) => i.content)
+        .sort();
+      expect(allContents).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+      // 各グループがcount以下であること
+      for (const group of result) {
+        expect(group.length).toBeLessThanOrEqual(2);
+      }
+    });
+
+    it('グループが1つ以下の場合、mergeUndersizedGroupsでそのまま返される', () => {
+      const allItems = makeItems(['a']);
+      const groups = [allItems];
+
+      const result = adjustGroups(groups, allItems, 2);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].map((i) => i.content)).toEqual(['a']);
+    });
+
+    it('空のグループの場合も正しく処理される', () => {
+      const allItems = makeItems(['a', 'b', 'c']);
+      // 空のグループを含む（全項目がプールに入る）
+      const groups: CheckItem[][] = [];
+
+      const result = adjustGroups(groups, allItems, 2);
+
+      // 全項目が含まれていること
+      const allContents = result
+        .flat()
+        .map((i) => i.content)
+        .sort();
+      expect(allContents).toEqual(['a', 'b', 'c']);
     });
   });
 });

@@ -416,6 +416,123 @@ describe('ExecuteReviewService', () => {
     expect(mrGateway.getCommitsSince).toHaveBeenCalledWith('project-1', '42', 'newer-commit-hash');
   });
 
+  it('非aikataコメントはスキップされて次のコメントが評価される', async () => {
+    const ratings = [
+      new Rating('A', '完全に満たしている'),
+      new Rating('B', '概ね満たしている'),
+      new Rating('C', '満たしていない'),
+    ];
+    const command = createCommand();
+    const mrContext = createMrContext();
+    const workflowResult = createWorkflowResult();
+
+    // 非aikataコメント（parseCommentがnullを返す）
+    const normalComment: { id: number; body: string; createdAt: string } = {
+      id: 100,
+      body: 'This is a normal comment, not an aikata review',
+      createdAt: '2026-01-02T00:00:00Z',
+    };
+
+    // aikataコメント（古い方）
+    const aikataComment = createAikataComment(
+      [
+        {
+          content: 'コードの可読性',
+          ratingLabel: 'B',
+          ratingDefinition: '概ね満たしている',
+          comment: '改善してください',
+        },
+      ],
+      'prior-commit-hash',
+      ratings,
+      '2026-01-01T00:00:00Z',
+    );
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+    // 非aikataコメントが新しい＝最初に評価されるがスキップされる
+    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([aikataComment, normalComment]);
+    vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
+    vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
+    vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+    await service.execute(command);
+
+    // 非aikataコメントはスキップされ、aikataコメントが使われる
+    const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+    expect(runCall.priorReviewResults).not.toBeNull();
+    expect(runCall.priorReviewResults).toHaveLength(1);
+    expect(runCall.priorReviewResults![0].checkItemContent).toBe('コードの可読性');
+  });
+
+  it('aikataコメントのフィルタ後に該当項目が0件の場合、nullが返される', async () => {
+    const ratings = [
+      new Rating('A', '完全に満たしている'),
+      new Rating('B', '概ね満たしている'),
+      new Rating('C', '満たしていない'),
+    ];
+    const command = createCommand();
+    const mrContext = createMrContext();
+    const workflowResult = createWorkflowResult();
+
+    // 今回のチェックリストには「コードの可読性」「テストカバレッジ」があるが、
+    // 過去のレビューにはどちらも含まれていない（別の項目のみ）
+    const aikataComment = createAikataComment(
+      [
+        {
+          content: 'セキュリティ',
+          ratingLabel: 'A',
+          ratingDefinition: '完全に満たしている',
+          comment: '問題なし',
+        },
+      ],
+      'prior-commit-hash',
+      ratings,
+      '2026-01-01T00:00:00Z',
+    );
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([aikataComment]);
+    vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+    await service.execute(command);
+
+    // フィルタ後に0件なのでnull
+    const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+    expect(runCall.priorReviewResults).toBeNull();
+    expect(runCall.priorCommitMessages).toBeNull();
+    expect(runCall.priorDiffSincePrior).toBeNull();
+
+    // getCommitsSince/getDiffSinceは呼ばれない
+    expect(mrGateway.getCommitsSince).not.toHaveBeenCalled();
+    expect(mrGateway.getDiffSince).not.toHaveBeenCalled();
+  });
+
+  it('ワークフロー結果にチェックリストに存在しない項目がある場合、エラーがスローされる', async () => {
+    const command = createCommand();
+    const mrContext = createMrContext();
+
+    // 存在しないチェック項目を含むワークフロー結果
+    const workflowResult: ReviewWorkflowResult = {
+      results: [
+        {
+          checkItemContent: '存在しない項目',
+          ratingLabel: 'A',
+          ratingDefinition: '完全に満たしている',
+          comment: '良い',
+          isError: false,
+        },
+      ],
+    };
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+    await expect(service.execute(command)).rejects.toThrow('Check item not found: 存在しない項目');
+  });
+
   it('Workflow実行時に正しいパラメータが渡される', async () => {
     const command = createCommand();
     const mrContext = createMrContext();

@@ -79,6 +79,16 @@ describe('GitLabApiClient', () => {
     await expect(client.get('/projects/99999')).rejects.toThrow('GitLab API error: 404 Not Found');
   });
 
+  it('POSTリクエストでHTTPエラーの場合、エラーがスローされる', async () => {
+    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
+
+    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+    await expect(
+      client.post('/projects/1/merge_requests/1/notes', { body: 'comment' }),
+    ).rejects.toThrow('GitLab API error: 500 Internal Server Error');
+  });
+
   it('ベースURLとパスが正しく結合される', async () => {
     mockFetch.mockResolvedValueOnce(createOkResponse({}));
 

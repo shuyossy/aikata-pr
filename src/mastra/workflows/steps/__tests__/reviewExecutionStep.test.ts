@@ -301,6 +301,29 @@ describe('executeReview', () => {
     expect(results[1].isError).toBe(true);
   });
 
+  it('Agentが結果ファイルを作成しない場合、全項目がエラー結果になる', async () => {
+    const checkItems = [new CheckItem('check1'), new CheckItem('check2')];
+    const config = createBaseConfig({ checkItems, resultFilePath });
+
+    // Agentは成功するがファイルを作成しない
+    const mockAgent = {
+      generate: vi.fn().mockResolvedValue(undefined),
+    };
+    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+
+    const results = await executeReview(config);
+
+    // 初回 + リトライ2回 = 3回呼ばれる（毎回ファイルが存在しないので漏れとみなされる）
+    expect(mockAgent.generate).toHaveBeenCalledTimes(3);
+
+    // 全項目がエラー結果になる
+    expect(results).toHaveLength(2);
+    expect(results[0].isError).toBe(true);
+    expect(results[0].errorMessage).toContain('Review result not found after agent execution');
+    expect(results[1].isError).toBe(true);
+    expect(results[1].errorMessage).toContain('Review result not found after agent execution');
+  });
+
   it('結果ファイルにisError=trueの結果がある場合、エラー結果として返される', async () => {
     const checkItems = [new CheckItem('check1')];
     const config = createBaseConfig({ checkItems, resultFilePath });
