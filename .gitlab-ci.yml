@@ -1,0 +1,60 @@
+# .gitlab-ci.yml
+# 本プロジェクトで利用するCI/CDパイプライン
+
+stages:
+  - test
+  - build
+  - release
+
+# 共通設定
+default:
+  image: node:22
+
+# キャッシュ設定
+.node_cache:
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+
+# テストジョブ
+test:
+  stage: test
+  extends: .node_cache
+  script:
+    - npm ci
+    - npm run test:coverage
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+
+# Lint/Format チェックジョブ
+lint:
+  stage: test
+  extends: .node_cache
+  script:
+    - npm ci
+    - npm run lint
+    - npm run format:check
+
+# ビルドジョブ
+build:
+  stage: build
+  extends: .node_cache
+  script:
+    - npm ci
+    - npm run build:cli
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# リリースジョブ（semantic-release）
+release:
+  stage: release
+  extends: .node_cache
+  script:
+    - npm ci
+    - npx semantic-release
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
