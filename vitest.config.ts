@@ -11,7 +11,7 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: [
         'src/**/__tests__/**',
-        'src/mastra/**',
+        'src/mastra/agents/**',
       ],
       thresholds: {
         branches: 80,
