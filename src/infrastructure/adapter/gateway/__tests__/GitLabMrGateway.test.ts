@@ -1,0 +1,215 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { GitLabMrGateway } from '../GitLabMrGateway.js';
+import { MrContext } from '../../../../domain/mrContext/index.js';
+
+/**
+ * GitLabApiClientのモックインターフェース
+ */
+interface MockGitLabApiClient {
+  get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
+}
+
+describe('GitLabMrGateway', () => {
+  let mockClient: MockGitLabApiClient;
+  let gateway: GitLabMrGateway;
+
+  beforeEach(() => {
+    mockClient = {
+      get: vi.fn(),
+      post: vi.fn(),
+    };
+    gateway = new GitLabMrGateway(
+      mockClient as unknown as ConstructorParameters<typeof GitLabMrGateway>[0],
+    );
+  });
+
+  describe('getMrContext', () => {
+    it('MR情報とdiffを正しくMrContextにマッピングする', async () => {
+      // MR基本情報のレスポンス
+      const mrInfoResponse = {
+        title: 'feat: add new feature',
+        description: 'This MR adds a new feature',
+        source_branch: 'feature/new-feature',
+        target_branch: 'main',
+        sha: 'abc123def456',
+        diff_refs: {
+          base_sha: 'base000',
+          head_sha: 'abc123def456',
+          start_sha: 'start000',
+        },
+      };
+
+      // MR変更差分のレスポンス
+      const mrChangesResponse = {
+        changes: [
+          {
+            diff: '--- a/file1.ts\n+++ b/file1.ts\n@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n',
+          },
+          { diff: '--- a/file2.ts\n+++ b/file2.ts\n@@ -10,3 +10,5 @@\n+export const baz = 1;\n' },
+        ],
+      };
+
+      mockClient.get.mockResolvedValueOnce(mrInfoResponse).mockResolvedValueOnce(mrChangesResponse);
+
+      const result = await gateway.getMrContext('123', '42');
+
+      // API呼び出しの検証
+      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42');
+      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42/changes');
+
+      // マッピング結果の検証
+      expect(result).toBeInstanceOf(MrContext);
+      expect(result.title).toBe('feat: add new feature');
+      expect(result.description).toBe('This MR adds a new feature');
+      expect(result.sourceBranch).toBe('feature/new-feature');
+      expect(result.targetBranch).toBe('main');
+      expect(result.commitHash).toBe('abc123def456');
+      // 複数のdiffが結合されること
+      expect(result.diff).toBe(
+        '--- a/file1.ts\n+++ b/file1.ts\n@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n' +
+          '\n' +
+          '--- a/file2.ts\n+++ b/file2.ts\n@@ -10,3 +10,5 @@\n+export const baz = 1;\n',
+      );
+    });
+
+    it('changesが空の場合、diffは空文字列となる', async () => {
+      const mrInfoResponse = {
+        title: 'chore: empty MR',
+        description: '',
+        source_branch: 'feature/empty',
+        target_branch: 'main',
+        sha: 'empty123',
+        diff_refs: {
+          base_sha: 'base000',
+          head_sha: 'empty123',
+          start_sha: 'start000',
+        },
+      };
+
+      const mrChangesResponse = {
+        changes: [],
+      };
+
+      mockClient.get.mockResolvedValueOnce(mrInfoResponse).mockResolvedValueOnce(mrChangesResponse);
+
+      const result = await gateway.getMrContext('123', '10');
+
+      expect(result.diff).toBe('');
+    });
+  });
+
+  describe('getCommitsSince', () => {
+    it('指定コミット以降のコミットメッセージを返す', async () => {
+      // GitLab APIのコミットレスポンス（新しい順）
+      const commitsResponse = [
+        { id: 'commit3', message: 'feat: third commit', created_at: '2026-03-03T00:00:00Z' },
+        { id: 'commit2', message: 'fix: second commit', created_at: '2026-03-02T00:00:00Z' },
+        { id: 'commit1', message: 'feat: first commit', created_at: '2026-03-01T00:00:00Z' },
+        {
+          id: 'sinceCommit',
+          message: 'chore: since this commit',
+          created_at: '2026-02-28T00:00:00Z',
+        },
+        { id: 'olderCommit', message: 'chore: older commit', created_at: '2026-02-27T00:00:00Z' },
+      ];
+
+      mockClient.get.mockResolvedValueOnce(commitsResponse);
+
+      const result = await gateway.getCommitsSince('123', '42', 'sinceCommit');
+
+      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42/commits');
+      // sinceCommit以降（sinceCommit自体は含まない）のコミットメッセージを返す
+      expect(result).toEqual(['feat: third commit', 'fix: second commit', 'feat: first commit']);
+    });
+
+    it('指定コミットが見つからない場合は全コミットメッセージを返す', async () => {
+      const commitsResponse = [
+        { id: 'commit2', message: 'fix: second commit', created_at: '2026-03-02T00:00:00Z' },
+        { id: 'commit1', message: 'feat: first commit', created_at: '2026-03-01T00:00:00Z' },
+      ];
+
+      mockClient.get.mockResolvedValueOnce(commitsResponse);
+
+      const result = await gateway.getCommitsSince('123', '42', 'nonExistentCommit');
+
+      expect(result).toEqual(['fix: second commit', 'feat: first commit']);
+    });
+
+    it('コミットが空の場合は空配列を返す', async () => {
+      mockClient.get.mockResolvedValueOnce([]);
+
+      const result = await gateway.getCommitsSince('123', '42', 'someCommit');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getDiffSince', () => {
+    it('指定コミット以降のdiffを返す', async () => {
+      // MR情報からcurrent shaを取得
+      const mrInfoResponse = {
+        title: 'feat: something',
+        description: '',
+        source_branch: 'feature/x',
+        target_branch: 'main',
+        sha: 'currentSha123',
+        diff_refs: {
+          base_sha: 'base000',
+          head_sha: 'currentSha123',
+          start_sha: 'start000',
+        },
+      };
+
+      // compareエンドポイントのレスポンス
+      const compareResponse = {
+        diffs: [
+          { diff: '--- a/changed.ts\n+++ b/changed.ts\n@@ -1 +1 @@\n-old\n+new\n' },
+          { diff: '--- a/added.ts\n+++ b/added.ts\n@@ -0,0 +1 @@\n+content\n' },
+        ],
+      };
+
+      mockClient.get.mockResolvedValueOnce(mrInfoResponse).mockResolvedValueOnce(compareResponse);
+
+      const result = await gateway.getDiffSince('123', '42', 'sinceCommitHash');
+
+      // MR情報の取得
+      expect(mockClient.get).toHaveBeenCalledWith('/api/v4/projects/123/merge_requests/42');
+      // compareエンドポイントの呼び出し
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/api/v4/projects/123/repository/compare?from=sinceCommitHash&to=currentSha123',
+      );
+
+      expect(result).toBe(
+        '--- a/changed.ts\n+++ b/changed.ts\n@@ -1 +1 @@\n-old\n+new\n' +
+          '\n' +
+          '--- a/added.ts\n+++ b/added.ts\n@@ -0,0 +1 @@\n+content\n',
+      );
+    });
+
+    it('diffが空の場合は空文字列を返す', async () => {
+      const mrInfoResponse = {
+        title: 'feat: no changes',
+        description: '',
+        source_branch: 'feature/y',
+        target_branch: 'main',
+        sha: 'currentSha456',
+        diff_refs: {
+          base_sha: 'base000',
+          head_sha: 'currentSha456',
+          start_sha: 'start000',
+        },
+      };
+
+      const compareResponse = {
+        diffs: [],
+      };
+
+      mockClient.get.mockResolvedValueOnce(mrInfoResponse).mockResolvedValueOnce(compareResponse);
+
+      const result = await gateway.getDiffSince('123', '42', 'sinceCommitHash');
+
+      expect(result).toBe('');
+    });
+  });
+});
