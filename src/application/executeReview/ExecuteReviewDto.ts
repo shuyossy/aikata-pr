@@ -1,0 +1,10 @@
+import { ReviewResult } from '../../domain/reviewResult/index.js';
+
+/**
+ * ExecuteReviewサービスの出力DTO
+ */
+export interface ExecuteReviewDto {
+  results: ReviewResult[];
+  commitHash: string;
+  commentPosted: boolean;
+}
