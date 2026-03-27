@@ -46,6 +46,22 @@
 # コマンド
 主要なコマンドを追加した場合は、以下に追記すること
 ```bash
+# テスト
+npm run test              # テスト実行
+npm run test:watch        # テスト（watchモード）
+npm run test:coverage     # テスト + カバレッジ
+
+# Lint / Format
+npm run lint              # ESLint 実行
+npm run lint:fix          # ESLint 自動修正
+npm run format            # Prettier フォーマット
+npm run format:check      # Prettier フォーマットチェック
+
+# ビルド
+npm run build:cli         # CLI用バンドル（dist/index.js）
+
+# 実行
+node dist/index.js --user-id <userId> [options]
 ```
 
 # 作業時の注意点
