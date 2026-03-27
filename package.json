@@ -25,6 +25,7 @@
     "node": ">=22.13.0"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.37",
     "@mastra/core": "^1.16.0",
     "@mastra/evals": "^1.1.2",
     "@mastra/libsql": "^1.7.2",
