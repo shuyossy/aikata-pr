@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import type { MrGateway } from '../shared/port/gateway/index.js';
 import type { MrCommentGateway } from '../shared/port/gateway/index.js';
 import { CommentFormatter } from '../shared/comment/index.js';
@@ -71,60 +72,69 @@ export class ExecuteReviewService {
   ) {}
 
   async execute(command: ExecuteReviewCommand): Promise<ExecuteReviewDto> {
-    // Step 0: 事前処理 - MRコンテキスト取得
-    const mrContext = await this.mrGateway.getMrContext(command.projectId, command.mrIid);
+    const [mrContext, comments] = await Promise.all([
+      this.mrGateway.getMrContext(command.projectId, command.mrIid),
+      this.mrCommentGateway.getComments(command.projectId, command.mrIid),
+    ]);
 
-    // Step 0: 事前処理 - 過去のレビュー結果を取得
-    const comments = await this.mrCommentGateway.getComments(command.projectId, command.mrIid);
+    const priorContext = await this.buildPriorContext(command, comments, mrContext.commitHash);
 
-    // 最新のaikataレビューコメントから前回レビュー情報を構築
-    const priorContext = await this.buildPriorContext(command, comments);
-
-    // Steps 1-2: Workflow実行
     const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
 
-    const workflowResult = await this.workflowRunner.run({
-      checkItemContents: command.checklist.items.map((i) => i.content),
-      concurrentReviewCount: command.reviewSettings.concurrentReviewCount,
-      ratings: command.reviewSettings.ratings.map((r) => ({
-        label: r.label,
-        definition: r.definition,
-      })),
-      commentFormat: command.reviewSettings.commentFormat,
-      additionalInstructions: command.reviewSettings.additionalInstructions,
-      mrTitle: mrContext.title,
-      mrDescription: mrContext.description,
-      mrSourceBranch: mrContext.sourceBranch,
-      mrTargetBranch: mrContext.targetBranch,
-      mrDiff: mrContext.diff,
-      mrCommitHash: mrContext.commitHash,
-      priorReviewResults: priorContext.priorReviewResults,
-      priorCommitMessages: priorContext.priorCommitMessages,
-      priorDiffSincePrior: priorContext.priorDiffSincePrior,
-      userId: command.userId,
-      aiApiKey: command.aiApiKey,
-      aiApiEndpointUrl: command.aiApiEndpointUrl,
-      aiModelName: command.aiModelName,
-      skillsPaths: command.skillsPaths,
-      resultFilePath,
-    });
+    try {
+      const workflowResult = await this.workflowRunner.run({
+        checkItemContents: command.checklist.items.map((i) => i.content),
+        concurrentReviewCount: command.reviewSettings.concurrentReviewCount,
+        ratings: command.reviewSettings.ratings.map((r) => ({
+          label: r.label,
+          definition: r.definition,
+        })),
+        commentFormat: command.reviewSettings.commentFormat,
+        additionalInstructions: command.reviewSettings.additionalInstructions,
+        mrTitle: mrContext.title,
+        mrDescription: mrContext.description,
+        mrSourceBranch: mrContext.sourceBranch,
+        mrTargetBranch: mrContext.targetBranch,
+        mrDiff: mrContext.diff,
+        mrCommitHash: mrContext.commitHash,
+        priorReviewResults: priorContext.priorReviewResults,
+        priorCommitMessages: priorContext.priorCommitMessages,
+        priorDiffSincePrior: priorContext.priorDiffSincePrior,
+        userId: command.userId,
+        aiApiKey: command.aiApiKey,
+        aiApiEndpointUrl: command.aiApiEndpointUrl,
+        aiModelName: command.aiModelName,
+        skillsPaths: command.skillsPaths,
+        resultFilePath,
+      });
 
-    // ワークフロー結果をドメイン型に変換
-    const results = this.convertToReviewResults(workflowResult, command);
+      const results = this.convertToReviewResults(workflowResult, command);
 
-    // Step 3: コメント投稿
-    const commentBody = CommentFormatter.formatComment(
-      results,
-      command.reviewSettings.ratings,
-      mrContext.commitHash,
-    );
-    await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
+      const commentBody = CommentFormatter.formatComment(
+        results,
+        command.reviewSettings.ratings,
+        mrContext.commitHash,
+      );
+      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
 
-    return {
-      results,
-      commitHash: mrContext.commitHash,
-      commentPosted: true,
-    };
+      return {
+        results,
+        commitHash: mrContext.commitHash,
+        commentPosted: true,
+      };
+    } finally {
+      // 一時ファイルとロックディレクトリのクリーンアップ
+      try {
+        fs.unlinkSync(resultFilePath);
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.rmdirSync(`${resultFilePath}.lock`);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   /**
@@ -134,6 +144,7 @@ export class ExecuteReviewService {
   private async buildPriorContext(
     command: ExecuteReviewCommand,
     comments: Array<{ id: number; body: string; createdAt: string }>,
+    currentCommitHash: string,
   ): Promise<{
     priorReviewResults: Array<{
       checkItemContent: string;
@@ -168,17 +179,15 @@ export class ExecuteReviewService {
         }));
 
       if (filteredResults.length > 0) {
-        // 前回レビュー以降のコミットとdiffを取得
-        const priorCommitMessages = await this.mrGateway.getCommitsSince(
-          command.projectId,
-          command.mrIid,
-          parsed.commitHash,
-        );
-        const priorDiffSincePrior = await this.mrGateway.getDiffSince(
-          command.projectId,
-          command.mrIid,
-          parsed.commitHash,
-        );
+        const [priorCommitMessages, priorDiffSincePrior] = await Promise.all([
+          this.mrGateway.getCommitsSince(command.projectId, command.mrIid, parsed.commitHash),
+          this.mrGateway.getDiffSince(
+            command.projectId,
+            command.mrIid,
+            parsed.commitHash,
+            currentCommitHash,
+          ),
+        ]);
 
         return {
           priorReviewResults: filteredResults,

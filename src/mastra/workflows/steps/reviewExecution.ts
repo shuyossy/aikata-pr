@@ -1,11 +1,10 @@
-import * as fs from 'node:fs';
 import type { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import { CheckItem } from '../../../domain/checkItem/index.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
 import { Rating } from '../../../domain/rating/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
-import type { StoredReviewResult } from '../../types.js';
+import { readStoredResults } from '../../types.js';
 
 /**
  * レビュー実行ステップの設定
@@ -25,17 +24,6 @@ export interface ReviewExecutionConfig {
  * リトライの最大回数
  */
 const MAX_RETRIES = 2;
-
-/**
- * 結果ファイルからレビュー結果を読み込む
- */
-function readResultsFromFile(filePath: string): StoredReviewResult[] {
-  if (!fs.existsSync(filePath)) {
-    return [];
-  }
-  const content = fs.readFileSync(filePath, 'utf-8');
-  return JSON.parse(content) as StoredReviewResult[];
-}
 
 /**
  * レビュー実行のコアロジック
@@ -59,7 +47,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
   }
 
   // 漏れチェックとリトライ
-  let storedResults = readResultsFromFile(resultFilePath);
+  let storedResults = readStoredResults(resultFilePath);
 
   for (let retry = 0; retry < MAX_RETRIES; retry++) {
     const missingItems = checkItems.filter(
@@ -74,7 +62,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
     try {
       const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- ${i.content}`).join('\n')}\nResult file path: ${resultFilePath}`;
       await agent.generate(retryPrompt, { requestContext });
-      storedResults = readResultsFromFile(resultFilePath);
+      storedResults = readStoredResults(resultFilePath);
     } catch {
       // リトライ失敗時は次のリトライへ（または終了）
       break;

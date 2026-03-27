@@ -147,21 +147,6 @@ describe('GitLabMrGateway', () => {
 
   describe('getDiffSince', () => {
     it('指定コミット以降のdiffを返す', async () => {
-      // MR情報からcurrent shaを取得
-      const mrInfoResponse = {
-        title: 'feat: something',
-        description: '',
-        source_branch: 'feature/x',
-        target_branch: 'main',
-        sha: 'currentSha123',
-        diff_refs: {
-          base_sha: 'base000',
-          head_sha: 'currentSha123',
-          start_sha: 'start000',
-        },
-      };
-
-      // compareエンドポイントのレスポンス
       const compareResponse = {
         diffs: [
           { diff: '--- a/changed.ts\n+++ b/changed.ts\n@@ -1 +1 @@\n-old\n+new\n' },
@@ -169,13 +154,10 @@ describe('GitLabMrGateway', () => {
         ],
       };
 
-      mockClient.get.mockResolvedValueOnce(mrInfoResponse).mockResolvedValueOnce(compareResponse);
+      mockClient.get.mockResolvedValueOnce(compareResponse);
 
-      const result = await gateway.getDiffSince('123', '42', 'sinceCommitHash');
+      const result = await gateway.getDiffSince('123', '42', 'sinceCommitHash', 'currentSha123');
 
-      // MR情報の取得
-      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42');
-      // compareエンドポイントの呼び出し
       expect(mockClient.get).toHaveBeenCalledWith(
         '/projects/123/repository/compare?from=sinceCommitHash&to=currentSha123',
       );
@@ -188,26 +170,13 @@ describe('GitLabMrGateway', () => {
     });
 
     it('diffが空の場合は空文字列を返す', async () => {
-      const mrInfoResponse = {
-        title: 'feat: no changes',
-        description: '',
-        source_branch: 'feature/y',
-        target_branch: 'main',
-        sha: 'currentSha456',
-        diff_refs: {
-          base_sha: 'base000',
-          head_sha: 'currentSha456',
-          start_sha: 'start000',
-        },
-      };
-
       const compareResponse = {
         diffs: [],
       };
 
-      mockClient.get.mockResolvedValueOnce(mrInfoResponse).mockResolvedValueOnce(compareResponse);
+      mockClient.get.mockResolvedValueOnce(compareResponse);
 
-      const result = await gateway.getDiffSince('123', '42', 'sinceCommitHash');
+      const result = await gateway.getDiffSince('123', '42', 'sinceCommitHash', 'currentSha456');
 
       expect(result).toBe('');
     });

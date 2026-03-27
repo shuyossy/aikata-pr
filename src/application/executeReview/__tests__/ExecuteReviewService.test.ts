@@ -214,7 +214,12 @@ describe('ExecuteReviewService', () => {
 
     // コミット情報取得が正しいハッシュで呼ばれたことを確認
     expect(mrGateway.getCommitsSince).toHaveBeenCalledWith('project-1', '42', 'prior-commit-hash');
-    expect(mrGateway.getDiffSince).toHaveBeenCalledWith('project-1', '42', 'prior-commit-hash');
+    expect(mrGateway.getDiffSince).toHaveBeenCalledWith(
+      'project-1',
+      '42',
+      'prior-commit-hash',
+      'current-commit-hash',
+    );
   });
 
   it('過去のチェック結果が存在しない場合、PriorReviewContextはnull', async () => {

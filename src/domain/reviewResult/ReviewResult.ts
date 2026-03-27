@@ -1,6 +1,12 @@
 import { CheckItem } from '../checkItem/index.js';
 import { Rating } from '../rating/index.js';
 
+/** エラー時の評定ラベル */
+export const ERROR_RATING_LABEL = 'エラー';
+
+/** エラー時の評定定義 */
+export const ERROR_RATING_DEFINITION = 'エラーが発生しました';
+
 /**
  * レビュー結果エンティティ
  * 一つのチェック項目に対するAIレビューの結果を表す
@@ -37,8 +43,7 @@ export class ReviewResult {
    * エラーのレビュー結果を生成する
    */
   static error(checkItem: CheckItem, errorMessage: string): ReviewResult {
-    // エラー時はダミーの評定を使用
-    const errorRating = new Rating('エラー', 'エラーが発生しました');
+    const errorRating = new Rating(ERROR_RATING_LABEL, ERROR_RATING_DEFINITION);
     return new ReviewResult(checkItem, errorMessage, errorRating, true, errorMessage);
   }
 }

@@ -1,7 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import * as fs from 'node:fs';
-import type { StoredReviewResult } from '../types.js';
+import { readStoredResults, type StoredReviewResult } from '../types.js';
 
 // Atomics.waitによる同期スリープ用バッファ
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -67,14 +67,8 @@ export const storeReviewResultTool = createTool({
 
     acquireLock(lockPath);
     try {
-      // 既存の結果を読み込む
-      let results: StoredReviewResult[] = [];
-      if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        results = JSON.parse(content) as StoredReviewResult[];
-      }
+      const results: StoredReviewResult[] = readStoredResults(filePath);
 
-      // 新しいレビュー結果を作成
       const newResult: StoredReviewResult = {
         checkItemContent,
         ratingLabel,
@@ -86,7 +80,6 @@ export const storeReviewResultTool = createTool({
         newResult.errorMessage = errorMessage;
       }
 
-      // 同じチェック項目が既に存在する場合は上書き、なければ追加
       const existingIndex = results.findIndex((r) => r.checkItemContent === checkItemContent);
       if (existingIndex >= 0) {
         results[existingIndex] = newResult;
@@ -94,7 +87,6 @@ export const storeReviewResultTool = createTool({
         results.push(newResult);
       }
 
-      // ファイルに書き込む
       fs.writeFileSync(filePath, JSON.stringify(results, null, 2), 'utf-8');
 
       return { success: true };

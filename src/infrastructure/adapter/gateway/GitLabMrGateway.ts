@@ -105,17 +105,16 @@ export class GitLabMrGateway implements MrGateway {
 
   /**
    * 指定コミット以降のdiffを返す
-   * MRの現在のshaを取得し、compareエンドポイントで差分を取得する
+   * currentCommitHashとsinceCommitHashの間の差分をcompareエンドポイントで取得する
    */
-  async getDiffSince(projectId: string, mrIid: string, sinceCommitHash: string): Promise<string> {
-    // MR情報から現在のshaを取得
-    const mrInfo = await this.client.get<GitLabMrInfo>(
-      `/projects/${projectId}/merge_requests/${mrIid}`,
-    );
-
-    // compareエンドポイントで差分を取得
+  async getDiffSince(
+    projectId: string,
+    _mrIid: string,
+    sinceCommitHash: string,
+    currentCommitHash: string,
+  ): Promise<string> {
     const compareResult = await this.client.get<GitLabCompareResult>(
-      `/projects/${projectId}/repository/compare?from=${sinceCommitHash}&to=${mrInfo.sha}`,
+      `/projects/${projectId}/repository/compare?from=${sinceCommitHash}&to=${currentCommitHash}`,
     );
 
     return this.combineDiffs(compareResult.diffs.map((d) => d.diff));

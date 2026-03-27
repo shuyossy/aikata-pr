@@ -1,10 +1,7 @@
-import { ReviewResult } from '../../../domain/reviewResult/index.js';
+import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/reviewResult/index.js';
 import { CheckItem } from '../../../domain/checkItem/index.js';
 import { Rating } from '../../../domain/rating/index.js';
 import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './CommentFormatter.js';
-
-/** エラー評定ラベル */
-const ERROR_LABEL = 'エラー';
 
 /** メタデータのJSON構造 */
 interface ReviewMetadata {
@@ -31,19 +28,14 @@ export class CommentParser {
    * マーカーが含まれていない場合はnullを返す
    */
   static parseComment(body: string): ParsedReviewComment | null {
-    // マーカーの存在チェック
     if (!body.includes(REVIEW_MARKER)) {
       return null;
     }
 
-    // メタデータの抽出
-    const metadata = CommentParser.extractMetadata(body);
-
-    // Rating定義の復元
+    const lines = body.split('\n');
+    const metadata = CommentParser.extractMetadata(lines);
     const ratings = metadata.ratings.map((r) => new Rating(r.label, r.definition));
-
-    // テーブル行のパース
-    const results = CommentParser.parseTableRows(body, ratings);
+    const results = CommentParser.parseTableRows(lines, ratings);
 
     return {
       results,
@@ -55,8 +47,7 @@ export class CommentParser {
   /**
    * メタデータJSONを抽出してパースする
    */
-  private static extractMetadata(body: string): ReviewMetadata {
-    const lines = body.split('\n');
+  private static extractMetadata(lines: string[]): ReviewMetadata {
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith(REVIEW_DATA_PREFIX) && trimmed.endsWith(REVIEW_DATA_SUFFIX)) {
@@ -73,8 +64,7 @@ export class CommentParser {
   /**
    * Markdownテーブルの各行をパースしてReviewResult配列を生成する
    */
-  private static parseTableRows(body: string, ratings: Rating[]): ReviewResult[] {
-    const lines = body.split('\n');
+  private static parseTableRows(lines: string[], ratings: Rating[]): ReviewResult[] {
     const results: ReviewResult[] = [];
 
     // テーブル行パターン: | content | rating | comment |
@@ -116,7 +106,7 @@ export class CommentParser {
 
       const checkItem = new CheckItem(content);
 
-      if (ratingLabel === ERROR_LABEL) {
+      if (ratingLabel === ERROR_RATING_LABEL) {
         // エラー行
         results.push(ReviewResult.error(checkItem, comment));
       } else {

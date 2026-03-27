@@ -7,18 +7,7 @@ import { checklistSplitAgent } from '../agents/checklistSplitAgent.js';
 import { reviewAgent } from '../agents/reviewAgent.js';
 import { CheckItem } from '../../domain/checkItem/index.js';
 import type { ReviewAgentRequestContext, WorkflowRequestContext } from '../requestContext.js';
-
-/**
- * レビュー結果のZodスキーマ
- */
-const reviewResultSchema = z.object({
-  checkItemContent: z.string(),
-  ratingLabel: z.string(),
-  ratingDefinition: z.string(),
-  comment: z.string(),
-  isError: z.boolean(),
-  errorMessage: z.string().optional(),
-});
+import { storedReviewResultSchema } from '../types.js';
 
 /**
  * ワークフロー入力スキーマ
@@ -61,7 +50,7 @@ const workflowInputSchema = z.object({
  * ワークフロー出力スキーマ
  */
 const workflowOutputSchema = z.object({
-  results: z.array(reviewResultSchema),
+  results: z.array(storedReviewResultSchema),
 });
 
 /**
@@ -111,7 +100,7 @@ const reviewExecutionStep = createStep({
     items: z.array(z.string()),
   }),
   outputSchema: z.object({
-    results: z.array(reviewResultSchema),
+    results: z.array(storedReviewResultSchema),
   }),
   execute: async ({ inputData, getInitData, requestContext }) => {
     const initData = getInitData<typeof reviewWorkflow>();

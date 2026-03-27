@@ -1,4 +1,4 @@
-import { ReviewResult } from '../../../domain/reviewResult/index.js';
+import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/reviewResult/index.js';
 import { Rating } from '../../../domain/rating/index.js';
 
 /** aikataレビューコメント識別用マーカー */
@@ -61,7 +61,7 @@ export class CommentFormatter {
     const header = '| チェック項目 | 評定 | コメント |';
     const separator = '| --- | --- | --- |';
     const rows = results.map((result) => {
-      const ratingLabel = result.isError ? 'エラー' : result.rating.label;
+      const ratingLabel = result.isError ? ERROR_RATING_LABEL : result.rating.label;
       return `| ${result.checkItem.content} | ${ratingLabel} | ${result.comment} |`;
     });
 

@@ -37,17 +37,14 @@ export async function splitChecklist(
   concurrentReviewCount: number,
   agentContext: AgentContext | null,
 ): Promise<CheckItem[][]> {
-  // 各項目が個別グループ
   if (concurrentReviewCount === 1) {
     return items.map((item) => [item]);
   }
 
-  // 全項目が1グループ
   if (concurrentReviewCount >= items.length) {
     return [[...items]];
   }
 
-  // agentContextがnullの場合は機械的分割
   if (agentContext === null) {
     return mechanicalSplit(items, concurrentReviewCount);
   }
@@ -83,10 +80,7 @@ async function callAgent(
 
   // AI出力のグループ(string[][])をCheckItem[][]に変換
   const resultObject = (result as { object: { groups: string[][] } }).object;
-  const contentToItem = new Map<string, CheckItem>();
-  for (const item of items) {
-    contentToItem.set(item.content, item);
-  }
+  const contentToItem = buildContentToItemMap(items);
 
   return resultObject.groups.map((group) =>
     group
@@ -110,12 +104,7 @@ export function adjustGroups(
   allItems: CheckItem[],
   count: number,
 ): CheckItem[][] {
-  // allItemsのcontentセット
   const validContents = new Set(allItems.map((item) => item.content));
-  const contentToItem = new Map<string, CheckItem>();
-  for (const item of allItems) {
-    contentToItem.set(item.content, item);
-  }
 
   // 1. フラット化して重複除去（最初の出現を保持）、無効な項目を除去
   const seen = new Set<string>();
@@ -185,15 +174,7 @@ function mergeUndersizedGroups(groups: CheckItem[][], count: number): CheckItem[
     return groups;
   }
 
-  // 全項目をフラット化して再分配
-  const allItems = groups.flat();
-  const result: CheckItem[][] = [];
-
-  for (let i = 0; i < allItems.length; i += count) {
-    result.push(allItems.slice(i, i + count));
-  }
-
-  return result;
+  return mechanicalSplit(groups.flat(), count);
 }
 
 /**
@@ -202,4 +183,15 @@ function mergeUndersizedGroups(groups: CheckItem[][], count: number): CheckItem[
 function mechanicalSplit(items: CheckItem[], count: number): CheckItem[][] {
   const checklist = new Checklist(items);
   return checklist.splitByCount(count);
+}
+
+/**
+ * CheckItem配列からcontent→CheckItemのMapを構築する
+ */
+function buildContentToItemMap(items: CheckItem[]): Map<string, CheckItem> {
+  const map = new Map<string, CheckItem>();
+  for (const item of items) {
+    map.set(item.content, item);
+  }
+  return map;
 }
