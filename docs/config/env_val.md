@@ -6,7 +6,8 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | AI | AI_API_KEY | Yes | - | AI APIキー（秘密情報） | なし（環境変数のみ） | - |
 | AI | AI_API_ENDPOINT_URL | Yes | - | AI APIエンドポイントURL | なし（環境変数のみ） | - |
-| GitLab | GITLAB_API_TOKEN | Yes | - | GitLab APIトークン（秘密情報） | なし（環境変数のみ） | - |
+| AI | AI_MODEL_NAME | No | openai/o4-mini | AIモデル名 | --ai-model-name | - |
+| GitLab | GITLAB_TOKEN | Yes | - | GitLab APIトークン（秘密情報） | --gitlab-token | - |
 | GitLab | GITLAB_PROJECT_ID | Yes | - | GitLabプロジェクトID | --project-id | - |
 | GitLab | GITLAB_MR_IID | Yes | - | マージリクエストIID | --mr-iid | - |
 | 入力 | CHECKLIST_PATH | Yes | - | チェックリストファイルパス | --checklist | - |
