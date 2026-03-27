@@ -1,0 +1,17 @@
+# 提供用CIテンプレートのデフォルト変数
+variables:
+  # AI
+  AI_API_KEY: ""
+  AI_API_ENDPOINT_URL: ""
+  # GitLab
+  GITLAB_API_TOKEN: ""
+  GITLAB_PROJECT_ID: "$CI_PROJECT_ID"
+  GITLAB_MR_IID: "$CI_MERGE_REQUEST_IID"
+  # Input
+  CHECKLIST_PATH: ""
+  REVIEW_SETTINGS_PATH: ""
+  SKILLS_PATH: ""
+  # Settings
+  USER_ID: "$GITLAB_USER_LOGIN"
+  LOG_LEVEL: "info"
+  VERBOSE_ERROR: "false"
