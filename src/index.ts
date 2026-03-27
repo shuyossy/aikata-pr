@@ -13,6 +13,8 @@ import { GitLabMrGateway } from './infrastructure/adapter/gateway/index.js';
 import { GitLabMrCommentGateway } from './infrastructure/adapter/gateway/index.js';
 import { reviewWorkflow } from './mastra/workflows/index.js';
 import { ReviewSettings } from './domain/reviewSettings/index.js';
+import { RequestContext } from '@mastra/core/request-context';
+import type { WorkflowRequestContext } from './mastra/requestContext.js';
 import fs from 'node:fs';
 
 /**
@@ -20,8 +22,19 @@ import fs from 'node:fs';
  */
 class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
   async run(params: ReviewWorkflowParams): Promise<ReviewWorkflowResult> {
+    // inputDataからモデル設定を分離
+    const { userId, aiApiKey, aiApiEndpointUrl, aiModelName, ...inputData } = params;
+
+    // モデル設定をRequestContextに設定
+    const requestContext = new RequestContext<WorkflowRequestContext>([
+      ['userId', userId],
+      ['aiApiKey', aiApiKey],
+      ['aiApiEndpointUrl', aiApiEndpointUrl],
+      ['aiModelName', aiModelName],
+    ]);
+
     const run = await reviewWorkflow.createRun();
-    const result = await run.start({ inputData: params });
+    const result = await run.start({ inputData, requestContext });
 
     if (result.status === 'failed') {
       throw new Error(`Workflow failed: ${result.error?.message ?? 'Unknown error'}`);

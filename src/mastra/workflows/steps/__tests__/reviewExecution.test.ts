@@ -2,19 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { RequestContext } from '@mastra/core/request-context';
 import { CheckItem } from '../../../../domain/checkItem/index.js';
-import { Rating } from '../../../../domain/rating/index.js';
-import { MrContext } from '../../../../domain/mrContext/index.js';
-
-// createReviewAgent をモック化
-vi.mock('../../../agents/reviewAgent.js', () => ({
-  createReviewAgent: vi.fn(),
-}));
-
-import { createReviewAgent } from '../../../agents/reviewAgent.js';
-import { executeReview, type ReviewExecutionConfig } from '../reviewExecutionStep.js';
-
-const mockedCreateReviewAgent = vi.mocked(createReviewAgent);
+import { executeReview, type ReviewExecutionConfig } from '../reviewExecution.js';
+import type { Agent } from '@mastra/core/agent';
+import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 
 /**
  * 結果ファイルにレビュー結果を書き込むヘルパー
@@ -35,28 +27,55 @@ function writeResultsToFile(
 }
 
 /**
+ * テスト用のRequestContextを作成するヘルパー
+ */
+function createTestRequestContext(
+  checkItems: string[] = ['security check', 'performance check'],
+): RequestContext<ReviewAgentRequestContext> {
+  return new RequestContext<ReviewAgentRequestContext>([
+    ['userId', 'test-user'],
+    ['aiApiKey', 'test-key'],
+    ['aiApiEndpointUrl', 'http://localhost'],
+    ['aiModelName', 'test-model'],
+    ['checkItems', checkItems],
+    [
+      'ratings',
+      [
+        { label: 'A', definition: 'Fully satisfies requirements' },
+        { label: 'B', definition: 'Partially satisfies requirements' },
+        { label: 'C', definition: 'Does not satisfy requirements' },
+      ],
+    ],
+    ['commentFormat', '## Review\n{comment}'],
+    ['additionalInstructions', ''],
+    ['mrTitle', 'Test MR'],
+    ['mrDescription', 'Test description'],
+    ['mrSourceBranch', 'feature/test'],
+    ['mrTargetBranch', 'main'],
+    ['mrDiff', '+ added line'],
+    ['priorReviewContext', null],
+  ]);
+}
+
+/**
+ * テスト用のモックAgentを作成するヘルパー
+ */
+function createMockAgent(generateFn: (...args: unknown[]) => Promise<unknown>): Agent {
+  return { generate: generateFn } as unknown as Agent;
+}
+
+/**
  * テスト用の基本設定を生成するヘルパー
  */
 function createBaseConfig(overrides: Partial<ReviewExecutionConfig> = {}): ReviewExecutionConfig {
+  const checkItems = overrides.checkItems ?? [
+    new CheckItem('security check'),
+    new CheckItem('performance check'),
+  ];
   return {
-    checkItems: [new CheckItem('security check'), new CheckItem('performance check')],
-    model: {} as ReviewExecutionConfig['model'],
-    ratings: [
-      new Rating('A', 'Fully satisfies requirements'),
-      new Rating('B', 'Partially satisfies requirements'),
-      new Rating('C', 'Does not satisfy requirements'),
-    ],
-    commentFormat: '## Review\n{comment}',
-    additionalInstructions: '',
-    mrContext: new MrContext({
-      title: 'Test MR',
-      description: 'Test description',
-      sourceBranch: 'feature/test',
-      targetBranch: 'main',
-      diff: '+ added line',
-      commitHash: 'abc123',
-    }),
-    priorReviewContext: null,
+    checkItems,
+    agent: {} as Agent,
+    requestContext: createTestRequestContext(checkItems.map((i) => i.content)),
     resultFilePath: '',
     ...overrides,
   };
@@ -79,11 +98,8 @@ describe('executeReview', () => {
 
   it('グループ内の全チェック項目のレビュー結果が返される', async () => {
     const checkItems = [new CheckItem('security check'), new CheckItem('performance check')];
-    const config = createBaseConfig({ checkItems, resultFilePath });
-
-    // モックエージェントのgenerate()が呼ばれたら結果ファイルに全項目の結果を書き込む
-    const mockAgent = {
-      generate: vi.fn().mockImplementation(async () => {
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
         writeResultsToFile(resultFilePath, [
           {
             checkItemContent: 'security check',
@@ -101,8 +117,8 @@ describe('executeReview', () => {
           },
         ]);
       }),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
 
     const results = await executeReview(config);
 
@@ -120,18 +136,44 @@ describe('executeReview', () => {
     expect(results[1].rating.label).toBe('B');
     expect(results[1].comment).toBe('Performance could be improved');
     expect(results[1].isError).toBe(false);
+  });
 
-    // createReviewAgentが正しい引数で呼ばれたか検証
-    expect(mockedCreateReviewAgent).toHaveBeenCalledTimes(1);
+  it('agent.generate()にrequestContextが渡される', async () => {
+    const checkItems = [new CheckItem('check1')];
+    const generateFn = vi.fn().mockImplementation(async () => {
+      writeResultsToFile(resultFilePath, [
+        {
+          checkItemContent: 'check1',
+          ratingLabel: 'A',
+          ratingDefinition: 'Fully satisfies requirements',
+          comment: 'Good',
+          isError: false,
+        },
+      ]);
+    });
+    const mockAgent = createMockAgent(generateFn);
+    const requestContext = createTestRequestContext(['check1']);
+    const config = createBaseConfig({
+      checkItems,
+      resultFilePath,
+      agent: mockAgent,
+      requestContext,
+    });
+
+    await executeReview(config);
+
+    // generate()にrequestContextが渡されていること
+    expect(generateFn).toHaveBeenCalledTimes(1);
+    const callOptions = generateFn.mock.calls[0][1];
+    expect(callOptions.requestContext).toBe(requestContext);
   });
 
   it('Agent実行後に漏れがあった場合、再度Agentに指示される (max 2 retries)', async () => {
     const checkItems = [new CheckItem('item1'), new CheckItem('item2'), new CheckItem('item3')];
-    const config = createBaseConfig({ checkItems, resultFilePath });
 
     let callCount = 0;
-    const mockAgent = {
-      generate: vi.fn().mockImplementation(async () => {
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
         callCount++;
         if (callCount === 1) {
           // 初回: item1のみ返す（item2, item3が漏れ）
@@ -168,13 +210,13 @@ describe('executeReview', () => {
           writeResultsToFile(resultFilePath, existing);
         }
       }),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
 
     const results = await executeReview(config);
 
     // generate()が3回呼ばれる（初回 + リトライ2回）
-    expect(mockAgent.generate).toHaveBeenCalledTimes(3);
+    expect(mockAgent.generate as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(3);
 
     // 全項目の結果が返される
     expect(results).toHaveLength(3);
@@ -188,10 +230,9 @@ describe('executeReview', () => {
 
   it('リトライ上限を超えても漏れがある場合、漏れた項目はエラー結果になる', async () => {
     const checkItems = [new CheckItem('item1'), new CheckItem('item2'), new CheckItem('item3')];
-    const config = createBaseConfig({ checkItems, resultFilePath });
 
-    const mockAgent = {
-      generate: vi.fn().mockImplementation(async () => {
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
         // 常にitem1のみ返す（item2, item3は永遠に漏れ）
         writeResultsToFile(resultFilePath, [
           {
@@ -203,13 +244,13 @@ describe('executeReview', () => {
           },
         ]);
       }),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
 
     const results = await executeReview(config);
 
     // 初回 + 最大2回リトライ = 3回呼ばれる
-    expect(mockAgent.generate).toHaveBeenCalledTimes(3);
+    expect(mockAgent.generate as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(3);
 
     // 全項目の結果が返される
     expect(results).toHaveLength(3);
@@ -227,12 +268,11 @@ describe('executeReview', () => {
 
   it('Agentがエラーの場合、エラー結果が返される', async () => {
     const checkItems = [new CheckItem('security check'), new CheckItem('performance check')];
-    const config = createBaseConfig({ checkItems, resultFilePath });
 
-    const mockAgent = {
-      generate: vi.fn().mockRejectedValue(new Error('AI API connection failed')),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    const mockAgent = createMockAgent(
+      vi.fn().mockRejectedValue(new Error('AI API connection failed')),
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
 
     const results = await executeReview(config);
 
@@ -250,12 +290,9 @@ describe('executeReview', () => {
 
   it('Agentがエラー（非Errorオブジェクト）の場合、デフォルトエラーメッセージが返される', async () => {
     const checkItems = [new CheckItem('check1')];
-    const config = createBaseConfig({ checkItems, resultFilePath });
 
-    const mockAgent = {
-      generate: vi.fn().mockRejectedValue('string error'),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    const mockAgent = createMockAgent(vi.fn().mockRejectedValue('string error'));
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
 
     const results = await executeReview(config);
 
@@ -266,11 +303,10 @@ describe('executeReview', () => {
 
   it('リトライ中にAgentがエラーの場合でも処理が継続される', async () => {
     const checkItems = [new CheckItem('item1'), new CheckItem('item2')];
-    const config = createBaseConfig({ checkItems, resultFilePath });
 
     let callCount = 0;
-    const mockAgent = {
-      generate: vi.fn().mockImplementation(async () => {
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
         callCount++;
         if (callCount === 1) {
           // 初回: item1のみ返す
@@ -288,8 +324,8 @@ describe('executeReview', () => {
           throw new Error('Retry failed');
         }
       }),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
 
     const results = await executeReview(config);
 
@@ -303,18 +339,15 @@ describe('executeReview', () => {
 
   it('Agentが結果ファイルを作成しない場合、全項目がエラー結果になる', async () => {
     const checkItems = [new CheckItem('check1'), new CheckItem('check2')];
-    const config = createBaseConfig({ checkItems, resultFilePath });
 
     // Agentは成功するがファイルを作成しない
-    const mockAgent = {
-      generate: vi.fn().mockResolvedValue(undefined),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    const mockAgent = createMockAgent(vi.fn().mockResolvedValue(undefined));
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
 
     const results = await executeReview(config);
 
     // 初回 + リトライ2回 = 3回呼ばれる（毎回ファイルが存在しないので漏れとみなされる）
-    expect(mockAgent.generate).toHaveBeenCalledTimes(3);
+    expect(mockAgent.generate as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(3);
 
     // 全項目がエラー結果になる
     expect(results).toHaveLength(2);
@@ -326,10 +359,9 @@ describe('executeReview', () => {
 
   it('結果ファイルにisError=trueの結果がある場合、エラー結果として返される', async () => {
     const checkItems = [new CheckItem('check1')];
-    const config = createBaseConfig({ checkItems, resultFilePath });
 
-    const mockAgent = {
-      generate: vi.fn().mockImplementation(async () => {
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
         writeResultsToFile(resultFilePath, [
           {
             checkItemContent: 'check1',
@@ -341,8 +373,8 @@ describe('executeReview', () => {
           },
         ]);
       }),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
 
     const results = await executeReview(config);
 
@@ -351,32 +383,11 @@ describe('executeReview', () => {
     expect(results[0].errorMessage).toBe('Tool execution failed');
   });
 
-  it('priorReviewContextがある場合、createReviewAgentに渡される', async () => {
+  it('priorReviewContextがRequestContextに含まれる場合でも正しくレビュー結果が返される', async () => {
     const checkItems = [new CheckItem('check1')];
-    // PriorReviewContextをインポートして直接オブジェクトを構築
-    const { PriorReviewContext } = await import('../../../../domain/priorReviewContext/index.js');
-    const { ReviewResult } = await import('../../../../domain/reviewResult/index.js');
 
-    const priorReviewContext = new PriorReviewContext({
-      results: [
-        ReviewResult.success(
-          new CheckItem('check1'),
-          new Rating('B', 'Partial'),
-          'Previous comment',
-        ),
-      ],
-      commitMessages: ['fix: update security'],
-      diffSincePrior: '+ new line',
-    });
-
-    const config = createBaseConfig({
-      checkItems,
-      resultFilePath,
-      priorReviewContext,
-    });
-
-    const mockAgent = {
-      generate: vi.fn().mockImplementation(async () => {
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
         writeResultsToFile(resultFilePath, [
           {
             checkItemContent: 'check1',
@@ -387,18 +398,41 @@ describe('executeReview', () => {
           },
         ]);
       }),
-    };
-    mockedCreateReviewAgent.mockReturnValue(mockAgent as never);
+    );
+
+    // priorReviewContextを含むRequestContext
+    const requestContext = new RequestContext<ReviewAgentRequestContext>([
+      ['userId', 'test-user'],
+      ['aiApiKey', 'test-key'],
+      ['aiApiEndpointUrl', 'http://localhost'],
+      ['aiModelName', 'test-model'],
+      ['checkItems', ['check1']],
+      ['ratings', [{ label: 'A', definition: 'Fully satisfies requirements' }]],
+      ['commentFormat', '## Review\n{comment}'],
+      ['additionalInstructions', ''],
+      ['mrTitle', 'Test MR'],
+      ['mrDescription', 'Test description'],
+      ['mrSourceBranch', 'feature/test'],
+      ['mrTargetBranch', 'main'],
+      ['mrDiff', '+ added line'],
+      [
+        'priorReviewContext',
+        {
+          results: [{ checkItemContent: 'check1', ratingLabel: 'B', comment: 'Previous comment' }],
+          commitMessages: ['fix: update security'],
+          diffSincePrior: '+ new line',
+        },
+      ],
+    ]);
+
+    const config = createBaseConfig({
+      checkItems,
+      resultFilePath,
+      agent: mockAgent,
+      requestContext,
+    });
 
     const results = await executeReview(config);
-
-    // createReviewAgentにpriorReviewContextが渡されていることを検証
-    expect(mockedCreateReviewAgent).toHaveBeenCalledTimes(1);
-    const callArgs = mockedCreateReviewAgent.mock.calls[0][0];
-    expect(callArgs.priorReviewContext).not.toBeNull();
-    expect(callArgs.priorReviewContext!.results).toHaveLength(1);
-    expect(callArgs.priorReviewContext!.results[0].checkItemContent).toBe('check1');
-    expect(callArgs.priorReviewContext!.commitMessages).toEqual(['fix: update security']);
 
     expect(results).toHaveLength(1);
     expect(results[0].isError).toBe(false);

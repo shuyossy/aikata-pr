@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import { RequestContext } from '@mastra/core/request-context';
 import { CheckItem } from '../../../../domain/checkItem/index.js';
-import { splitChecklist, adjustGroups } from '../checklistSplitStep.js';
+import { splitChecklist, adjustGroups } from '../checklistSplit.js';
+import type { AgentContext } from '../checklistSplit.js';
 import type { Agent } from '@mastra/core/agent';
 
 /**
@@ -13,6 +15,30 @@ function createMockAgent(
   return {
     generate: generateFn,
   } as unknown as Agent;
+}
+
+/**
+ * テスト用のRequestContextを作成するヘルパー
+ */
+function createMockRequestContext(): RequestContext {
+  return new RequestContext([
+    ['userId', 'test-user'],
+    ['aiApiKey', 'test-key'],
+    ['aiApiEndpointUrl', 'http://localhost'],
+    ['aiModelName', 'test-model'],
+  ]);
+}
+
+/**
+ * テスト用のAgentContextを作成するヘルパー
+ */
+function createMockAgentContext(
+  generateFn: (prompt: string, options: unknown) => Promise<{ object: { groups: string[][] } }>,
+): AgentContext {
+  return {
+    agent: createMockAgent(generateFn),
+    requestContext: createMockRequestContext(),
+  };
 }
 
 describe('splitChecklist', () => {
@@ -53,7 +79,7 @@ describe('splitChecklist', () => {
       expect(result[0]).toHaveLength(2);
     });
 
-    it('agentがnullの場合、機械的分割にフォールバックする', async () => {
+    it('agentContextがnullの場合、機械的分割にフォールバックする', async () => {
       const items = makeItems(['a', 'b', 'c', 'd', 'e']);
 
       const result = await splitChecklist(items, 2, null);
@@ -69,7 +95,7 @@ describe('splitChecklist', () => {
   describe('AI分割が成功するケース', () => {
     it('AI分割結果が正しい場合はそのまま返す', async () => {
       const items = makeItems(['security check', 'auth check', 'perf check', 'load test']);
-      const agent = createMockAgent(async () => ({
+      const agentContext = createMockAgentContext(async () => ({
         object: {
           groups: [
             ['security check', 'auth check'],
@@ -78,7 +104,7 @@ describe('splitChecklist', () => {
         },
       }));
 
-      const result = await splitChecklist(items, 2, agent);
+      const result = await splitChecklist(items, 2, agentContext);
 
       expect(result).toHaveLength(2);
       expect(result[0].map((i) => i.content)).toEqual(['security check', 'auth check']);
@@ -88,13 +114,13 @@ describe('splitChecklist', () => {
     it('AI分割結果に漏れがある場合、漏れた項目が補完される', async () => {
       const items = makeItems(['item1', 'item2', 'item3', 'item4']);
       // AIが item3 を漏らしている
-      const agent = createMockAgent(async () => ({
+      const agentContext = createMockAgentContext(async () => ({
         object: {
           groups: [['item1', 'item2'], ['item4']],
         },
       }));
 
-      const result = await splitChecklist(items, 2, agent);
+      const result = await splitChecklist(items, 2, agentContext);
 
       // 全項目が含まれていること
       const allContents = result
@@ -107,13 +133,13 @@ describe('splitChecklist', () => {
     it('AI分割結果に重複がある場合、重複が除去される', async () => {
       const items = makeItems(['item1', 'item2', 'item3', 'item4']);
       // AIが item2 を重複して返している
-      const agent = createMockAgent(async () => ({
+      const agentContext = createMockAgentContext(async () => ({
         object: {
           groups: [['item1', 'item2'], ['item2', 'item3'], ['item4']],
         },
       }));
 
-      const result = await splitChecklist(items, 2, agent);
+      const result = await splitChecklist(items, 2, agentContext);
 
       // 全項目が過不足なく含まれていること
       const allContents = result
@@ -129,7 +155,7 @@ describe('splitChecklist', () => {
     it('AI分割結果でグループサイズがconcurrentReviewCountを超過する場合、再分割される', async () => {
       const items = makeItems(['a', 'b', 'c', 'd', 'e', 'f']);
       // AIが1グループに4項目入れてしまっている（concurrentReviewCount=2を超過）
-      const agent = createMockAgent(async () => ({
+      const agentContext = createMockAgentContext(async () => ({
         object: {
           groups: [
             ['a', 'b', 'c', 'd'],
@@ -138,7 +164,7 @@ describe('splitChecklist', () => {
         },
       }));
 
-      const result = await splitChecklist(items, 2, agent);
+      const result = await splitChecklist(items, 2, agentContext);
 
       // 各グループがconcurrentReviewCount以下であること
       for (const group of result) {
@@ -155,13 +181,13 @@ describe('splitChecklist', () => {
     it('最終的にconcurrentReviewCount未満のグループは最後の1つだけ', async () => {
       const items = makeItems(['a', 'b', 'c', 'd', 'e']);
       // AIが不均等に分割（1項目のグループが複数ある）
-      const agent = createMockAgent(async () => ({
+      const agentContext = createMockAgentContext(async () => ({
         object: {
           groups: [['a', 'b'], ['c'], ['d'], ['e']],
         },
       }));
 
-      const result = await splitChecklist(items, 2, agent);
+      const result = await splitChecklist(items, 2, agentContext);
 
       // concurrentReviewCount未満のグループは最後の1つだけ
       const undersizedGroups = result.filter((g) => g.length < 2);
@@ -181,16 +207,40 @@ describe('splitChecklist', () => {
         .sort();
       expect(allContents).toEqual(['a', 'b', 'c', 'd', 'e']);
     });
+
+    it('agent.generate()にrequestContextが渡されること', async () => {
+      const items = makeItems(['security check', 'auth check', 'perf check', 'load test']);
+      const requestContext = createMockRequestContext();
+      const generateFn = vi.fn().mockResolvedValue({
+        object: {
+          groups: [
+            ['security check', 'auth check'],
+            ['perf check', 'load test'],
+          ],
+        },
+      });
+      const agentContext: AgentContext = {
+        agent: createMockAgent(generateFn),
+        requestContext,
+      };
+
+      await splitChecklist(items, 2, agentContext);
+
+      // generate()にrequestContextが渡されていること
+      expect(generateFn).toHaveBeenCalledTimes(1);
+      const callOptions = generateFn.mock.calls[0][1];
+      expect(callOptions.requestContext).toBe(requestContext);
+    });
   });
 
   describe('AI分割が失敗するケース', () => {
     it('AI分割が例外をスローした場合、機械的分割にフォールバックする', async () => {
       const items = makeItems(['x', 'y', 'z', 'w']);
-      const agent = createMockAgent(async () => {
+      const agentContext = createMockAgentContext(async () => {
         throw new Error('AI API error');
       });
 
-      const result = await splitChecklist(items, 2, agent);
+      const result = await splitChecklist(items, 2, agentContext);
 
       // 機械的分割の結果になること: [x,y], [z,w]
       expect(result).toHaveLength(2);
@@ -203,13 +253,13 @@ describe('splitChecklist', () => {
     it('AI分割結果にallItemsに存在しない項目がある場合、除去される', async () => {
       const items = makeItems(['item1', 'item2', 'item3', 'item4']);
       // AIが存在しない項目 "unknown" を含めている
-      const agent = createMockAgent(async () => ({
+      const agentContext = createMockAgentContext(async () => ({
         object: {
           groups: [['item1', 'unknown'], ['item2', 'item3'], ['item4']],
         },
       }));
 
-      const result = await splitChecklist(items, 2, agent);
+      const result = await splitChecklist(items, 2, agentContext);
 
       // 全項目が過不足なく含まれていること（unknownは除外）
       const allContents = result
@@ -219,14 +269,14 @@ describe('splitChecklist', () => {
       expect(allContents).toEqual(['item1', 'item2', 'item3', 'item4']);
     });
 
-    it('concurrentReviewCountが1の場合はagentが渡されてもAI不使用', async () => {
+    it('concurrentReviewCountが1の場合はagentContextが渡されてもAI不使用', async () => {
       const items = makeItems(['a', 'b']);
-      const agent = createMockAgent(async () => ({
+      const agentContext = createMockAgentContext(async () => ({
         object: { groups: [['a', 'b']] },
       }));
-      const generateSpy = vi.spyOn(agent, 'generate');
+      const generateSpy = vi.spyOn(agentContext.agent, 'generate');
 
-      const result = await splitChecklist(items, 1, agent);
+      const result = await splitChecklist(items, 1, agentContext);
 
       // agentが呼ばれないこと
       expect(generateSpy).not.toHaveBeenCalled();
@@ -236,14 +286,14 @@ describe('splitChecklist', () => {
       expect(result[1][0].content).toBe('b');
     });
 
-    it('concurrentReviewCount>=総項目数の場合はagentが渡されてもAI不使用', async () => {
+    it('concurrentReviewCount>=総項目数の場合はagentContextが渡されてもAI不使用', async () => {
       const items = makeItems(['a', 'b']);
-      const agent = createMockAgent(async () => ({
+      const agentContext = createMockAgentContext(async () => ({
         object: { groups: [['a'], ['b']] },
       }));
-      const generateSpy = vi.spyOn(agent, 'generate');
+      const generateSpy = vi.spyOn(agentContext.agent, 'generate');
 
-      const result = await splitChecklist(items, 5, agent);
+      const result = await splitChecklist(items, 5, agentContext);
 
       expect(generateSpy).not.toHaveBeenCalled();
       expect(result).toHaveLength(1);

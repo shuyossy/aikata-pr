@@ -1,15 +1,12 @@
 import { createWorkflow, createStep } from '@mastra/core/workflows';
-import type { MastraLanguageModel } from '@mastra/core/agent';
+import { RequestContext } from '@mastra/core/request-context';
 import { z } from 'zod';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { splitChecklist } from './steps/checklistSplitStep.js';
-import { executeReview } from './steps/reviewExecutionStep.js';
-import { createChecklistSplitAgent } from '../agents/checklistSplitAgent.js';
+import { splitChecklist } from './steps/checklistSplit.js';
+import { executeReview } from './steps/reviewExecution.js';
+import { checklistSplitAgent } from '../agents/checklistSplitAgent.js';
+import { reviewAgent } from '../agents/reviewAgent.js';
 import { CheckItem } from '../../domain/checkItem/index.js';
-import { Rating } from '../../domain/rating/index.js';
-import { MrContext } from '../../domain/mrContext/index.js';
-import { PriorReviewContext } from '../../domain/priorReviewContext/index.js';
-import { ReviewResult } from '../../domain/reviewResult/index.js';
+import type { ReviewAgentRequestContext, WorkflowRequestContext } from '../requestContext.js';
 
 /**
  * レビュー結果のZodスキーマ
@@ -25,6 +22,7 @@ const reviewResultSchema = z.object({
 
 /**
  * ワークフロー入力スキーマ
+ * モデル設定（userId, aiApiKey, aiApiEndpointUrl, aiModelName）はRequestContextで渡す
  */
 const workflowInputSchema = z.object({
   checkItemContents: z.array(z.string()),
@@ -55,10 +53,6 @@ const workflowInputSchema = z.object({
     .nullable(),
   priorCommitMessages: z.array(z.string()).nullable(),
   priorDiffSincePrior: z.string().nullable(),
-  userId: z.string(),
-  aiApiKey: z.string(),
-  aiApiEndpointUrl: z.string(),
-  aiModelName: z.string(),
   skillsPaths: z.array(z.string()),
   resultFilePath: z.string(),
 });
@@ -71,24 +65,14 @@ const workflowOutputSchema = z.object({
 });
 
 /**
- * ユーザIDに基づいてAIモデルを動的に作成するヘルパー関数
- *
- * createOpenAICompatibleが返すLanguageModelV3をMastraLanguageModelとしてキャストする。
- * AgentコンストラクタはMastraModelConfig（LanguageModelV3を含む）を受け入れるが、
- * ファクトリ関数のシグネチャがMastraLanguageModelを要求するためキャストが必要。
+ * RequestContextのバリデーションスキーマ
  */
-function createModel(
-  userId: string,
-  apiKey: string,
-  baseURL: string,
-  modelName: string,
-): MastraLanguageModel {
-  return createOpenAICompatible({
-    name: userId,
-    apiKey,
-    baseURL,
-  }).chatModel(modelName) as unknown as MastraLanguageModel;
-}
+const requestContextSchema = z.object({
+  userId: z.string(),
+  aiApiKey: z.string(),
+  aiApiEndpointUrl: z.string(),
+  aiModelName: z.string(),
+});
 
 /**
  * Step 1: チェックリスト分割ステップ
@@ -101,21 +85,15 @@ const checklistSplitStep = createStep({
   outputSchema: z.object({
     groups: z.array(z.array(z.string())),
   }),
-  execute: async ({ inputData }) => {
+  execute: async ({ inputData, requestContext }) => {
     const items = inputData.checkItemContents.map((c) => new CheckItem(c));
-    const model = createModel(
-      inputData.userId,
-      inputData.aiApiKey,
-      inputData.aiApiEndpointUrl,
-      inputData.aiModelName,
-    );
 
     // concurrentReviewCountが2以上かつ総チェック項目数より少ない場合はAI分割を実行
     const needsAiSplit =
       inputData.concurrentReviewCount > 1 && inputData.concurrentReviewCount < items.length;
-    const agent = needsAiSplit ? createChecklistSplitAgent(model) : null;
+    const agentContext = needsAiSplit ? { agent: checklistSplitAgent, requestContext } : null;
 
-    const groups = await splitChecklist(items, inputData.concurrentReviewCount, agent);
+    const groups = await splitChecklist(items, inputData.concurrentReviewCount, agentContext);
     return {
       groups: groups.map((group) => group.map((item) => item.content)),
     };
@@ -135,53 +113,47 @@ const reviewExecutionStep = createStep({
   outputSchema: z.object({
     results: z.array(reviewResultSchema),
   }),
-  execute: async ({ inputData, getInitData }) => {
+  execute: async ({ inputData, getInitData, requestContext }) => {
     const initData = getInitData<typeof reviewWorkflow>();
     const checkItems = inputData.items.map((c) => new CheckItem(c));
-    const model = createModel(
-      initData.userId,
-      initData.aiApiKey,
-      initData.aiApiEndpointUrl,
-      initData.aiModelName,
-    );
-    const ratings = initData.ratings.map((r) => new Rating(r.label, r.definition));
 
-    const mrContext = new MrContext({
-      title: initData.mrTitle,
-      description: initData.mrDescription,
-      sourceBranch: initData.mrSourceBranch,
-      targetBranch: initData.mrTargetBranch,
-      diff: initData.mrDiff,
-      commitHash: initData.mrCommitHash,
-    });
-
-    let priorReviewContext: PriorReviewContext | null = null;
-    if (
-      initData.priorReviewResults &&
-      initData.priorCommitMessages &&
-      initData.priorDiffSincePrior
-    ) {
-      priorReviewContext = new PriorReviewContext({
-        results: initData.priorReviewResults.map((r) =>
-          ReviewResult.success(
-            new CheckItem(r.checkItemContent),
-            new Rating(r.ratingLabel, r.ratingDefinition),
-            r.comment,
-          ),
-        ),
-        commitMessages: initData.priorCommitMessages,
-        diffSincePrior: initData.priorDiffSincePrior,
-      });
-    }
+    // ReviewAgent用のRequestContextを組み立てる
+    // ワークフローのRequestContext（モデル設定）+ initData（レビュー設定・MRコンテキスト）
+    const workflowCtx = requestContext.all as WorkflowRequestContext;
+    const agentRequestContext = new RequestContext<ReviewAgentRequestContext>([
+      ['userId', workflowCtx.userId],
+      ['aiApiKey', workflowCtx.aiApiKey],
+      ['aiApiEndpointUrl', workflowCtx.aiApiEndpointUrl],
+      ['aiModelName', workflowCtx.aiModelName],
+      ['checkItems', checkItems.map((item) => item.content)],
+      ['ratings', initData.ratings.map((r) => ({ label: r.label, definition: r.definition }))],
+      ['commentFormat', initData.commentFormat],
+      ['additionalInstructions', initData.additionalInstructions],
+      ['mrTitle', initData.mrTitle],
+      ['mrDescription', initData.mrDescription],
+      ['mrSourceBranch', initData.mrSourceBranch],
+      ['mrTargetBranch', initData.mrTargetBranch],
+      ['mrDiff', initData.mrDiff],
+      [
+        'priorReviewContext',
+        initData.priorReviewResults && initData.priorCommitMessages && initData.priorDiffSincePrior
+          ? {
+              results: initData.priorReviewResults.map((r) => ({
+                checkItemContent: r.checkItemContent,
+                ratingLabel: r.ratingLabel,
+                comment: r.comment,
+              })),
+              commitMessages: initData.priorCommitMessages,
+              diffSincePrior: initData.priorDiffSincePrior,
+            }
+          : null,
+      ],
+    ]);
 
     const results = await executeReview({
       checkItems,
-      model,
-      ratings,
-      commentFormat: initData.commentFormat,
-      additionalInstructions: initData.additionalInstructions,
-      mrContext,
-      priorReviewContext,
+      agent: reviewAgent,
+      requestContext: agentRequestContext,
       resultFilePath: initData.resultFilePath,
     });
 
@@ -211,6 +183,7 @@ export const reviewWorkflow = createWorkflow({
   id: 'review-workflow',
   inputSchema: workflowInputSchema,
   outputSchema: workflowOutputSchema,
+  requestContextSchema,
 });
 
 reviewWorkflow

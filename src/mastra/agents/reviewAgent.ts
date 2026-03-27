@@ -1,76 +1,57 @@
 import { Agent } from '@mastra/core/agent';
-import type { MastraLanguageModel } from '@mastra/core/agent';
+import type { RequestContext } from '@mastra/core/request-context';
+import type { ReviewAgentRequestContext } from '../requestContext.js';
+import { createModelFromContext } from '../requestContext.js';
 import { storeReviewResultTool } from '../tools/storeReviewResult.js';
 import { getReviewResultsTool } from '../tools/getReviewResults.js';
 
-/**
- * レビューエージェント生成時の設定
- */
-interface ReviewAgentConfig {
-  model: MastraLanguageModel;
-  checkItems: string[];
-  ratings: Array<{ label: string; definition: string }>;
-  commentFormat: string;
-  additionalInstructions: string;
-  mrContext: {
-    title: string;
-    description: string;
-    sourceBranch: string;
-    targetBranch: string;
-    diff: string;
-  };
-  priorReviewContext: {
-    results: Array<{ checkItemContent: string; ratingLabel: string; comment: string }>;
-    commitMessages: string[];
-    diffSincePrior: string;
-  } | null;
-}
+const reviewAgentTools = {
+  storeReviewResult: storeReviewResultTool,
+  getReviewResults: getReviewResultsTool,
+};
 
 /**
- * レビューエージェントのファクトリ関数
- *
- * MRのコードをチェック項目ごとにレビューし、評定とコメントを付けるエージェントを生成する。
- * モデルはユーザIDに基づいて動的に生成されるため、引数として受け取る。
- * チェック項目やMRコンテキストも実行時に決定されるため、全て引数で受け取る。
+ * RequestContextからレビューエージェントのinstructionsを組み立てる
  */
-export function createReviewAgent(config: ReviewAgentConfig): Agent {
-  const ratingsText = config.ratings.map((r) => `- ${r.label}: ${r.definition}`).join('\n');
+function buildInstructions(requestContext: RequestContext<ReviewAgentRequestContext>): string {
+  const ctx = requestContext.all;
 
-  const checkItemsText = config.checkItems.map((item, i) => `${i + 1}. ${item}`).join('\n');
+  const ratingsText = ctx.ratings.map((r) => `- ${r.label}: ${r.definition}`).join('\n');
+  const checkItemsText = ctx.checkItems.map((item, i) => `${i + 1}. ${item}`).join('\n');
 
   let priorReviewText = '';
-  if (config.priorReviewContext) {
+  if (ctx.priorReviewContext) {
     priorReviewText = `
 ## Prior Review Results
 
 The following items were reviewed previously. Consider changes since then when re-reviewing.
 
 Commits since prior review:
-${config.priorReviewContext.commitMessages.map((m) => `- ${m}`).join('\n')}
+${ctx.priorReviewContext.commitMessages.map((m) => `- ${m}`).join('\n')}
 
 Changes since prior review:
 \`\`\`
-${config.priorReviewContext.diffSincePrior}
+${ctx.priorReviewContext.diffSincePrior}
 \`\`\`
 
 Previous results:
-${config.priorReviewContext.results.map((r) => `- ${r.checkItemContent}: ${r.ratingLabel} - ${r.comment}`).join('\n')}
+${ctx.priorReviewContext.results.map((r) => `- ${r.checkItemContent}: ${r.ratingLabel} - ${r.comment}`).join('\n')}
 `;
   }
 
-  const instructions = `You are an expert code reviewer specializing in merge request reviews. Your task is to review the provided merge request against a set of check items and provide ratings and comments for each.
+  return `You are an expert code reviewer specializing in merge request reviews. Your task is to review the provided merge request against a set of check items and provide ratings and comments for each.
 
 ## Merge Request Information
 
-- Title: ${config.mrContext.title}
-- Description: ${config.mrContext.description}
-- Source Branch: ${config.mrContext.sourceBranch}
-- Target Branch: ${config.mrContext.targetBranch}
+- Title: ${ctx.mrTitle}
+- Description: ${ctx.mrDescription}
+- Source Branch: ${ctx.mrSourceBranch}
+- Target Branch: ${ctx.mrTargetBranch}
 
 ## Merge Request Diff
 
 \`\`\`
-${config.mrContext.diff}
+${ctx.mrDiff}
 \`\`\`
 ${priorReviewText}
 ## Check Items to Review
@@ -84,9 +65,9 @@ ${ratingsText}
 ## Comment Format
 
 Use the following format for your comments:
-${config.commentFormat}
+${ctx.commentFormat}
 
-${config.additionalInstructions ? `## Additional Instructions\n\n${config.additionalInstructions}` : ''}
+${ctx.additionalInstructions ? `## Additional Instructions\n\n${ctx.additionalInstructions}` : ''}
 
 ## Instructions
 
@@ -96,15 +77,28 @@ ${config.additionalInstructions ? `## Additional Instructions\n\n${config.additi
 4. Use the storeReviewResult tool to store EACH result. You MUST call storeReviewResult for EVERY check item listed above.
 5. After storing all results, use getReviewResults to verify that all check items have been reviewed.
 6. Do NOT finish until ALL check items have been reviewed and stored.`;
-
-  return new Agent({
-    id: 'review-agent',
-    name: 'Review Agent',
-    instructions,
-    model: config.model,
-    tools: {
-      storeReviewResult: storeReviewResultTool,
-      getReviewResults: getReviewResultsTool,
-    },
-  });
 }
+
+/**
+ * レビューエージェント（シングルトン）
+ *
+ * MRのコードをチェック項目ごとにレビューし、評定とコメントを付けるエージェント。
+ * モデルとinstructionsはRequestContextから動的に生成される。
+ */
+export const reviewAgent = new Agent<
+  'review-agent',
+  typeof reviewAgentTools,
+  undefined,
+  ReviewAgentRequestContext
+>({
+  id: 'review-agent',
+  name: 'Review Agent',
+  model: ({ requestContext }) => {
+    const ctx = requestContext.all as ReviewAgentRequestContext;
+    return createModelFromContext(ctx);
+  },
+  instructions: ({ requestContext }) => {
+    return buildInstructions(requestContext);
+  },
+  tools: reviewAgentTools,
+});

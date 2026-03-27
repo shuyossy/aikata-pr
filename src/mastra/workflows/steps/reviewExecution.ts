@@ -1,23 +1,22 @@
 import * as fs from 'node:fs';
-import type { MastraLanguageModel } from '@mastra/core/agent';
+import type { Agent } from '@mastra/core/agent';
+import type { RequestContext } from '@mastra/core/request-context';
 import { CheckItem } from '../../../domain/checkItem/index.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
 import { Rating } from '../../../domain/rating/index.js';
-import { MrContext } from '../../../domain/mrContext/index.js';
-import { PriorReviewContext } from '../../../domain/priorReviewContext/index.js';
-import { createReviewAgent } from '../../agents/reviewAgent.js';
+import type { ReviewAgentRequestContext } from '../../requestContext.js';
 
 /**
  * レビュー実行ステップの設定
+ *
+ * ratings, commentFormat, additionalInstructions, mrContext, priorReviewContext は
+ * RequestContext経由でAgentに渡されるため、このConfigには含めない。
  */
 export interface ReviewExecutionConfig {
   checkItems: CheckItem[];
-  model: MastraLanguageModel;
-  ratings: Rating[];
-  commentFormat: string;
-  additionalInstructions: string;
-  mrContext: MrContext;
-  priorReviewContext: PriorReviewContext | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  agent: Agent<string, Record<string, any>, any, any>;
+  requestContext: RequestContext<ReviewAgentRequestContext>;
   resultFilePath: string;
 }
 
@@ -52,45 +51,18 @@ function readResultsFromFile(filePath: string): StoredReviewResult[] {
 /**
  * レビュー実行のコアロジック
  *
- * レビューエージェントを作成し、チェック項目のレビューを実行する。
+ * シングルトンのレビューエージェントにRequestContextを渡してレビューを実行する。
  * 結果はエージェントがstoreReviewResultツールを使ってファイルに保存する。
  * 漏れがある場合は最大2回リトライし、それでも漏れがある場合はエラー結果を返す。
  */
 export async function executeReview(config: ReviewExecutionConfig): Promise<ReviewResult[]> {
-  const { checkItems, resultFilePath } = config;
-
-  // レビューエージェントを作成
-  const agent = createReviewAgent({
-    model: config.model,
-    checkItems: checkItems.map((item) => item.content),
-    ratings: config.ratings.map((r) => ({ label: r.label, definition: r.definition })),
-    commentFormat: config.commentFormat,
-    additionalInstructions: config.additionalInstructions,
-    mrContext: {
-      title: config.mrContext.title,
-      description: config.mrContext.description,
-      sourceBranch: config.mrContext.sourceBranch,
-      targetBranch: config.mrContext.targetBranch,
-      diff: config.mrContext.diff,
-    },
-    priorReviewContext: config.priorReviewContext
-      ? {
-          results: config.priorReviewContext.results.map((r) => ({
-            checkItemContent: r.checkItem.content,
-            ratingLabel: r.rating.label,
-            comment: r.comment,
-          })),
-          commitMessages: config.priorReviewContext.commitMessages,
-          diffSincePrior: config.priorReviewContext.diffSincePrior,
-        }
-      : null,
-  });
+  const { checkItems, agent, requestContext, resultFilePath } = config;
 
   // 初回のエージェント実行
   const prompt = `Review all ${checkItems.length} check items and store results using the storeReviewResult tool. The result file path is: ${resultFilePath}`;
 
   try {
-    await agent.generate(prompt);
+    await agent.generate(prompt, { requestContext });
   } catch (error) {
     // 初回Agent失敗時は全項目をエラー結果として返す
     const errorMessage = error instanceof Error ? error.message : 'Agent execution failed';
@@ -112,7 +84,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
     // 漏れた項目についてリトライ
     try {
       const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- ${i.content}`).join('\n')}\nResult file path: ${resultFilePath}`;
-      await agent.generate(retryPrompt);
+      await agent.generate(retryPrompt, { requestContext });
       storedResults = readResultsFromFile(resultFilePath);
     } catch {
       // リトライ失敗時は次のリトライへ（または終了）

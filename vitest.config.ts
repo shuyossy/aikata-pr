@@ -14,7 +14,6 @@ export default defineConfig({
         'src/mastra/agents/**',
         'src/index.ts',
         'src/mastra/index.ts',
-        'src/mastra/workflows/reviewWorkflow.ts',
         'src/**/index.ts',
       ],
       thresholds: {

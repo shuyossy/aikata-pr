@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Agent } from '@mastra/core/agent';
+import type { RequestContext } from '@mastra/core/request-context';
 import { CheckItem } from '../../../domain/checkItem/index.js';
 import { Checklist } from '../../../domain/checklist/index.js';
 
@@ -11,6 +12,20 @@ const aiSplitOutputSchema = z.object({
 });
 
 /**
+ * Agent呼び出し時に渡すコンテキスト
+ *
+ * Agentのジェネリクス型がRequestContext型に依存し、
+ * 呼び出し元で異なる型パラメータのAgentが使われるため、
+ * ここでは汎用的な型を受け入れる。
+ */
+export interface AgentContext {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  agent: Agent<string, Record<string, any>, any, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  requestContext: RequestContext<any>;
+}
+
+/**
  * チェックリストをconcurrentReviewCountに基づいて分割する
  *
  * - concurrentReviewCount=1: 各項目を個別グループに
@@ -20,7 +35,7 @@ const aiSplitOutputSchema = z.object({
 export async function splitChecklist(
   items: CheckItem[],
   concurrentReviewCount: number,
-  agent: Agent | null,
+  agentContext: AgentContext | null,
 ): Promise<CheckItem[][]> {
   // 各項目が個別グループ
   if (concurrentReviewCount === 1) {
@@ -32,14 +47,14 @@ export async function splitChecklist(
     return [[...items]];
   }
 
-  // agentがnullの場合は機械的分割
-  if (agent === null) {
+  // agentContextがnullの場合は機械的分割
+  if (agentContext === null) {
     return mechanicalSplit(items, concurrentReviewCount);
   }
 
   // AI分割を試行
   try {
-    const aiGroups = await callAgent(agent, items, concurrentReviewCount);
+    const aiGroups = await callAgent(agentContext, items, concurrentReviewCount);
     const adjusted = adjustGroups(aiGroups, items, concurrentReviewCount);
     return adjusted;
   } catch {
@@ -52,15 +67,18 @@ export async function splitChecklist(
  * Agentを呼び出してチェック項目をグルーピングする
  */
 async function callAgent(
-  agent: Agent,
+  agentContext: AgentContext,
   items: CheckItem[],
   concurrentReviewCount: number,
 ): Promise<CheckItem[][]> {
   const itemTexts = items.map((item, index) => `${index + 1}. ${item.content}`).join('\n');
 
-  const result = await agent.generate(
+  const result = await agentContext.agent.generate(
     `Group the following check items into groups of approximately ${concurrentReviewCount} items each:\n\n${itemTexts}`,
-    { structuredOutput: { schema: aiSplitOutputSchema } },
+    {
+      structuredOutput: { schema: aiSplitOutputSchema },
+      requestContext: agentContext.requestContext,
+    },
   );
 
   // AI出力のグループ(string[][])をCheckItem[][]に変換
