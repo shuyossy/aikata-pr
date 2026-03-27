@@ -91,6 +91,7 @@ node dist/index.js --user-id <userId> [options]
 - 本アプリは最終的に外部ネットワークに繋がらない社内環境で利用するため、CDNなどの利用はしないこと
 - このシステムはまだリリースされていないので、コードを変更する際、後方互換製を考慮する必要はない
 - デフォルトの環境変数は.env.exampleと`.ci-template/variable/variables.yml`に入れておくこと
+- 関数の引数は特別な理由がない限りオプショナルは避けること（バグの温床になるため）
 
 # PBI
 @PBI.md
