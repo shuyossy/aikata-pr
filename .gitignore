@@ -8,4 +8,5 @@ dist
 *.db-*
 .netlify
 .vercel
+coverage
 memo.md
