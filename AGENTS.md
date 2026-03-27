@@ -1,61 +1,80 @@
-# AGENTS.md
+# 本プロジェクトの概要
+本プロジェクトはGitLabのプロジェクトにおいて、チェックリストに沿ったMRのAIレビューを実行するためのCI/CDパイプラインテンプレートを提供するプロジェクトである。
+任意のGitLabプロジェクトにおいて、本プロジェクトの`.ci-template/piplines/template.yml`を`.gitlab-ci.yml`上で`include`することで、MRのAIレビューを実行することができる。
 
-You are a TypeScript developer experienced with the Mastra framework. You build AI agents, tools, workflows, and scorers. You follow strict TypeScript practices and always consult up-to-date Mastra documentation before making changes.
+# 用語集
+@docs/domain/glossary.md
 
-## CRITICAL: Load `mastra` skill
+# アプリの開発方針
+- TDD
+- DDD
+  - クリーンアーキテクチャを採用
 
-**BEFORE doing ANYTHING with Mastra, load the `mastra` skill FIRST.** Never rely on cached knowledge as Mastra's APIs change frequently between versions. Use the skill to read up-to-date documentation from `node_modules`.
+# 外部設計
+## ユビキタス用語集
+### エンティティ
+`docs/domain/entity.md`
+### ビジネスルール
+`docs/domain/business_rule.md`
+### ユースケース
+`docs/domain/usecase.md`
 
-## Project Overview
+## 環境変数設計
+`docs/config/env_val.md`
 
-This is a **Mastra** project written in TypeScript. Mastra is a framework for building AI-powered applications and agents with a modern TypeScript stack. The Node.js runtime is `>=22.13.0`.
+## 処理フロー概念設計
+`docs/archtecture/overallflow_concept.md`
 
-## Commands
+# 内部設計
+## アーキテクチャ設計
+@docs/archtecture/tech.md
+@docs/archtecture/folder_structure.md
 
+# アプリ開発の進め方
+  1-1. 設計書の修正
+   - 対象: `docs`
+  1-2. 振る舞いを確認するための（ブラックボックス）テストを作成
+    - 古典派的スタイルで作成
+    - 正常系、異常系どちらも作成
+    - バックエンドロジックはアプリケーション層、ドメイン層どちらの振る舞いテストも作成
+    - インフラ層については、テスト実施ごとに環境を汚染しない（環境を隔離して使い捨てができる、またはそのように振る舞わせることができる）場合はできる限り作成するが、汚染する場合は不要
+    - vitestを利用
+  2. 1のテストがグリーンになるように実装
+  3. リファクタリングとホワイトボックステストを拡充
+    - 最終的にテストの条件カバレッジが80%以上となるようにすること
+
+# コマンド
+主要なコマンドを追加した場合は、以下に追記すること
 ```bash
-npm run dev # Start Mastra Studio at localhost:4111 (long-running, use a separate terminal)
-npm run build # Build a production-ready server
 ```
 
-## Project Structure
+# 作業時の注意点
+- クリーンアーキテクチャの中心部分から外側に向けてコーディングを進めること
+- Mastraについての注意点
+  - **BEFORE doing ANYTHING with Mastra, load the `mastra` skill FIRST.** Never rely on cached knowledge as Mastra's APIs change frequently between versions. Use the skill to read up-to-date documentation from `node_modules`.
+  - Register new agents, tools, workflows, and scorers in `src/mastra/index.ts`
+  - Use schemas for tool inputs and outputs
+  - [Mastra Documentation](https://mastra.ai/llms.txt)
+  - [Mastra .well-known skills discovery](https://mastra.ai/.well-known/skills/index.json)
+- 決して`node_modules`を直接編集しないこと
+- プロジェクト全体を把握して、全ての実装が必要箇所を正しく洗い出してから実装すること
+- 既存資源（型、コンポーネント、ヘルパー関数など）を積極的に活用して効率的に実装すること
+- 似たような実装内容がある場合は参考にしたり、共通化を検討すること
+- TypeScriptを利用して型安全なコードにすること
+- プロンプトは英語で記載すること
+  - プロンプトの内容は経験豊富なプロンプトエンジニアとしてベストプラクティスに基づいて実装すること
+  - 一般的で自然な英語表現にすること
+- コードのコメントは日本語で記載すること
+- エラーメッセージは英語で記載すること
+- eslintについては単純なフォーマットエラーの場合は対応する必要はない
+- 最終的にtypescriptの型エラーがないことを確認すること
+  - 既存のエラーは対応不要
+  - 新規実装した部分にエラーがある場合は対応すること
+- 最終的にアプリのビルドエラーやアクセス時エラーがないことを確認すること
+- 新規追加や編集した箇所については必ずテストを更新し、最終的に全てのテストがパスすることを確認すること
+- 本アプリは最終的に外部ネットワークに繋がらない社内環境で利用するため、CDNなどの利用はしないこと
+- このシステムはまだリリースされていないので、コードを変更する際、後方互換製を考慮する必要はない
+- デフォルトの環境変数は.env.exampleと`.ci-template/variable/variables.yml`に入れておくこと
 
-| Folder                 | Description                                                                                                                              |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/mastra`           | Entry point for all Mastra-related code and configuration.                                                                               |
-| `src/mastra/agents`    | Define and configure your agents - their behavior, goals, and tools.                                                                     |
-| `src/mastra/workflows` | Define multi-step workflows that orchestrate agents and tools together.                                                                  |
-| `src/mastra/tools`     | Create reusable tools that your agents can call                                                                                          |
-| `src/mastra/mcp`       | (Optional) Implement custom MCP servers to share your tools with external agents                                                         |
-| `src/mastra/scorers`   | (Optional) Define scorers for evaluating agent performance over time                                                                     |
-| `src/mastra/public`    | (Optional) Contents are copied into the `.build/output` directory during the build process, making them available for serving at runtime |
-
-### Top-level files
-
-Top-level files define how your Mastra project is configured, built, and connected to its environment.
-
-| File                  | Description                                                                                                       |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `src/mastra/index.ts` | Central entry point where you configure and initialize Mastra.                                                    |
-| `.env.example`        | Template for environment variables - copy and rename to `.env` to add your secret [model provider](/models) keys. |
-| `package.json`        | Defines project metadata, dependencies, and available npm scripts.                                                |
-| `tsconfig.json`       | Configures TypeScript options such as path aliases, compiler settings, and build output.                          |
-
-## Boundaries
-
-### Always do
-
-- Load the `mastra` skill before any Mastra-related work
-- Register new agents, tools, workflows, and scorers in `src/mastra/index.ts`
-- Use schemas for tool inputs and outputs
-- Run `npm run build` to verify changes compile
-
-### Never do
-
-- Never commit `.env` files or secrets
-- Never modify `node_modules` or Mastra's database files directly
-- Never hardcode API keys (always use environment variables)
-
-## Resources
-
-- [Mastra Documentation](https://mastra.ai/llms.txt)
-- [Mastra .well-known skills discovery](https://mastra.ai/.well-known/skills/index.json)
+# PBI
+@PBI.md
