@@ -21,6 +21,26 @@ describe('Logger', () => {
       const logger = initializeLogger({ userId: 'user-001', level: 'debug' });
       expect(logger).toBeDefined();
     });
+
+    it('prettyPrint無効かつカスタムストリーム未指定の場合もロガーが生成される', () => {
+      const logger = initializeLogger({ userId: 'user-001', prettyPrint: false });
+      expect(logger).toBeDefined();
+      expect(logger.info).toBeTypeOf('function');
+    });
+
+    it('既に初期化済みの場合に再初期化するとエラーをスローする', () => {
+      initializeLogger({ userId: 'user-001' });
+      expect(() => initializeLogger({ userId: 'user-002' })).toThrowError(
+        'Logger is already initialized. Call resetLogger() before re-initializing.',
+      );
+    });
+
+    it('resetLogger後に再初期化すると正常にロガーが生成される', () => {
+      initializeLogger({ userId: 'user-001' });
+      resetLogger();
+      const logger = initializeLogger({ userId: 'user-002' });
+      expect(logger).toBeDefined();
+    });
   });
 
   describe('getLogger', () => {

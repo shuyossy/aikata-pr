@@ -31,6 +31,11 @@ let loggerInstance: AppLogger | null = null;
  * @returns 初期化されたロガーインスタンス
  */
 export function initializeLogger(config: LoggerConfig): AppLogger {
+  // 二重初期化を防止（resetLogger()を呼んでからやり直すこと）
+  if (loggerInstance) {
+    throw new Error('Logger is already initialized. Call resetLogger() before re-initializing.');
+  }
+
   const { userId, level = 'info', prettyPrint = true, stream } = config;
 
   // pinoのベースオプション
@@ -44,13 +49,7 @@ export function initializeLogger(config: LoggerConfig): AppLogger {
   };
 
   // ストリームの決定（テスト時はカスタムストリーム、通常はpretty or stdout）
-  let destination: pino.DestinationStream | undefined = stream;
-
-  if (!destination && prettyPrint) {
-    // pino-prettyトランスポートを利用
-    // 注: pino-prettyは@mastra/loggersの依存として利用可能
-    destination = undefined; // pinoのデフォルト（stdout）を使用し、transportで整形
-  }
+  const destination: pino.DestinationStream | undefined = stream;
 
   let baseLogger: pino.Logger;
 
