@@ -140,5 +140,106 @@ describe('CommentParser', () => {
       expect(parsed!.results[1].isError).toBe(true);
       expect(parsed!.results[1].comment).toBe('Timeout occurred');
     });
+
+    it('パイプ文字を含むチェック項目がラウンドトリップで正しくパースされる', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('条件A | 条件B の確認'),
+          new Rating('A', '完全に満たしている'),
+          '問題ありません',
+        ),
+      ];
+
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0].checkItem.content).toBe('条件A | 条件B の確認');
+      expect(parsed!.results[0].rating.label).toBe('A');
+      expect(parsed!.results[0].comment).toBe('問題ありません');
+    });
+
+    it('パイプ文字を含むコメントがラウンドトリップで正しくパースされる', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('可読性'),
+          new Rating('A', '完全に満たしている'),
+          'if (a | b) のパターンに注意',
+        ),
+      ];
+
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0].checkItem.content).toBe('可読性');
+      expect(parsed!.results[0].comment).toBe('if (a | b) のパターンに注意');
+    });
+
+    it('パイプ文字を含む複数行がラウンドトリップで正しくパースされる', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('条件A | 条件B'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+        ReviewResult.success(
+          new CheckItem('テストカバレッジ'),
+          new Rating('B', '概ね満たしている'),
+          'X | Y | Z を確認',
+        ),
+        ReviewResult.success(
+          new CheckItem('通常のチェック項目'),
+          new Rating('C', '満たしていない'),
+          '通常のコメント',
+        ),
+      ];
+
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(3);
+      expect(parsed!.results[0].checkItem.content).toBe('条件A | 条件B');
+      expect(parsed!.results[1].comment).toBe('X | Y | Z を確認');
+      expect(parsed!.results[2].checkItem.content).toBe('通常のチェック項目');
+      expect(parsed!.results[2].comment).toBe('通常のコメント');
+    });
+
+    it('エラー行にパイプ文字を含む場合も正しくパースされる', () => {
+      const results = [ReviewResult.error(new CheckItem('A | B のチェック'), 'Error | timeout')];
+
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0].checkItem.content).toBe('A | B のチェック');
+      expect(parsed!.results[0].isError).toBe(true);
+      expect(parsed!.results[0].comment).toBe('Error | timeout');
+    });
+
+    it('エスケープなしの旧コメント（パイプなし）が引き続きパースできる', () => {
+      // 旧フォーマットを手動で構築（エスケープなし）
+      const body = [
+        '<!-- aikata-review -->',
+        `<!-- aikata-review-data: ${JSON.stringify({ ratings: [{ label: 'A', definition: '完全に満たしている' }], commitHash: 'old123' })} -->`,
+        '',
+        '| チェック項目 | 評定 | コメント |',
+        '| --- | --- | --- |',
+        '| 旧チェック項目 | A | 旧コメント |',
+      ].join('\n');
+
+      const parsed = CommentParser.parseComment(body);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0].checkItem.content).toBe('旧チェック項目');
+      expect(parsed!.results[0].rating.label).toBe('A');
+      expect(parsed!.results[0].comment).toBe('旧コメント');
+      expect(parsed!.commitHash).toBe('old123');
+    });
   });
 });

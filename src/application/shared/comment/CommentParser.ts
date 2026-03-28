@@ -67,9 +67,6 @@ export class CommentParser {
   private static parseTableRows(lines: string[], ratings: Rating[]): ReviewResult[] {
     const results: ReviewResult[] = [];
 
-    // テーブル行パターン: | content | rating | comment |
-    // ヘッダ行とセパレータ行をスキップする
-    const tableRowPattern = /^\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/;
     const separatorPattern = /^\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|$/;
 
     let headerFound = false;
@@ -78,9 +75,9 @@ export class CommentParser {
     for (const line of lines) {
       const trimmed = line.trim();
 
-      // テーブル行にマッチしない場合はスキップ
-      const match = trimmed.match(tableRowPattern);
-      if (!match) {
+      // テーブル行を分割（エスケープされたパイプを考慮）
+      const cells = CommentParser.splitTableRow(trimmed);
+      if (!cells || cells.length !== 3) {
         // テーブルのコンテキスト外になったらヘッダ/セパレータのフラグをリセット
         if (headerFound && separatorFound && trimmed !== '' && !trimmed.startsWith('|')) {
           headerFound = false;
@@ -101,8 +98,10 @@ export class CommentParser {
         continue;
       }
 
-      // データ行のパース
-      const [, content, ratingLabel, comment] = match;
+      // データ行のパース（エスケープを復元）
+      const content = CommentParser.unescapeCell(cells[0]);
+      const ratingLabel = CommentParser.unescapeCell(cells[1]);
+      const comment = CommentParser.unescapeCell(cells[2]);
 
       const checkItem = new CheckItem(content);
 
@@ -117,6 +116,39 @@ export class CommentParser {
     }
 
     return results;
+  }
+
+  /**
+   * エスケープされていないパイプでテーブル行を分割する
+   * 注意: 本メソッドはCommentFormatterが生成した行（セル間に空白あり）を前提としている。
+   * 完全なGFMパーサーでは `\\|`（リテラルバックスラッシュ + パイプ）の二重エスケープ判定が必要だが、
+   * 本システムではescapeCellがバックスラッシュをエスケープしないため、この簡略化で正しく動作する。
+   */
+  private static splitTableRow(line: string): string[] | null {
+    if (!line.startsWith('|') || !line.endsWith('|')) {
+      return null;
+    }
+    // 先頭と末尾のパイプを除去
+    const inner = line.slice(1, -1);
+    const cells: string[] = [];
+    let current = '';
+    for (let i = 0; i < inner.length; i++) {
+      if (inner[i] === '|' && (i === 0 || inner[i - 1] !== '\\')) {
+        cells.push(current.trim());
+        current = '';
+      } else {
+        current += inner[i];
+      }
+    }
+    cells.push(current.trim());
+    return cells;
+  }
+
+  /**
+   * エスケープされたパイプ文字を復元する
+   */
+  private static unescapeCell(value: string): string {
+    return value.replace(/\\\|/g, '|');
   }
 
   /**

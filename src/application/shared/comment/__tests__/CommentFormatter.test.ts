@@ -129,5 +129,43 @@ describe('CommentFormatter', () => {
       expect(output).not.toContain('<summary>');
       expect(output).not.toContain('</details>');
     });
+
+    it('チェック項目にパイプ文字を含む場合、エスケープされた表が生成される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('条件A | 条件B の確認'),
+          new Rating('A', '完全に満たしている'),
+          '問題ありません',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+
+      expect(output).toContain('| 条件A \\| 条件B の確認 | A | 問題ありません |');
+    });
+
+    it('コメントにパイプ文字を含む場合、エスケープされた表が生成される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('可読性'),
+          new Rating('A', '完全に満たしている'),
+          'if (a | b) のパターンに注意',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+
+      expect(output).toContain('| 可読性 | A | if (a \\| b) のパターンに注意 |');
+    });
+
+    it('チェック項目とコメントの両方にパイプ文字を含む場合', () => {
+      const results = [
+        ReviewResult.success(new CheckItem('A|B'), new Rating('A', '完全に満たしている'), 'X|Y|Z'),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+
+      expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
+    });
   });
 });

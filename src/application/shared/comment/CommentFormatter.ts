@@ -62,9 +62,16 @@ export class CommentFormatter {
     const separator = '| --- | --- | --- |';
     const rows = results.map((result) => {
       const ratingLabel = result.isError ? ERROR_RATING_LABEL : result.rating.label;
-      return `| ${result.checkItem.content} | ${ratingLabel} | ${result.comment} |`;
+      return `| ${CommentFormatter.escapeCell(result.checkItem.content)} | ${ratingLabel} | ${CommentFormatter.escapeCell(result.comment)} |`;
     });
 
     return [header, separator, ...rows].join('\n');
+  }
+
+  /**
+   * テーブルセル内のパイプ文字をGFM準拠でエスケープする
+   */
+  private static escapeCell(value: string): string {
+    return value.replace(/\|/g, '\\|');
   }
 }
