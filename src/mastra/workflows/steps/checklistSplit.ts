@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
+import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
 
 /**
  * AI分割結果のスキーマ（ID番号のグループ）
@@ -22,6 +23,7 @@ export interface AgentContext {
   agent: Agent<string, Record<string, any>, any, any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   requestContext: RequestContext<any>;
+  rateLimitRetryConfig: RateLimitRetryConfig;
 }
 
 /**
@@ -70,12 +72,16 @@ async function callAgent(
 ): Promise<IndexedCheckItem[][]> {
   const itemTexts = items.map((item) => `[ID: ${item.id}] ${item.content}`).join('\n');
 
-  const result = await agentContext.agent.generate(
-    `Group the following check items into groups of approximately ${concurrentReviewCount} items each. Return the item IDs (the numbers shown in [ID: N]) grouped together:\n\n${itemTexts}`,
-    {
-      structuredOutput: { schema: aiSplitOutputSchema },
-      requestContext: agentContext.requestContext,
-    },
+  const result = await withRateLimitRetry(
+    () =>
+      agentContext.agent.generate(
+        `Group the following check items into groups of approximately ${concurrentReviewCount} items each. Return the item IDs (the numbers shown in [ID: N]) grouped together:\n\n${itemTexts}`,
+        {
+          structuredOutput: { schema: aiSplitOutputSchema },
+          requestContext: agentContext.requestContext,
+        },
+      ),
+    agentContext.rateLimitRetryConfig,
   );
 
   // AI出力のグループ(number[][])をIndexedCheckItem[][]に変換

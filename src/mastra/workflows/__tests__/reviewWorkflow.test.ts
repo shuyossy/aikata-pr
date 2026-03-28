@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { RequestContext } from '@mastra/core/request-context';
 import type { WorkflowRequestContext } from '../../requestContext.js';
+import { initializeLogger, resetLogger } from '../../../lib/logger.js';
 
 // Mastraインスタンスをimport（実Agent、実Workflowが登録された状態）
 // ベストプラクティスに従い mastra.getWorkflow() / mastra.getAgent() 経由でアクセスする
@@ -133,11 +134,13 @@ describe('reviewWorkflow 結合テスト', () => {
     // Memory操作を無効化（ストレージアクセスを回避）
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.spyOn(reviewAgentInstance, 'getMemory').mockResolvedValue(undefined as any);
+    initializeLogger({ userId: 'test-user', level: 'silent' });
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     vi.restoreAllMocks();
+    resetLogger();
   });
 
   it('concurrentReviewCount=1でend-to-end実行できる', async () => {

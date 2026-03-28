@@ -54,3 +54,96 @@
     - Agentの処理が失敗した場合は機械的な分割を実行
     - Agentの処理結果が成功した場合もチェックリストが過不足なく分割できているかチェックし、最終的に同時レビュー項目数を満たせる様に機械的に分割（総レビュー項目数が同時レビュー項目数の倍数にならなかった場合は、最後のグループは同時レビュー項目数以下になるのはもちろん許容する）
 - 指摘事項（in progressの場合のみ）
+
+# ID: 2
+- PBI名: レート制限エラー対応
+- ステータス: done
+- 背景
+  - 本アプリで利用予定のAI APIについては1分間あたりの流量制限があるため、何らかの方法でAI APIの発行を制御したい
+- 受け入れ基準
+  - レート制限エラーが返ってきた場合はランダム要素を入れたバックオフで待機して、再度処理を実行
+- 注意事項
+  - 複数Agentが同時に`generate`を実行する場合もあるので注意
+  - 将来的に制御方法が変わっても最小限の変更で対応できる様にしたい
+    - `generate`の実行をコールバックとして設定できるラップ関数を用意するイメージが良いか？
+      - この場合であれば、将来的に制御方法が変わってもラップ関数を削除したり、ラップ関数内の処理を変えれば良いだけ
+  - レート制限エラーは以下の様に検知できる想定だが、MastraErrorのラップ処理やAPI実行時の返り値がAPICallErrorに含まれるかは要確認（以下、概念設計レベルのコード）
+  ```
+  import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
+  import { MastraError } from "@mastra/core/error";
+
+  function extractAIAPISafeError(error: unknown): Error | null {
+    if (APICallError.isInstance(error)) return error;
+    if (error instanceof MastraError) {
+      if (APICallError.isInstance(error.cause)) return error.cause;
+      if (NoObjectGeneratedError.isInstance(error.cause)) return error.cause;
+      if (RetryError.isInstance(error.cause)) {
+        for (const e of error.cause.errors) {
+          if (APICallError.isInstance(e)) return e;
+        }
+      }
+    }
+    return null;
+  }
+
+  function judgeErrorIsRateLimitError(error: unknown) {
+    const apiError = extractAIAPISafeError(error);
+    if (!apiError) return false;
+    if (APICallError.isInstance(apiError)) {
+      return (
+        apiError.responseBody?.toLowerCase().includes("rate limit") ||
+        apiError.statusCode === 429
+      );
+    }
+    return false;
+  };
+  ```
+
+# ID: 3
+- PBI名: エラーハンドリング見直し
+- ステータス: to do
+- 背景
+  - Agentによるレビュー実行時、様々なエラーが想定されるが、エラーの種別によりどう対応するかをより細かく制御する必要がある
+    - コンテキスト長エラー
+      - MRレビューがヘビーな場合、コンテキスト長エラーになる可能性があるので、対処する必要がある
+      - 今までの作業内容を要約して処理を継続する
+    - API呼び出しエラー
+      - 一般ユーザが認知して対応可能な場合があるので、レビュー結果表にエラー内容を表示する
+    - それ以外のエラー
+      - 一般ユーザが認知しても対応可能でない場合が多いので、レビュー結果表に「予期せぬエラー（実行ログを確認してください）」と表示する
+  - レビュー結果表にエラーを表示する際に、レビューが成功しているチェック項目もエラーが表示されることがある
+- 受け入れ基準
+  - 背景を良く理解して、対応が実施されている
+  - 特にコンテキスト長エラーを検知した場合は、以下の様な挙動になっている
+    - 今までの作業履歴を要約する
+      - 要約用のAgentを作成
+        - 要約用Agent自体がコンテキスト長エラーにならない様に注意
+        - systemプロンプト
+          - 要約に特化した役割提示
+          - 作業背景（どのようなチェック項目に対するチェックを実行していて、コンテキスト長エラーになったのか）
+        - userプロンプト
+          - 今までの作業履歴
+    - 今までの作業履歴を削除して要約に置き換える
+    - レビューの続きを進める
+      - 通常通りのuserプロンプト＋現状レビュー済みのチェック項目＋コンテキスト逼迫により今までの作業内容を要約した旨＋要約内容
+- 注意事項
+  - コンテキスト長エラーかどうかは以下の様に判定できる想定（以下、概念設計レベルのコード）
+  ```
+  export const judgeErrorIsContentLengthError = (error: unknown) => {
+    const apiError = extractAIAPISafeError(error);
+    if (!apiError) return false;
+    if (apiError instanceof AppError) {
+      return apiError.messageCode === "AI_MESSAGE_TOO_LARGE";
+    }
+    if (APICallError.isInstance(apiError)) {
+      return (
+        apiError.responseBody?.includes("maximum context length") ||
+        apiError.responseBody?.includes("tokens_limit_reached") ||
+        apiError.responseBody?.includes("context_length_exceeded") ||
+        apiError.responseBody?.includes("many images") ||
+        apiError.responseBody?.includes("tokens exceed")
+      );
+    }
+    return false;
+  };
+  ```

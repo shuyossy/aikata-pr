@@ -5,6 +5,7 @@ import { splitChecklist } from './steps/checklistSplit.js';
 import { executeReview } from './steps/reviewExecution.js';
 import { IndexedChecklist } from '../indexedCheckItem.js';
 import type { ReviewAgentRequestContext, WorkflowRequestContext } from '../requestContext.js';
+import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../lib/rateLimitRetry.js';
 
 /**
  * IndexedCheckItemのZodスキーマ（ワークフロー内部用）
@@ -102,7 +103,13 @@ const checklistSplitStep = createStep({
     const needsAiSplit =
       inputData.concurrentReviewCount > 1 && inputData.concurrentReviewCount < items.length;
     const checklistSplitAgent = mastra.getAgent('checklistSplitAgent');
-    const agentContext = needsAiSplit ? { agent: checklistSplitAgent, requestContext } : null;
+    const agentContext = needsAiSplit
+      ? {
+          agent: checklistSplitAgent,
+          requestContext,
+          rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
+        }
+      : null;
 
     const groups = await splitChecklist(items, inputData.concurrentReviewCount, agentContext);
     return {
@@ -177,6 +184,7 @@ const reviewExecutionStep = createStep({
       agent: reviewAgent,
       requestContext: agentRequestContext,
       resultFilePath: initData.resultFilePath,
+      rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     });
 
     return {

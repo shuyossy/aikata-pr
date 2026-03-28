@@ -3,11 +3,14 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { RequestContext } from '@mastra/core/request-context';
+import { APICallError } from '@ai-sdk/provider';
 import { IndexedChecklist } from '../../../indexedCheckItem.js';
 import type { IndexedCheckItem } from '../../../indexedCheckItem.js';
 import { executeReview, type ReviewExecutionConfig } from '../reviewExecution.js';
 import type { Agent } from '@mastra/core/agent';
 import type { ReviewAgentRequestContext } from '../../../requestContext.js';
+import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
+import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 
 /**
  * 結果ファイルにレビュー結果を書き込むヘルパー
@@ -103,6 +106,7 @@ function createBaseConfig(overrides: Partial<ReviewExecutionConfig> = {}): Revie
     agent: {} as Agent,
     requestContext: createTestRequestContext(checkItems),
     resultFilePath: '',
+    rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     ...overrides,
   };
 }
@@ -115,10 +119,12 @@ describe('executeReview', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-exec-test-'));
     resultFilePath = path.join(tmpDir, 'results.json');
     vi.clearAllMocks();
+    initializeLogger({ userId: 'test-user', level: 'silent' });
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+    resetLogger();
   });
 
   it('グループ内の全チェック項目のレビュー結果が返される', async () => {
@@ -624,5 +630,69 @@ describe('executeReview', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].isError).toBe(false);
+  });
+
+  it('初回のレート制限エラー→リトライ→成功の場合、レビュー結果が正常に返される', async () => {
+    const checkItems = makeItems(['check1']);
+    const rateLimitError = new APICallError({
+      message: 'Rate limit exceeded',
+      url: 'http://test-api/v1/chat',
+      requestBodyValues: {},
+      statusCode: 429,
+      isRetryable: true,
+    });
+
+    let callCount = 0;
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          throw rateLimitError;
+        }
+        writeResultsToFile(resultFilePath, [
+          {
+            checkItemId: 1,
+            ratingLabel: 'A',
+            ratingDefinition: 'Fully satisfies requirements',
+            comment: 'Good',
+            isError: false,
+          },
+        ]);
+      }),
+    );
+    const config = createBaseConfig({
+      checkItems,
+      resultFilePath,
+      agent: mockAgent,
+      rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+    });
+
+    const results = await executeReview(config);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].isError).toBe(false);
+    expect(results[0].rating.label).toBe('A');
+    // 初回失敗 + リトライ成功 = 2回
+    expect(callCount).toBe(2);
+  });
+
+  it('レート制限以外のエラーはリトライされずエラー結果が返される', async () => {
+    const checkItems = makeItems(['check1']);
+    const genericError = new Error('Internal server error');
+    const mockAgent = createMockAgent(vi.fn().mockRejectedValue(genericError));
+    const config = createBaseConfig({
+      checkItems,
+      resultFilePath,
+      agent: mockAgent,
+      rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+    });
+
+    const results = await executeReview(config);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].isError).toBe(true);
+    expect(results[0].errorMessage).toBe('Internal server error');
+    // リトライなし: 1回のみ
+    expect(mockAgent.generate as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
   });
 });

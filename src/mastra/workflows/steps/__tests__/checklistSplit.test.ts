@@ -1,10 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RequestContext } from '@mastra/core/request-context';
+import { APICallError } from '@ai-sdk/provider';
 import { IndexedChecklist } from '../../../indexedCheckItem.js';
 import type { IndexedCheckItem } from '../../../indexedCheckItem.js';
 import { splitChecklist, adjustGroups } from '../checklistSplit.js';
 import type { AgentContext } from '../checklistSplit.js';
 import type { Agent } from '@mastra/core/agent';
+import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
+import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 
 /**
  * Agent.generate() のモックを作成するヘルパー
@@ -39,6 +42,7 @@ function createMockAgentContext(
   return {
     agent: createMockAgent(generateFn),
     requestContext: createMockRequestContext(),
+    rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
   };
 }
 
@@ -46,6 +50,14 @@ describe('splitChecklist', () => {
   // テスト用のIndexedCheckItem配列を生成するヘルパー
   const makeItems = (contents: string[]): IndexedCheckItem[] =>
     new IndexedChecklist(contents).items.slice();
+
+  beforeEach(() => {
+    initializeLogger({ userId: 'test-user', level: 'silent' });
+  });
+
+  afterEach(() => {
+    resetLogger();
+  });
 
   describe('AI不使用のケース', () => {
     it('concurrentReviewCount=1の場合、各項目が個別グループになる', async () => {
@@ -230,6 +242,7 @@ describe('splitChecklist', () => {
       const agentContext: AgentContext = {
         agent: createMockAgent(generateFn),
         requestContext,
+        rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
       };
 
       await splitChecklist(items, 2, agentContext);
@@ -248,6 +261,7 @@ describe('splitChecklist', () => {
       const agentContext: AgentContext = {
         agent: createMockAgent(generateFn),
         requestContext: createMockRequestContext(),
+        rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
       };
 
       await splitChecklist(items, 2, agentContext);
@@ -324,6 +338,76 @@ describe('splitChecklist', () => {
       expect(generateSpy).not.toHaveBeenCalled();
       expect(result).toHaveLength(1);
       expect(result[0]).toHaveLength(2);
+    });
+  });
+
+  describe('レート制限エラー対応', () => {
+    it('レート制限エラー→リトライ→成功の場合、AI分割結果が返される', async () => {
+      // AI分割: [1,3],[2,4]（機械的分割 [1,2],[3,4] と異なる順序で区別）
+      const items = makeItems(['item1', 'item2', 'item3', 'item4']);
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const agentContext = createMockAgentContext(async () => {
+        callCount++;
+        if (callCount === 1) {
+          throw rateLimitError;
+        }
+        return {
+          object: {
+            groups: [
+              [1, 3],
+              [2, 4],
+            ],
+          },
+        };
+      });
+      // テスト用に短いリトライ設定
+      agentContext.rateLimitRetryConfig = {
+        maxRetries: 3,
+        baseDelayMs: 1,
+        maxDelayMs: 10,
+      };
+
+      const result = await splitChecklist(items, 2, agentContext);
+
+      // AI分割結果（機械的分割とは異なる）が返されること
+      expect(result).toHaveLength(2);
+      expect(result[0].map((i) => i.content)).toEqual(['item1', 'item3']);
+      expect(result[1].map((i) => i.content)).toEqual(['item2', 'item4']);
+    });
+
+    it('レート制限エラーでリトライ上限に達した場合、機械的分割にフォールバックする', async () => {
+      const items = makeItems(['a', 'b', 'c', 'd']);
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      const agentContext = createMockAgentContext(async () => {
+        throw rateLimitError;
+      });
+      agentContext.rateLimitRetryConfig = {
+        maxRetries: 2,
+        baseDelayMs: 1,
+        maxDelayMs: 10,
+      };
+
+      const result = await splitChecklist(items, 2, agentContext);
+
+      // 機械的分割の結果になること: [a,b], [c,d]
+      expect(result).toHaveLength(2);
+      expect(result[0].map((i) => i.content)).toEqual(['a', 'b']);
+      expect(result[1].map((i) => i.content)).toEqual(['c', 'd']);
     });
   });
 

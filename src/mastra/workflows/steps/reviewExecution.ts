@@ -8,6 +8,7 @@ import { CheckItem } from '../../../domain/checkItem/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
 import { readStoredResults } from '../../types.js';
 import { buildUserPrompt } from '../../agents/reviewAgent.js';
+import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
 
 /**
  * レビュー実行ステップの設定
@@ -21,6 +22,7 @@ export interface ReviewExecutionConfig {
   agent: Agent<string, Record<string, any>, any, any>;
   requestContext: RequestContext<ReviewAgentRequestContext>;
   resultFilePath: string;
+  rateLimitRetryConfig: RateLimitRetryConfig;
 }
 
 /**
@@ -37,7 +39,7 @@ const MAX_RETRIES = 2;
  * メモリ（threadId）により、リトライ時に初回の会話履歴が保持される。
  */
 export async function executeReview(config: ReviewExecutionConfig): Promise<ReviewResult[]> {
-  const { checkItems, agent, requestContext, resultFilePath } = config;
+  const { checkItems, agent, requestContext, resultFilePath, rateLimitRetryConfig } = config;
 
   // スレッド管理: 実行ごとにユニークなthreadIdを生成
   const threadId = randomUUID();
@@ -49,7 +51,10 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
     const prompt = buildUserPrompt(requestContext, resultFilePath);
 
     try {
-      await agent.generate(prompt, { requestContext, memory: memoryOption });
+      await withRateLimitRetry(
+        () => agent.generate(prompt, { requestContext, memory: memoryOption }),
+        rateLimitRetryConfig,
+      );
     } catch (error) {
       // 初回Agent失敗時は全項目をエラー結果として返す
       const errorMessage = error instanceof Error ? error.message : 'Agent execution failed';
@@ -73,7 +78,10 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
       // 漏れた項目についてリトライ（同じthreadIdで会話履歴を継続）
       try {
         const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- [ID: ${i.id}] ${i.content}`).join('\n')}\nResult file path: ${resultFilePath}`;
-        await agent.generate(retryPrompt, { requestContext, memory: memoryOption });
+        await withRateLimitRetry(
+          () => agent.generate(retryPrompt, { requestContext, memory: memoryOption }),
+          rateLimitRetryConfig,
+        );
         storedResults = readStoredResults(resultFilePath);
       } catch {
         // リトライ失敗時は次のリトライへ（または終了）
