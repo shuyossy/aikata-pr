@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { APICallError } from '@ai-sdk/provider';
+import { APICallError } from 'ai';
 import {
   isRateLimitError,
   calculateBackoffDelay,

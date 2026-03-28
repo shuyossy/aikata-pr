@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { APICallError } from '@ai-sdk/provider';
+import { APICallError } from 'ai';
 import { extractAPICallError, findStatusCodeInChain } from '../aiApiError.js';
 
 /**

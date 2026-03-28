@@ -1,4 +1,4 @@
-import { APICallError } from '@ai-sdk/provider';
+import { APICallError } from 'ai';
 
 /**
  * APICallErrorをエラーチェーンから抽出する

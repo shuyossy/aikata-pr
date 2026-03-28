@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { RequestContext } from '@mastra/core/request-context';
-import { APICallError } from '@ai-sdk/provider';
+import { APICallError } from 'ai';
 import { IndexedChecklist } from '../../../indexedCheckItem.js';
 import type { IndexedCheckItem } from '../../../indexedCheckItem.js';
 import { executeReview, type ReviewExecutionConfig } from '../reviewExecution.js';
