@@ -3,31 +3,15 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { RequestContext } from '@mastra/core/request-context';
-import { reviewWorkflow } from '../reviewWorkflow.js';
 import type { WorkflowRequestContext } from '../../requestContext.js';
 
-// シングルトンAgentのモック化
-vi.mock('../../agents/checklistSplitAgent.js', () => ({
-  checklistSplitAgent: {
-    generate: vi.fn(),
-  },
-}));
+// Mastraインスタンスをimport（実Agent、実Workflowが登録された状態）
+// ベストプラクティスに従い mastra.getWorkflow() / mastra.getAgent() 経由でアクセスする
+import { mastra } from '../../index.js';
 
-vi.mock('../../agents/reviewAgent.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../agents/reviewAgent.js')>();
-  return {
-    ...actual,
-    reviewAgent: {
-      generate: vi.fn(),
-    },
-  };
-});
-
-import { checklistSplitAgent } from '../../agents/checklistSplitAgent.js';
-import { reviewAgent } from '../../agents/reviewAgent.js';
-
-const mockedChecklistSplitAgent = vi.mocked(checklistSplitAgent);
-const mockedReviewAgent = vi.mocked(reviewAgent);
+// Agentの参照を取得（vi.spyOnでメソッドをモック化する）
+const reviewAgentInstance = mastra.getAgent('reviewAgent');
+const checklistSplitAgentInstance = mastra.getAgent('checklistSplitAgent');
 
 /**
  * テスト用のRequestContextを作成するヘルパー
@@ -113,11 +97,17 @@ describe('reviewWorkflow 結合テスト', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-test-'));
     resultFilePath = path.join(tmpDir, 'results.json');
-    vi.clearAllMocks();
+    // 実Agentのメソッドをspyでモック化
+    vi.spyOn(reviewAgentInstance, 'generate');
+    vi.spyOn(checklistSplitAgentInstance, 'generate');
+    // Memory操作を無効化（ストレージアクセスを回避）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(reviewAgentInstance, 'getMemory').mockResolvedValue(undefined as any);
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
   });
 
   it('concurrentReviewCount=1でend-to-end実行できる', async () => {
@@ -128,7 +118,7 @@ describe('reviewWorkflow 結合テスト', () => {
     });
 
     // ReviewAgentのgenerate()を設定: 各呼び出しで結果を結果ファイルに書き込む
-    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(async () => {
       const existing = fs.existsSync(resultFilePath)
         ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
         : [];
@@ -147,10 +137,13 @@ describe('reviewWorkflow 結合テスト', () => {
         });
         writeResultsToFile(resultFilePath, existing);
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return {} as any;
     });
 
     const requestContext = createWorkflowRequestContext();
-    const run = await reviewWorkflow.createRun();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
     const result = await run.start({ inputData, requestContext });
 
     expect(result.status).toBe('success');
@@ -171,45 +164,49 @@ describe('reviewWorkflow 結合テスト', () => {
     });
 
     // ChecklistSplitAgentはID番号でグループを返す
-    (mockedChecklistSplitAgent.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
+    vi.mocked(checklistSplitAgentInstance.generate).mockResolvedValue({
       object: {
         groups: [
           [1, 2],
           [3, 4],
         ],
       },
-    });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
 
     // ReviewAgentの結果をID方式で設定
-    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_prompt: unknown, options: { requestContext: RequestContext }) => {
-        const checkItems = options.requestContext.get('checkItems') as Array<{
-          id: number;
-          content: string;
-        }>;
+    const writeReviewResults = async (_prompt: unknown, options: unknown) => {
+      const opts = options as { requestContext: RequestContext };
+      const checkItems = opts.requestContext.get('checkItems') as Array<{
+        id: number;
+        content: string;
+      }>;
 
-        const existing = fs.existsSync(resultFilePath)
-          ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
-          : [];
+      const existing = fs.existsSync(resultFilePath)
+        ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
+        : [];
 
-        for (const item of checkItems) {
-          if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
-            existing.push({
-              checkItemId: item.id,
-              ratingLabel: 'A',
-              ratingDefinition: 'Fully satisfies requirements',
-              comment: `Review for ${item.content}`,
-              isError: false,
-            });
-          }
+      for (const item of checkItems) {
+        if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
+          existing.push({
+            checkItemId: item.id,
+            ratingLabel: 'A',
+            ratingDefinition: 'Fully satisfies requirements',
+            comment: `Review for ${item.content}`,
+            isError: false,
+          });
         }
+      }
 
-        writeResultsToFile(resultFilePath, existing);
-      },
-    );
+      writeResultsToFile(resultFilePath, existing);
+      return {};
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(writeReviewResults as any);
 
     const requestContext = createWorkflowRequestContext();
-    const run = await reviewWorkflow.createRun();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
     const result = await run.start({ inputData, requestContext });
 
     expect(result.status).toBe('success');
@@ -229,12 +226,11 @@ describe('reviewWorkflow 結合テスト', () => {
     });
 
     // ReviewAgentがエラーをスロー
-    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('AI API failed'),
-    );
+    vi.mocked(reviewAgentInstance.generate).mockRejectedValue(new Error('AI API failed'));
 
     const requestContext = createWorkflowRequestContext();
-    const run = await reviewWorkflow.createRun();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
     const result = await run.start({ inputData, requestContext });
 
     expect(result.status).toBe('success');
@@ -251,7 +247,7 @@ describe('reviewWorkflow 結合テスト', () => {
       resultFilePath,
     });
 
-    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(async () => {
       writeResultsToFile(resultFilePath, [
         {
           checkItemId: 1,
@@ -261,14 +257,18 @@ describe('reviewWorkflow 結合テスト', () => {
           isError: false,
         },
       ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return {} as any;
     });
 
     const requestContext = createWorkflowRequestContext();
-    const run = await reviewWorkflow.createRun();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
     await run.start({ inputData, requestContext });
 
-    expect(mockedReviewAgent.generate).toHaveBeenCalled();
-    const callArgs = (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(reviewAgentInstance.generate).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const callArgs = vi.mocked(reviewAgentInstance.generate).mock.calls[0] as any[];
     const options = callArgs[1] as { requestContext: RequestContext };
     expect(options.requestContext).toBeDefined();
 
@@ -299,7 +299,7 @@ describe('reviewWorkflow 結合テスト', () => {
       priorDiffSincePrior: '+ new change',
     });
 
-    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(async () => {
       writeResultsToFile(resultFilePath, [
         {
           checkItemId: 1,
@@ -309,10 +309,13 @@ describe('reviewWorkflow 結合テスト', () => {
           isError: false,
         },
       ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return {} as any;
     });
 
     const requestContext = createWorkflowRequestContext();
-    const run = await reviewWorkflow.createRun();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
     const result = await run.start({ inputData, requestContext });
 
     expect(result.status).toBe('success');
@@ -320,7 +323,8 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(output.results).toHaveLength(1);
     expect(output.results[0].isError).toBe(false);
 
-    const callArgs = (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mock.calls[0];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const callArgs = vi.mocked(reviewAgentInstance.generate).mock.calls[0] as any[];
     const options = callArgs[1] as { requestContext: RequestContext };
     const priorCtx = options.requestContext.get('priorReviewContext') as {
       results: Array<{ checkItemContent: string }>;
@@ -369,45 +373,49 @@ describe('reviewWorkflow 結合テスト', () => {
     });
 
     // ChecklistSplitAgentはID番号でグループを返す
-    (mockedChecklistSplitAgent.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
+    vi.mocked(checklistSplitAgentInstance.generate).mockResolvedValue({
       object: {
         groups: [
           [1, 2],
           [3, 4],
         ],
       },
-    });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
 
     // ReviewAgentの結果をID方式で設定
-    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_prompt: unknown, options: { requestContext: RequestContext }) => {
-        const checkItems = options.requestContext.get('checkItems') as Array<{
-          id: number;
-          content: string;
-        }>;
+    const writeGroupReviewResults = async (_prompt: unknown, options: unknown) => {
+      const opts = options as { requestContext: RequestContext };
+      const checkItems = opts.requestContext.get('checkItems') as Array<{
+        id: number;
+        content: string;
+      }>;
 
-        const existing = fs.existsSync(resultFilePath)
-          ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
-          : [];
+      const existing = fs.existsSync(resultFilePath)
+        ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
+        : [];
 
-        for (const item of checkItems) {
-          if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
-            existing.push({
-              checkItemId: item.id,
-              ratingLabel: 'A',
-              ratingDefinition: 'Fully satisfies requirements',
-              comment: `Review for ${item.content}`,
-              isError: false,
-            });
-          }
+      for (const item of checkItems) {
+        if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
+          existing.push({
+            checkItemId: item.id,
+            ratingLabel: 'A',
+            ratingDefinition: 'Fully satisfies requirements',
+            comment: `Review for ${item.content}`,
+            isError: false,
+          });
         }
+      }
 
-        writeResultsToFile(resultFilePath, existing);
-      },
-    );
+      writeResultsToFile(resultFilePath, existing);
+      return {};
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(writeGroupReviewResults as any);
 
     const requestContext = createWorkflowRequestContext();
-    const run = await reviewWorkflow.createRun();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
     const result = await run.start({ inputData, requestContext });
 
     expect(result.status).toBe('success');
@@ -415,7 +423,8 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(output.results).toHaveLength(4);
 
     // 各Agent呼び出しのpriorReviewContextを検証
-    const calls = (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mock.calls;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const calls = vi.mocked(reviewAgentInstance.generate).mock.calls as any[][];
     // foreachで2グループ分の呼び出しがあるはず
     expect(calls.length).toBeGreaterThanOrEqual(2);
 
@@ -450,7 +459,7 @@ describe('reviewWorkflow 結合テスト', () => {
       resultFilePath,
     });
 
-    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(async () => {
       writeResultsToFile(resultFilePath, [
         {
           checkItemId: 1,
@@ -461,10 +470,13 @@ describe('reviewWorkflow 結合テスト', () => {
           errorMessage: 'Tool execution failed',
         },
       ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return {} as any;
     });
 
     const requestContext = createWorkflowRequestContext();
-    const run = await reviewWorkflow.createRun();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
     const result = await run.start({ inputData, requestContext });
 
     expect(result.status).toBe('success');

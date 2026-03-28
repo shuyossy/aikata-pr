@@ -165,15 +165,16 @@ Review all ${ctx.checkItems.length} check items following the reasoning framewor
  * レビューエージェント用メモリ
  *
  * リトライ時に会話履歴を保持するためのメモリ設定。
- * lastMessages: 全メッセージをコンテキストに含めることで、
- * リトライ時に初回のツール呼び出し履歴等を参照可能にする。
+ * lastMessages: コンテキストに含めるメッセージ数の上限。
  *
- * 前提: 各スレッドはexecuteReview()の実行単位で作成・削除されるため、
- * 会話は最大3回（初回 + リトライ2回）に限定される。
+ * 1000に設定する理由:
+ * - ワークスペースツールによる大規模コードベースの探索時には多数のツール呼び出しが発生し得る
+ * - 1000は実用上十分な上限でありつつ、無制限によるコンテキストウィンドウ溢れを防止する
+ * - 各スレッドはexecuteReview()の実行単位で作成・削除される（初回 + リトライ最大2回）
  */
 const reviewAgentMemory = new Memory({
   options: {
-    lastMessages: Number.MAX_SAFE_INTEGER,
+    lastMessages: 1000,
   },
 });
 

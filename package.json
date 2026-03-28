@@ -27,11 +27,9 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.37",
     "@mastra/core": "^1.16.0",
-    "@mastra/evals": "^1.1.2",
     "@mastra/libsql": "^1.7.2",
     "@mastra/loggers": "^1.0.3",
     "@mastra/memory": "^1.10.0",
-    "@mastra/observability": "^1.5.1",
     "pino": "^10.3.1",
     "pino-std-serializers": "^7.1.0",
     "zod": "^4.3.6"

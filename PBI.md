@@ -56,15 +56,15 @@
 - 指摘事項（in progressの場合のみ）
 
 # ID: 2
-- PBI名: MD表のパースについて確認
-- ステータス: to do
-- 背景
-  - 現状MD表のパースについては自前で実装している
-  - ライブラリ（markdown-tables-to-jsonやremark + remark-gfm）を利用した方が精度が信用できるのではないか
-  - 例えば表内の文字に`|`が入ってくるなどイレギュラーなケースは自前実装だと対応しきれなそう
+- PBI名: mastraのベストプラクティスに沿ってコーディング（プロダクションコード、テストコード両方）できているかレビューする必要がある
+- ステータス: done
 - 受け入れ基準
-  - 背景を理解し、そのことに関する調査が完了している
-  - 修正が必要な場合は実施できている
+  - レビューが完了し、必要であれば修正が行われている
 - 注意事項
   - 本PBIは（タスク量を考慮して）ID:1のPBIの指摘事項から切り出したもの
+- 対応結果
+  - Critical: Agent/Workflowアクセスパターンを`mastra.getAgent()`/`mastra.getWorkflow()`経由に修正
+  - Major: Logger統合（LOG_LEVEL環境変数対応）、Memory lastMessages制限（1000）
+  - Minor: 未使用依存削除、foreach concurrency定数化
+  - 見送り: onFinish/onError lifecycle callbacks（createWorkflowが未サポート、caller側で対応済み）
 - 指摘事項（in progressの場合のみ）

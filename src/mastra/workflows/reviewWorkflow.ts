@@ -3,8 +3,6 @@ import { RequestContext } from '@mastra/core/request-context';
 import { z } from 'zod';
 import { splitChecklist } from './steps/checklistSplit.js';
 import { executeReview } from './steps/reviewExecution.js';
-import { checklistSplitAgent } from '../agents/checklistSplitAgent.js';
-import { reviewAgent } from '../agents/reviewAgent.js';
 import { IndexedChecklist } from '../indexedCheckItem.js';
 import type { ReviewAgentRequestContext, WorkflowRequestContext } from '../requestContext.js';
 
@@ -96,13 +94,14 @@ const checklistSplitStep = createStep({
   outputSchema: z.object({
     groups: z.array(z.array(indexedCheckItemSchema)),
   }),
-  execute: async ({ inputData, requestContext }) => {
+  execute: async ({ inputData, requestContext, mastra }) => {
     const indexedChecklist = new IndexedChecklist(inputData.checkItemContents);
     const items = indexedChecklist.items.slice();
 
     // concurrentReviewCountが2以上かつ総チェック項目数より少ない場合はAI分割を実行
     const needsAiSplit =
       inputData.concurrentReviewCount > 1 && inputData.concurrentReviewCount < items.length;
+    const checklistSplitAgent = mastra.getAgent('checklistSplitAgent');
     const agentContext = needsAiSplit ? { agent: checklistSplitAgent, requestContext } : null;
 
     const groups = await splitChecklist(items, inputData.concurrentReviewCount, agentContext);
@@ -125,7 +124,7 @@ const reviewExecutionStep = createStep({
   outputSchema: z.object({
     results: z.array(workflowResultItemSchema),
   }),
-  execute: async ({ inputData, getInitData, requestContext }) => {
+  execute: async ({ inputData, getInitData, requestContext, mastra }) => {
     const initData = getInitData<typeof reviewWorkflow>();
     const checkItems = inputData.items;
 
@@ -172,6 +171,7 @@ const reviewExecutionStep = createStep({
       ['folderTree', initData.folderTree],
     ]);
 
+    const reviewAgent = mastra.getAgent('reviewAgent');
     const results = await executeReview({
       checkItems,
       agent: reviewAgent,
@@ -191,6 +191,13 @@ const reviewExecutionStep = createStep({
     };
   },
 });
+
+/**
+ * foreachステップの最大並行実行数
+ * AI APIへのリクエスト負荷とNode.jsのイベントループ負荷のバランスを考慮して設定。
+ * グループ数がこの値を超える場合はキューイングされる。
+ */
+const FOREACH_CONCURRENCY = 5;
 
 /**
  * レビューワークフロー
@@ -215,7 +222,7 @@ reviewWorkflow
     const groups = inputData.groups;
     return groups.map((group) => ({ items: group }));
   })
-  .foreach(reviewExecutionStep, { concurrency: 5 })
+  .foreach(reviewExecutionStep, { concurrency: FOREACH_CONCURRENCY })
   .map(async ({ inputData }) => {
     // 全グループのレビュー結果をフラット化
     const allResults = inputData.flatMap((group) => group.results);

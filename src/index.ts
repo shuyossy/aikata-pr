@@ -12,7 +12,7 @@ import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
 import { GitLabMrGateway } from './infrastructure/adapter/gateway/index.js';
 import { GitLabMrCommentGateway } from './infrastructure/adapter/gateway/index.js';
 import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/index.js';
-import { reviewWorkflow } from './mastra/workflows/index.js';
+import { mastra } from './mastra/index.js';
 import { ReviewSettings } from './domain/reviewSettings/index.js';
 import { RequestContext } from '@mastra/core/request-context';
 import type { WorkflowRequestContext } from './mastra/requestContext.js';
@@ -35,7 +35,8 @@ class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
       ['projectDir', projectDir],
     ]);
 
-    const run = await reviewWorkflow.createRun();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
     const result = await run.start({ inputData, requestContext });
 
     if (result.status === 'failed') {
