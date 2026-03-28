@@ -94,6 +94,36 @@ describe('reviewWorkflow 結合テスト', () => {
   let tmpDir: string;
   let resultFilePath: string;
 
+  /**
+   * RequestContextからcheckItemsを取り出し、結果ファイルに未登録の項目を追記するモック実装
+   */
+  const mockGenerateWithFileWrite = async (_prompt: unknown, options: unknown) => {
+    const opts = options as { requestContext: RequestContext };
+    const checkItems = opts.requestContext.get('checkItems') as Array<{
+      id: number;
+      content: string;
+    }>;
+
+    const existing = fs.existsSync(resultFilePath)
+      ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
+      : [];
+
+    for (const item of checkItems) {
+      if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
+        existing.push({
+          checkItemId: item.id,
+          ratingLabel: 'A',
+          ratingDefinition: 'Fully satisfies requirements',
+          comment: `Review for ${item.content}`,
+          isError: false,
+        });
+      }
+    }
+
+    writeResultsToFile(resultFilePath, existing);
+    return {};
+  };
+
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-test-'));
     resultFilePath = path.join(tmpDir, 'results.json');
@@ -174,35 +204,8 @@ describe('reviewWorkflow 結合テスト', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
-    // ReviewAgentの結果をID方式で設定
-    const writeReviewResults = async (_prompt: unknown, options: unknown) => {
-      const opts = options as { requestContext: RequestContext };
-      const checkItems = opts.requestContext.get('checkItems') as Array<{
-        id: number;
-        content: string;
-      }>;
-
-      const existing = fs.existsSync(resultFilePath)
-        ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
-        : [];
-
-      for (const item of checkItems) {
-        if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
-          existing.push({
-            checkItemId: item.id,
-            ratingLabel: 'A',
-            ratingDefinition: 'Fully satisfies requirements',
-            comment: `Review for ${item.content}`,
-            isError: false,
-          });
-        }
-      }
-
-      writeResultsToFile(resultFilePath, existing);
-      return {};
-    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(reviewAgentInstance.generate).mockImplementation(writeReviewResults as any);
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(mockGenerateWithFileWrite as any);
 
     const requestContext = createWorkflowRequestContext();
     const workflow = mastra.getWorkflow('reviewWorkflow');
@@ -383,35 +386,8 @@ describe('reviewWorkflow 結合テスト', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
-    // ReviewAgentの結果をID方式で設定
-    const writeGroupReviewResults = async (_prompt: unknown, options: unknown) => {
-      const opts = options as { requestContext: RequestContext };
-      const checkItems = opts.requestContext.get('checkItems') as Array<{
-        id: number;
-        content: string;
-      }>;
-
-      const existing = fs.existsSync(resultFilePath)
-        ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
-        : [];
-
-      for (const item of checkItems) {
-        if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
-          existing.push({
-            checkItemId: item.id,
-            ratingLabel: 'A',
-            ratingDefinition: 'Fully satisfies requirements',
-            comment: `Review for ${item.content}`,
-            isError: false,
-          });
-        }
-      }
-
-      writeResultsToFile(resultFilePath, existing);
-      return {};
-    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(reviewAgentInstance.generate).mockImplementation(writeGroupReviewResults as any);
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(mockGenerateWithFileWrite as any);
 
     const requestContext = createWorkflowRequestContext();
     const workflow = mastra.getWorkflow('reviewWorkflow');

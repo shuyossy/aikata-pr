@@ -192,11 +192,7 @@ const reviewExecutionStep = createStep({
   },
 });
 
-/**
- * foreachステップの最大並行実行数
- * AI APIへのリクエスト負荷とNode.jsのイベントループ負荷のバランスを考慮して設定。
- * グループ数がこの値を超える場合はキューイングされる。
- */
+// AI APIへのリクエスト負荷とNode.jsのイベントループ負荷のバランスを考慮
 const FOREACH_CONCURRENCY = 5;
 
 /**
