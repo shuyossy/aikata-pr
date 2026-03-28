@@ -60,6 +60,7 @@ function createTestRequestContext(
     ['mrDiff', '+ added line'],
     ['priorReviewContext', null],
     ['skillsPaths', []],
+    ['folderTree', 'src/\n  index.ts'],
   ]);
 }
 
@@ -609,6 +610,7 @@ describe('executeReview', () => {
         },
       ],
       ['skillsPaths', []],
+      ['folderTree', 'src/\n  index.ts'],
     ]);
 
     const config = createBaseConfig({

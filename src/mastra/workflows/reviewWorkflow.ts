@@ -64,6 +64,7 @@ const workflowInputSchema = z.object({
   priorDiffSincePrior: z.string().nullable(),
   skillsPaths: z.array(z.string()),
   resultFilePath: z.string(),
+  folderTree: z.string(),
 });
 
 /**
@@ -168,6 +169,7 @@ const reviewExecutionStep = createStep({
           : null,
       ],
       ['skillsPaths', initData.skillsPaths],
+      ['folderTree', initData.folderTree],
     ]);
 
     const results = await executeReview({

@@ -27,6 +27,7 @@ function createTestContext(
     mrDiff: '',
     priorReviewContext: null,
     skillsPaths: [],
+    folderTree: '',
     ...overrides,
   };
 }
@@ -55,6 +56,7 @@ function createTestRequestContext(
     ['mrDiff', ctx.mrDiff],
     ['priorReviewContext', ctx.priorReviewContext],
     ['skillsPaths', ctx.skillsPaths],
+    ['folderTree', ctx.folderTree],
   ]);
 }
 
@@ -254,6 +256,32 @@ describe('buildUserPrompt', () => {
     expect(result).toContain('Needs improvement');
     expect(result).toContain('perf check');
     expect(result).toContain('Good performance');
+  });
+
+  it('フォルダツリーがuserプロンプトに含まれる', () => {
+    const requestContext = createTestRequestContext({
+      folderTree: 'src/\n  domain/\n    CheckItem.ts\nREADME.md',
+    });
+
+    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+
+    expect(result).toContain('Project Folder Tree');
+    expect(result).toContain('src/\n  domain/\n    CheckItem.ts\nREADME.md');
+  });
+
+  it('フォルダツリーセクションがMR Diffセクションの前に配置される', () => {
+    const requestContext = createTestRequestContext({
+      folderTree: 'src/\n  index.ts',
+      mrDiff: '+ added line',
+    });
+
+    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+
+    const treeIndex = result.indexOf('Project Folder Tree');
+    const diffIndex = result.indexOf('Merge Request Diff');
+    expect(treeIndex).toBeGreaterThan(-1);
+    expect(diffIndex).toBeGreaterThan(-1);
+    expect(treeIndex).toBeLessThan(diffIndex);
   });
 
   it('チェック項目数がuserプロンプトに含まれる', () => {

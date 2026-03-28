@@ -16,3 +16,5 @@ variables:
   USER_ID: "$GITLAB_USER_LOGIN"
   LOG_LEVEL: "info"
   VERBOSE_ERROR: "false"
+  # Tree
+  TREE_MAX_DEPTH: ""

@@ -38,6 +38,7 @@ export interface ReviewAgentRequestContext extends WorkflowRequestContext {
     diffSincePrior: string;
   } | null;
   skillsPaths: string[];
+  folderTree: string;
 }
 
 /**

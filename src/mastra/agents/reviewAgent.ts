@@ -131,13 +131,25 @@ ${previousResultsText}
 `;
   }
 
+  const folderTreeSection = ctx.folderTree
+    ? `
+## Project Folder Tree
+
+The following is the folder/file tree of the project being reviewed:
+
+\`\`\`
+${ctx.folderTree}
+\`\`\`
+`
+    : '';
+
   return `## Merge Request Information
 
 - Title: ${ctx.mrTitle}
 - Description: ${ctx.mrDescription}
 - Source Branch: ${ctx.mrSourceBranch}
 - Target Branch: ${ctx.mrTargetBranch}
-
+${folderTreeSection}
 ## Merge Request Diff
 
 \`\`\`

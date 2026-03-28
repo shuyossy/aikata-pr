@@ -38,6 +38,7 @@ export interface ReviewWorkflowParams {
   projectDir: string;
   skillsPaths: string[];
   resultFilePath: string;
+  folderTree: string;
 }
 
 /**
@@ -108,6 +109,7 @@ export class ExecuteReviewService {
         projectDir: command.projectDir,
         skillsPaths: command.skillsPaths,
         resultFilePath,
+        folderTree: command.folderTree,
       });
 
       const results = this.convertToReviewResults(workflowResult, command);

@@ -66,6 +66,7 @@ function createWorkflowInput(overrides: Record<string, unknown> = {}) {
     priorDiffSincePrior: null,
     skillsPaths: [],
     resultFilePath: '',
+    folderTree: 'src/\n  index.ts',
     ...overrides,
   };
 }

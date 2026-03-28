@@ -11,6 +11,7 @@ import { ExecuteReviewService } from './application/executeReview/ExecuteReviewS
 import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
 import { GitLabMrGateway } from './infrastructure/adapter/gateway/index.js';
 import { GitLabMrCommentGateway } from './infrastructure/adapter/gateway/index.js';
+import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/index.js';
 import { reviewWorkflow } from './mastra/workflows/index.js';
 import { ReviewSettings } from './domain/reviewSettings/index.js';
 import { RequestContext } from '@mastra/core/request-context';
@@ -137,6 +138,18 @@ async function main(): Promise<void> {
     // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
     const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
 
+    // フォルダツリー取得
+    const treeGateway = new LocalProjectTreeGateway();
+    const treeMaxDepthEnv = process.env['TREE_MAX_DEPTH'];
+    let treeMaxDepth: number | undefined;
+    if (treeMaxDepthEnv) {
+      treeMaxDepth = Number(treeMaxDepthEnv);
+      if (!Number.isInteger(treeMaxDepth) || treeMaxDepth < 1) {
+        throw new Error(`Invalid TREE_MAX_DEPTH: ${treeMaxDepthEnv}. Must be a positive integer.`);
+      }
+    }
+    const folderTree = await treeGateway.getTree(projectDir, { maxDepth: treeMaxDepth });
+
     const result = await service.execute({
       userId: validated.userId,
       projectId: validated.projectId,
@@ -149,6 +162,7 @@ async function main(): Promise<void> {
       aiApiEndpointUrl: validated.aiApiEndpointUrl,
       aiModelName: options.aiModelName,
       gitlabToken: validated.gitlabToken,
+      folderTree,
     });
 
     logger.info(

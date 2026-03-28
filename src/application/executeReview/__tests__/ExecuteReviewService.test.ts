@@ -50,6 +50,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
     aiApiEndpointUrl: 'https://api.example.com',
     aiModelName: 'openai/o4-mini',
     gitlabToken: 'test-gitlab-token',
+    folderTree: 'src/\n  index.ts',
     ...overrides,
   };
 }
@@ -572,5 +573,6 @@ describe('ExecuteReviewService', () => {
     expect(runCall.aiApiEndpointUrl).toBe('https://api.example.com');
     expect(runCall.aiModelName).toBe('openai/o4-mini');
     expect(runCall.skillsPaths).toEqual([]);
+    expect(runCall.folderTree).toBe('src/\n  index.ts');
   });
 });

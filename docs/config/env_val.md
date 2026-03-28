@@ -16,4 +16,5 @@
 | 動作設定 | USER_ID | Yes | - | 実行ユーザID | --user-id | - |
 | 動作設定 | LOG_LEVEL | No | info | ログレベル | --log-level | - |
 | 動作設定 | VERBOSE_ERROR | No | false | エラーログ詳細表示の有無 | --verbose-error | - |
+| 動作設定 | TREE_MAX_DEPTH | No | 無制限 | フォルダツリー走査の最大深度。正の整数を指定。未指定時は深さ制限なし（エントリ数制限のみ適用） | なし（環境変数のみ） | - |
 | 環境 | CI_PROJECT_DIR | No | process.cwd() | プロジェクトルートディレクトリ。Workspace（ファイルシステム・サンドボックス）のベースパスとして利用。CI環境では自動設定 | なし（環境変数のみ） | - |
