@@ -13,11 +13,15 @@ vi.mock('../../agents/checklistSplitAgent.js', () => ({
   },
 }));
 
-vi.mock('../../agents/reviewAgent.js', () => ({
-  reviewAgent: {
-    generate: vi.fn(),
-  },
-}));
+vi.mock('../../agents/reviewAgent.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agents/reviewAgent.js')>();
+  return {
+    ...actual,
+    reviewAgent: {
+      generate: vi.fn(),
+    },
+  };
+});
 
 import { checklistSplitAgent } from '../../agents/checklistSplitAgent.js';
 import { reviewAgent } from '../../agents/reviewAgent.js';

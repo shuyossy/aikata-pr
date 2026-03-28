@@ -28,5 +28,6 @@ Rules:
 - Every input item must appear in exactly one group.
 - Do not add or remove any items.
 - Return item IDs (the numbers shown in [ID: N]) instead of text.
-- Group by thematic similarity (e.g., code quality items together, security items together, performance items together, etc.).`,
+- Group by thematic similarity (e.g., code quality items together, security items together, performance items together, etc.).
+- Try to keep groups roughly equal in size, close to the target group size.`,
 });

@@ -7,6 +7,7 @@ import { Rating } from '../../../domain/rating/index.js';
 import { CheckItem } from '../../../domain/checkItem/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
 import { readStoredResults } from '../../types.js';
+import { buildUserPrompt } from '../../agents/reviewAgent.js';
 
 /**
  * レビュー実行ステップの設定
@@ -44,8 +45,8 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
   const memoryOption = { thread: threadId, resource: resourceId };
 
   try {
-    // 初回のエージェント実行
-    const prompt = `Review all ${checkItems.length} check items and store results using the storeReviewResult tool. The result file path is: ${resultFilePath}`;
+    // 初回のエージェント実行（MR情報・diff・過去結果を含むuserプロンプト）
+    const prompt = buildUserPrompt(requestContext, resultFilePath);
 
     try {
       await agent.generate(prompt, { requestContext, memory: memoryOption });

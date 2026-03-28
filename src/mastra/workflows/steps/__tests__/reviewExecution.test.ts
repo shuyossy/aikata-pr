@@ -188,6 +188,39 @@ describe('executeReview', () => {
     expect(callOptions.requestContext).toBe(requestContext);
   });
 
+  it('初回のuserプロンプトにMR情報とresultFilePathが含まれる', async () => {
+    const checkItems = makeItems(['check1']);
+    const generateFn = vi.fn().mockImplementation(async () => {
+      writeResultsToFile(resultFilePath, [
+        {
+          checkItemId: 1,
+          ratingLabel: 'A',
+          ratingDefinition: 'Fully satisfies requirements',
+          comment: 'Good',
+          isError: false,
+        },
+      ]);
+    });
+    const mockAgent = createMockAgent(generateFn);
+    const requestContext = createTestRequestContext(checkItems);
+    const config = createBaseConfig({
+      checkItems,
+      resultFilePath,
+      agent: mockAgent,
+      requestContext,
+    });
+
+    await executeReview(config);
+
+    const prompt = generateFn.mock.calls[0][0] as string;
+    // userプロンプトにMR情報が含まれること
+    expect(prompt).toContain('Test MR');
+    expect(prompt).toContain('Test description');
+    expect(prompt).toContain('feature/test');
+    // resultFilePathが含まれること
+    expect(prompt).toContain(resultFilePath);
+  });
+
   it('Agent実行後に漏れがあった場合、再度Agentに指示される (max 2 retries)', async () => {
     const checkItems = makeItems(['item1', 'item2', 'item3']);
 
