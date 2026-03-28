@@ -62,10 +62,25 @@ function createTestRequestContext(
 }
 
 /**
+ * テスト用のモックMemoryを作成するヘルパー
+ */
+function createMockMemory() {
+  return {
+    deleteThread: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+/**
  * テスト用のモックAgentを作成するヘルパー
  */
-function createMockAgent(generateFn: (...args: unknown[]) => Promise<unknown>): Agent {
-  return { generate: generateFn } as unknown as Agent;
+function createMockAgent(
+  generateFn: (...args: unknown[]) => Promise<unknown>,
+  mockMemory = createMockMemory(),
+): Agent {
+  return {
+    generate: generateFn,
+    getMemory: vi.fn().mockResolvedValue(mockMemory),
+  } as unknown as Agent;
 }
 
 /**
@@ -373,6 +388,148 @@ describe('executeReview', () => {
     expect(results).toHaveLength(1);
     expect(results[0].isError).toBe(true);
     expect(results[0].errorMessage).toBe('Tool execution failed');
+  });
+
+  it('generate呼び出し時にmemoryオプション（thread, resource）が渡される', async () => {
+    const checkItems = makeItems(['check1']);
+    const generateFn = vi.fn().mockImplementation(async () => {
+      writeResultsToFile(resultFilePath, [
+        {
+          checkItemId: 1,
+          ratingLabel: 'A',
+          ratingDefinition: 'Fully satisfies requirements',
+          comment: 'Good',
+          isError: false,
+        },
+      ]);
+    });
+    const mockAgent = createMockAgent(generateFn);
+    const requestContext = createTestRequestContext(checkItems);
+    const config = createBaseConfig({
+      checkItems,
+      resultFilePath,
+      agent: mockAgent,
+      requestContext,
+    });
+
+    await executeReview(config);
+
+    expect(generateFn).toHaveBeenCalledTimes(1);
+    const callOptions = generateFn.mock.calls[0][1];
+    expect(callOptions.memory).toBeDefined();
+    expect(callOptions.memory.thread).toEqual(expect.any(String));
+    expect(callOptions.memory.thread).toHaveLength(36); // UUID形式
+    expect(callOptions.memory.resource).toBe('test-user');
+  });
+
+  it('リトライ時も同じthreadIdが使用される', async () => {
+    const checkItems = makeItems(['item1', 'item2']);
+
+    let callCount = 0;
+    const generateFn = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        writeResultsToFile(resultFilePath, [
+          {
+            checkItemId: 1,
+            ratingLabel: 'A',
+            ratingDefinition: 'Fully satisfies requirements',
+            comment: 'Good',
+            isError: false,
+          },
+        ]);
+      } else {
+        const existing = JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'));
+        existing.push({
+          checkItemId: 2,
+          ratingLabel: 'B',
+          ratingDefinition: 'Partially satisfies requirements',
+          comment: 'OK',
+          isError: false,
+        });
+        writeResultsToFile(resultFilePath, existing);
+      }
+    });
+    const mockAgent = createMockAgent(generateFn);
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    await executeReview(config);
+
+    expect(generateFn).toHaveBeenCalledTimes(2);
+    const firstCallMemory = generateFn.mock.calls[0][1].memory;
+    const secondCallMemory = generateFn.mock.calls[1][1].memory;
+    expect(firstCallMemory.thread).toBe(secondCallMemory.thread);
+    expect(firstCallMemory.resource).toBe(secondCallMemory.resource);
+  });
+
+  it('実行完了後にスレッドが削除される', async () => {
+    const checkItems = makeItems(['check1']);
+    const mockMemory = createMockMemory();
+    const generateFn = vi.fn().mockImplementation(async () => {
+      writeResultsToFile(resultFilePath, [
+        {
+          checkItemId: 1,
+          ratingLabel: 'A',
+          ratingDefinition: 'Fully satisfies requirements',
+          comment: 'Good',
+          isError: false,
+        },
+      ]);
+    });
+    const mockAgent = createMockAgent(generateFn, mockMemory);
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    await executeReview(config);
+
+    expect(mockMemory.deleteThread).toHaveBeenCalledTimes(1);
+    // deleteThreadに渡されたthreadIdがgenerate時のthreadIdと一致する
+    const usedThreadId = generateFn.mock.calls[0][1].memory.thread;
+    expect(mockMemory.deleteThread).toHaveBeenCalledWith(usedThreadId);
+  });
+
+  it('エージェントエラー時でもスレッドが削除される', async () => {
+    const checkItems = makeItems(['check1']);
+    const mockMemory = createMockMemory();
+    const mockAgent = createMockAgent(
+      vi.fn().mockRejectedValue(new Error('AI API failed')),
+      mockMemory,
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    await executeReview(config);
+
+    // エラーでもfinallyでクリーンアップが実行される
+    expect(mockMemory.deleteThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('スレッド削除が失敗しても結果は正常に返される', async () => {
+    const checkItems = makeItems(['check1']);
+    const mockMemory = {
+      deleteThread: vi.fn().mockRejectedValue(new Error('DB locked')),
+    };
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
+        writeResultsToFile(resultFilePath, [
+          {
+            checkItemId: 1,
+            ratingLabel: 'A',
+            ratingDefinition: 'Fully satisfies requirements',
+            comment: 'Good',
+            isError: false,
+          },
+        ]);
+      }),
+      mockMemory,
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    const results = await executeReview(config);
+
+    // クリーンアップ失敗してもレビュー結果は正常に返される
+    expect(results).toHaveLength(1);
+    expect(results[0].isError).toBe(false);
+    expect(results[0].rating.label).toBe('A');
+    expect(mockMemory.deleteThread).toHaveBeenCalledTimes(1);
   });
 
   it('priorReviewContextがRequestContextに含まれる場合でも正しくレビュー結果が返される', async () => {

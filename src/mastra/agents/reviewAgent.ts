@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
+import { Memory } from '@mastra/memory';
 import type { ReviewAgentRequestContext } from '../requestContext.js';
 import { createModelFromContext } from '../requestContext.js';
 import { storeReviewResultTool } from '../tools/storeReviewResult.js';
@@ -82,10 +83,27 @@ ${ctx.additionalInstructions ? `## Additional Instructions\n\n${ctx.additionalIn
 }
 
 /**
+ * レビューエージェント用メモリ
+ *
+ * リトライ時に会話履歴を保持するためのメモリ設定。
+ * lastMessages: 全メッセージをコンテキストに含めることで、
+ * リトライ時に初回のツール呼び出し履歴等を参照可能にする。
+ *
+ * 前提: 各スレッドはexecuteReview()の実行単位で作成・削除されるため、
+ * 会話は最大3回（初回 + リトライ2回）に限定される。
+ */
+const reviewAgentMemory = new Memory({
+  options: {
+    lastMessages: Number.MAX_SAFE_INTEGER,
+  },
+});
+
+/**
  * レビューエージェント（シングルトン）
  *
  * MRのコードをチェック項目ごとにレビューし、評定とコメントを付けるエージェント。
  * モデルとinstructionsはRequestContextから動的に生成される。
+ * メモリにより、リトライ時に会話履歴が保持される。
  */
 export const reviewAgent = new Agent<
   'review-agent',
@@ -95,6 +113,7 @@ export const reviewAgent = new Agent<
 >({
   id: 'review-agent',
   name: 'Review Agent',
+  memory: reviewAgentMemory,
   model: ({ requestContext }) => {
     const ctx = requestContext.all as ReviewAgentRequestContext;
     return createModelFromContext(ctx);
