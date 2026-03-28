@@ -16,3 +16,4 @@
 | 動作設定 | USER_ID | Yes | - | 実行ユーザID | --user-id | - |
 | 動作設定 | LOG_LEVEL | No | info | ログレベル | --log-level | - |
 | 動作設定 | VERBOSE_ERROR | No | false | エラーログ詳細表示の有無 | --verbose-error | - |
+| 環境 | CI_PROJECT_DIR | No | process.cwd() | プロジェクトルートディレクトリ。Workspace（ファイルシステム・サンドボックス）のベースパスとして利用。CI環境では自動設定 | なし（環境変数のみ） | - |

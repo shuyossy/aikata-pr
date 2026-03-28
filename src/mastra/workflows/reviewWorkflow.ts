@@ -81,6 +81,7 @@ const requestContextSchema = z.object({
   aiApiKey: z.string(),
   aiApiEndpointUrl: z.string(),
   aiModelName: z.string(),
+  projectDir: z.string(),
 });
 
 /**
@@ -142,6 +143,7 @@ const reviewExecutionStep = createStep({
       ['aiApiKey', workflowCtx.aiApiKey],
       ['aiApiEndpointUrl', workflowCtx.aiApiEndpointUrl],
       ['aiModelName', workflowCtx.aiModelName],
+      ['projectDir', workflowCtx.projectDir],
       ['checkItems', checkItems],
       ['ratings', initData.ratings.map((r) => ({ label: r.label, definition: r.definition }))],
       ['commentFormat', initData.commentFormat],
@@ -165,6 +167,7 @@ const reviewExecutionStep = createStep({
             }
           : null,
       ],
+      ['skillsPaths', initData.skillsPaths],
     ]);
 
     const results = await executeReview({

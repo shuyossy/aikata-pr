@@ -3,13 +3,14 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { IndexedCheckItem } from './indexedCheckItem.js';
 
 /**
- * ワークフローレベルのRequestContext型（モデル設定のみ）
+ * ワークフローレベルのRequestContext型（モデル設定 + プロジェクト情報）
  */
 export interface WorkflowRequestContext {
   userId: string;
   aiApiKey: string;
   aiApiEndpointUrl: string;
   aiModelName: string;
+  projectDir: string;
 }
 
 /**
@@ -36,6 +37,7 @@ export interface ReviewAgentRequestContext extends WorkflowRequestContext {
     commitMessages: string[];
     diffSincePrior: string;
   } | null;
+  skillsPaths: string[];
 }
 
 /**

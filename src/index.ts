@@ -22,15 +22,16 @@ import fs from 'node:fs';
  */
 class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
   async run(params: ReviewWorkflowParams): Promise<ReviewWorkflowResult> {
-    // inputDataからモデル設定を分離
-    const { userId, aiApiKey, aiApiEndpointUrl, aiModelName, ...inputData } = params;
+    // inputDataからモデル設定・プロジェクト情報を分離
+    const { userId, aiApiKey, aiApiEndpointUrl, aiModelName, projectDir, ...inputData } = params;
 
-    // モデル設定をRequestContextに設定
+    // モデル設定・プロジェクト情報をRequestContextに設定
     const requestContext = new RequestContext<WorkflowRequestContext>([
       ['userId', userId],
       ['aiApiKey', aiApiKey],
       ['aiApiEndpointUrl', aiApiEndpointUrl],
       ['aiModelName', aiModelName],
+      ['projectDir', projectDir],
     ]);
 
     const run = await reviewWorkflow.createRun();
@@ -133,6 +134,9 @@ async function main(): Promise<void> {
 
     const service = new ExecuteReviewService(mrGateway, mrCommentGateway, workflowRunner);
 
+    // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
+    const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
+
     const result = await service.execute({
       userId: validated.userId,
       projectId: validated.projectId,
@@ -140,6 +144,7 @@ async function main(): Promise<void> {
       checklist,
       reviewSettings,
       skillsPaths: options.skills ? [options.skills] : [],
+      projectDir,
       aiApiKey: validated.aiApiKey,
       aiApiEndpointUrl: validated.aiApiEndpointUrl,
       aiModelName: options.aiModelName,

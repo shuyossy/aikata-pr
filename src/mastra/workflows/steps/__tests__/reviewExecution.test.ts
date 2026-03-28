@@ -41,6 +41,7 @@ function createTestRequestContext(
     ['aiApiKey', 'test-key'],
     ['aiApiEndpointUrl', 'http://localhost'],
     ['aiModelName', 'test-model'],
+    ['projectDir', '/test/project'],
     ['checkItems', checkItems],
     [
       'ratings',
@@ -58,6 +59,7 @@ function createTestRequestContext(
     ['mrTargetBranch', 'main'],
     ['mrDiff', '+ added line'],
     ['priorReviewContext', null],
+    ['skillsPaths', []],
   ]);
 }
 
@@ -555,6 +557,7 @@ describe('executeReview', () => {
       ['aiApiKey', 'test-key'],
       ['aiApiEndpointUrl', 'http://localhost'],
       ['aiModelName', 'test-model'],
+      ['projectDir', '/test/project'],
       ['checkItems', checkItems],
       ['ratings', [{ label: 'A', definition: 'Fully satisfies requirements' }]],
       ['commentFormat', '## Review\n{comment}'],
@@ -572,6 +575,7 @@ describe('executeReview', () => {
           diffSincePrior: '+ new line',
         },
       ],
+      ['skillsPaths', []],
     ]);
 
     const config = createBaseConfig({

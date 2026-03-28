@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
+import { Workspace, LocalFilesystem, LocalSandbox } from '@mastra/core/workspace';
 import { Memory } from '@mastra/memory';
 import type { ReviewAgentRequestContext } from '../requestContext.js';
 import { createModelFromContext } from '../requestContext.js';
@@ -72,6 +73,15 @@ ${ctx.commentFormat}
 
 ${ctx.additionalInstructions ? `## Additional Instructions\n\n${ctx.additionalInstructions}` : ''}
 
+## Available Workspace Tools
+
+You have access to workspace tools for investigating the project codebase:
+- Use the workspace file tools (reading files, listing directories, searching file contents) to examine source code when the diff alone is not sufficient for review.
+- Use the workspace command execution tool to run git commands or other project tools for deeper analysis.
+- The workspace root is the project repository root directory.
+
+Only use workspace tools when the diff is genuinely insufficient for evaluation. Most check items can be evaluated from the diff alone.
+
 ## Instructions
 
 1. Review the merge request diff carefully against each check item.
@@ -99,10 +109,30 @@ const reviewAgentMemory = new Memory({
 });
 
 /**
+ * RequestContextからWorkspaceを動的に生成するファクトリ
+ *
+ * プロジェクトディレクトリをbasePath/workingDirectoryとして設定し、
+ * ユーザ指定のskillsパスを登録する。
+ * filesystemはreadOnlyにすることで、レビュー時の意図しない書き込みを防ぐ。
+ */
+export function createWorkspaceFromContext(ctx: ReviewAgentRequestContext): Workspace {
+  return new Workspace({
+    filesystem: new LocalFilesystem({
+      basePath: ctx.projectDir,
+      readOnly: true,
+    }),
+    sandbox: new LocalSandbox({
+      workingDirectory: ctx.projectDir,
+    }),
+    skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
+  });
+}
+
+/**
  * レビューエージェント（シングルトン）
  *
  * MRのコードをチェック項目ごとにレビューし、評定とコメントを付けるエージェント。
- * モデルとinstructionsはRequestContextから動的に生成される。
+ * モデル、instructions、workspaceはRequestContextから動的に生成される。
  * メモリにより、リトライ時に会話履歴が保持される。
  */
 export const reviewAgent = new Agent<
@@ -122,4 +152,8 @@ export const reviewAgent = new Agent<
     return buildInstructions(requestContext);
   },
   tools: reviewAgentTools,
+  workspace: ({ requestContext }) => {
+    const ctx = requestContext.all as ReviewAgentRequestContext;
+    return createWorkspaceFromContext(ctx);
+  },
 });

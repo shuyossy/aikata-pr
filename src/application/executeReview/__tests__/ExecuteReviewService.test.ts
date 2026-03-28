@@ -45,6 +45,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
       ],
     }),
     skillsPaths: [],
+    projectDir: '/test/project',
     aiApiKey: 'test-api-key',
     aiApiEndpointUrl: 'https://api.example.com',
     aiModelName: 'openai/o4-mini',

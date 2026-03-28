@@ -35,6 +35,7 @@ export interface ReviewWorkflowParams {
   aiApiKey: string;
   aiApiEndpointUrl: string;
   aiModelName: string;
+  projectDir: string;
   skillsPaths: string[];
   resultFilePath: string;
 }
@@ -104,6 +105,7 @@ export class ExecuteReviewService {
         aiApiKey: command.aiApiKey,
         aiApiEndpointUrl: command.aiApiEndpointUrl,
         aiModelName: command.aiModelName,
+        projectDir: command.projectDir,
         skillsPaths: command.skillsPaths,
         resultFilePath,
       });

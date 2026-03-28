@@ -11,6 +11,7 @@ export interface ExecuteReviewCommand {
   checklist: Checklist;
   reviewSettings: ReviewSettings;
   skillsPaths: string[];
+  projectDir: string;
   aiApiKey: string;
   aiApiEndpointUrl: string;
   aiModelName: string;

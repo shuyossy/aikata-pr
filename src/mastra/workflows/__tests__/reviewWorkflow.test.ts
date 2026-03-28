@@ -34,6 +34,7 @@ function createWorkflowRequestContext(): RequestContext<WorkflowRequestContext> 
     ['aiApiKey', 'test-key'],
     ['aiApiEndpointUrl', 'http://localhost:8080'],
     ['aiModelName', 'test-model'],
+    ['projectDir', '/test/project'],
   ]);
 }
 
