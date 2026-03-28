@@ -2,6 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import * as fs from 'node:fs';
 import { readStoredResults, type StoredReviewResult } from '../types.js';
+import type { IndexedCheckItem } from '../indexedCheckItem.js';
 
 // Atomics.waitによる同期スリープ用バッファ
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -52,10 +53,25 @@ export const storeReviewResultTool = createTool({
   }),
   outputSchema: z.object({
     success: z.boolean().describe('Whether the store operation succeeded'),
+    message: z.string().optional().describe('Error or informational message'),
   }),
-  execute: async (inputData) => {
+  execute: async (inputData, context) => {
     const { filePath, checkItemId, ratingLabel, ratingDefinition, comment, isError, errorMessage } =
       inputData;
+
+    // RequestContextからチェック項目一覧を取得し、IDが対象範囲内か検証する
+    const checkItems = context?.requestContext?.get('checkItems') as IndexedCheckItem[] | undefined;
+    if (checkItems && checkItems.length > 0) {
+      const validIds = checkItems.map((item) => item.id);
+      if (!validIds.includes(checkItemId)) {
+        const targetList = checkItems.map((item) => `[ID: ${item.id}] ${item.content}`).join(', ');
+        return {
+          success: false,
+          message: `checkItemId ${checkItemId} is not in your assigned review targets. Your targets are: ${targetList}`,
+        };
+      }
+    }
+
     const lockPath = `${filePath}.lock`;
 
     acquireLock(lockPath);

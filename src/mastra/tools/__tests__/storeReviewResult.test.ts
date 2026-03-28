@@ -2,7 +2,9 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { RequestContext } from '@mastra/core/request-context';
 import { storeReviewResultTool } from '../storeReviewResult.js';
+import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 
 /**
  * Mastra Toolのexecuteを型安全に呼び出すヘルパー
@@ -140,5 +142,125 @@ describe('storeReviewResult', () => {
     expect(stored).toHaveLength(1);
     expect(stored[0].isError).toBe(true);
     expect(stored[0].errorMessage).toBe('AI API request timed out');
+  });
+});
+
+/**
+ * checkItems付きコンテキストでexecuteを呼び出すヘルパー
+ */
+const executeStoreWithContext = (
+  input: {
+    filePath: string;
+    checkItemId: number;
+    ratingLabel: string;
+    ratingDefinition: string;
+    comment: string;
+    isError: boolean;
+    errorMessage?: string;
+  },
+  checkItems: IndexedCheckItem[],
+): Promise<{ success: boolean; message?: string }> => {
+  const executeFn = storeReviewResultTool.execute;
+  if (!executeFn) throw new Error('execute is not defined');
+  const requestContext = new RequestContext([['checkItems', checkItems]]);
+  const context = {
+    requestContext,
+  } as Parameters<NonNullable<typeof storeReviewResultTool.execute>>[1];
+  return executeFn(input, context) as Promise<{ success: boolean; message?: string }>;
+};
+
+describe('storeReviewResult - チェック項目IDバリデーション', () => {
+  let tmpDir: string;
+  let filePath: string;
+
+  const createTmpDir = (): void => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-review-result-'));
+    filePath = path.join(tmpDir, 'results.json');
+  };
+
+  afterEach(() => {
+    if (tmpDir && fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('担当チェック項目のIDで呼び出した場合、結果が保存される', async () => {
+    createTmpDir();
+    const checkItems: IndexedCheckItem[] = [
+      { id: 1, content: 'セキュリティチェック' },
+      { id: 2, content: 'パフォーマンスチェック' },
+    ];
+
+    const result = await executeStoreWithContext(
+      {
+        filePath,
+        checkItemId: 1,
+        ratingLabel: 'A',
+        ratingDefinition: '完全に満たしている',
+        comment: 'セキュリティは問題ありません',
+        isError: false,
+      },
+      checkItems,
+    );
+
+    expect(result.success).toBe(true);
+    const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    expect(stored).toHaveLength(1);
+    expect(stored[0].checkItemId).toBe(1);
+  });
+
+  it('担当外のチェック項目IDで呼び出した場合、結果が保存されずエラーメッセージが返される', async () => {
+    createTmpDir();
+    const checkItems: IndexedCheckItem[] = [
+      { id: 1, content: 'セキュリティチェック' },
+      { id: 2, content: 'パフォーマンスチェック' },
+    ];
+
+    const result = await executeStoreWithContext(
+      {
+        filePath,
+        checkItemId: 99,
+        ratingLabel: 'A',
+        ratingDefinition: '完全に満たしている',
+        comment: '問題ありません',
+        isError: false,
+      },
+      checkItems,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('99');
+    expect(result.message).toContain('[ID: 1]');
+    expect(result.message).toContain('[ID: 2]');
+    // ファイルが作成されていないことを確認
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  it('RequestContextにcheckItemsがない場合、バリデーションをスキップして保存される', async () => {
+    createTmpDir();
+    const executeFn = storeReviewResultTool.execute;
+    if (!executeFn) throw new Error('execute is not defined');
+
+    // checkItemsを含まないRequestContext
+    const requestContext = new RequestContext([]);
+    const context = {
+      requestContext,
+    } as Parameters<NonNullable<typeof storeReviewResultTool.execute>>[1];
+
+    const result = (await executeFn(
+      {
+        filePath,
+        checkItemId: 1,
+        ratingLabel: 'A',
+        ratingDefinition: '完全に満たしている',
+        comment: '問題ありません',
+        isError: false,
+      },
+      context,
+    )) as { success: boolean };
+
+    expect(result.success).toBe(true);
+    const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    expect(stored).toHaveLength(1);
   });
 });
