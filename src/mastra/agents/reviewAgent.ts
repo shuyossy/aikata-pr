@@ -17,7 +17,9 @@ function buildInstructions(requestContext: RequestContext<ReviewAgentRequestCont
   const ctx = requestContext.all;
 
   const ratingsText = ctx.ratings.map((r) => `- ${r.label}: ${r.definition}`).join('\n');
-  const checkItemsText = ctx.checkItems.map((item, i) => `${i + 1}. ${item}`).join('\n');
+  const checkItemsText = ctx.checkItems
+    .map((item) => `[ID: ${item.id}] ${item.content}`)
+    .join('\n');
 
   let priorReviewText = '';
   if (ctx.priorReviewContext) {
@@ -74,7 +76,7 @@ ${ctx.additionalInstructions ? `## Additional Instructions\n\n${ctx.additionalIn
 1. Review the merge request diff carefully against each check item.
 2. For each check item, determine the appropriate rating based on the rating criteria.
 3. Write a comment for each check item using the specified comment format.
-4. Use the storeReviewResult tool to store EACH result. You MUST call storeReviewResult for EVERY check item listed above.
+4. Use the storeReviewResult tool to store EACH result. Use the check item ID (the number shown in [ID: N]) as the checkItemId parameter. You MUST call storeReviewResult for EVERY check item listed above.
 5. After storing all results, use getReviewResults to verify that all check items have been reviewed.
 6. Do NOT finish until ALL check items have been reviewed and stored.`;
 }

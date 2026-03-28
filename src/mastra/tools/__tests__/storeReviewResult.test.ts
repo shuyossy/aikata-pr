@@ -10,7 +10,7 @@ import { storeReviewResultTool } from '../storeReviewResult.js';
  */
 const executeStore = (input: {
   filePath: string;
-  checkItemContent: string;
+  checkItemId: number;
   ratingLabel: string;
   ratingDefinition: string;
   comment: string;
@@ -46,7 +46,7 @@ describe('storeReviewResult', () => {
     createTmpDir();
     const result = await executeStore({
       filePath,
-      checkItemContent: 'コードの可読性',
+      checkItemId: 1,
       ratingLabel: 'A',
       ratingDefinition: '完全に満たしている',
       comment: '可読性は十分です',
@@ -58,7 +58,7 @@ describe('storeReviewResult', () => {
     const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     expect(stored).toHaveLength(1);
     expect(stored[0]).toEqual({
-      checkItemContent: 'コードの可読性',
+      checkItemId: 1,
       ratingLabel: 'A',
       ratingDefinition: '完全に満たしている',
       comment: '可読性は十分です',
@@ -71,7 +71,7 @@ describe('storeReviewResult', () => {
     // 1件目を書き込み
     await executeStore({
       filePath,
-      checkItemContent: 'コードの可読性',
+      checkItemId: 1,
       ratingLabel: 'A',
       ratingDefinition: '完全に満たしている',
       comment: '可読性は十分です',
@@ -81,7 +81,7 @@ describe('storeReviewResult', () => {
     // 2件目を書き込み
     await executeStore({
       filePath,
-      checkItemContent: 'テストカバレッジ',
+      checkItemId: 2,
       ratingLabel: 'B',
       ratingDefinition: '概ね満たしている',
       comment: 'カバレッジは75%です',
@@ -90,26 +90,26 @@ describe('storeReviewResult', () => {
 
     const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     expect(stored).toHaveLength(2);
-    expect(stored[0].checkItemContent).toBe('コードの可読性');
-    expect(stored[1].checkItemContent).toBe('テストカバレッジ');
+    expect(stored[0].checkItemId).toBe(1);
+    expect(stored[1].checkItemId).toBe(2);
   });
 
-  it('同じチェック項目の結果は上書きされる', async () => {
+  it('同じチェック項目IDの結果は上書きされる', async () => {
     createTmpDir();
     // 1回目の書き込み
     await executeStore({
       filePath,
-      checkItemContent: 'コードの可読性',
+      checkItemId: 1,
       ratingLabel: 'C',
       ratingDefinition: '改善が必要',
       comment: '可読性が低いです',
       isError: false,
     });
 
-    // 同じチェック項目で2回目の書き込み（上書き）
+    // 同じIDで2回目の書き込み（上書き）
     await executeStore({
       filePath,
-      checkItemContent: 'コードの可読性',
+      checkItemId: 1,
       ratingLabel: 'A',
       ratingDefinition: '完全に満たしている',
       comment: '修正後、可読性は十分です',
@@ -126,7 +126,7 @@ describe('storeReviewResult', () => {
     createTmpDir();
     const result = await executeStore({
       filePath,
-      checkItemContent: 'セキュリティチェック',
+      checkItemId: 3,
       ratingLabel: 'エラー',
       ratingDefinition: 'エラーが発生しました',
       comment: 'Timeout occurred',

@@ -9,7 +9,7 @@ import { storeReviewResultTool } from '../storeReviewResult.js';
  * レビュー結果の型
  */
 interface ReviewResultEntry {
-  checkItemContent: string;
+  checkItemId: number;
   ratingLabel: string;
   ratingDefinition: string;
   comment: string;
@@ -23,7 +23,7 @@ interface ReviewResultEntry {
  */
 const executeStore = (input: {
   filePath: string;
-  checkItemContent: string;
+  checkItemId: number;
   ratingLabel: string;
   ratingDefinition: string;
   comment: string;
@@ -69,7 +69,7 @@ describe('getReviewResults', () => {
     // 事前にレビュー結果を格納
     await executeStore({
       filePath,
-      checkItemContent: 'コードの可読性',
+      checkItemId: 1,
       ratingLabel: 'A',
       ratingDefinition: '完全に満たしている',
       comment: '可読性は十分です',
@@ -78,7 +78,7 @@ describe('getReviewResults', () => {
 
     await executeStore({
       filePath,
-      checkItemContent: 'テストカバレッジ',
+      checkItemId: 2,
       ratingLabel: 'B',
       ratingDefinition: '概ね満たしている',
       comment: 'カバレッジは75%です',
@@ -89,14 +89,14 @@ describe('getReviewResults', () => {
 
     expect(result.results).toHaveLength(2);
     expect(result.results[0]).toEqual({
-      checkItemContent: 'コードの可読性',
+      checkItemId: 1,
       ratingLabel: 'A',
       ratingDefinition: '完全に満たしている',
       comment: '可読性は十分です',
       isError: false,
     });
     expect(result.results[1]).toEqual({
-      checkItemContent: 'テストカバレッジ',
+      checkItemId: 2,
       ratingLabel: 'B',
       ratingDefinition: '概ね満たしている',
       comment: 'カバレッジは75%です',

@@ -5,9 +5,29 @@ import { splitChecklist } from './steps/checklistSplit.js';
 import { executeReview } from './steps/reviewExecution.js';
 import { checklistSplitAgent } from '../agents/checklistSplitAgent.js';
 import { reviewAgent } from '../agents/reviewAgent.js';
-import { CheckItem } from '../../domain/checkItem/index.js';
+import { IndexedChecklist } from '../indexedCheckItem.js';
 import type { ReviewAgentRequestContext, WorkflowRequestContext } from '../requestContext.js';
-import { storedReviewResultSchema } from '../types.js';
+
+/**
+ * IndexedCheckItemのZodスキーマ（ワークフロー内部用）
+ */
+const indexedCheckItemSchema = z.object({
+  id: z.number(),
+  content: z.string(),
+});
+
+/**
+ * ワークフロー出力用の結果スキーマ（外部API用）
+ * 内部ではcheckItemIdで処理するが、外部にはcheckItemContentで返す
+ */
+const workflowResultItemSchema = z.object({
+  checkItemContent: z.string(),
+  ratingLabel: z.string(),
+  ratingDefinition: z.string(),
+  comment: z.string(),
+  isError: z.boolean(),
+  errorMessage: z.string().optional(),
+});
 
 /**
  * ワークフロー入力スキーマ
@@ -50,7 +70,7 @@ const workflowInputSchema = z.object({
  * ワークフロー出力スキーマ
  */
 const workflowOutputSchema = z.object({
-  results: z.array(storedReviewResultSchema),
+  results: z.array(workflowResultItemSchema),
 });
 
 /**
@@ -72,10 +92,11 @@ const checklistSplitStep = createStep({
   description: 'チェックリストをconcurrentReviewCountに基づいて分割する',
   inputSchema: workflowInputSchema,
   outputSchema: z.object({
-    groups: z.array(z.array(z.string())),
+    groups: z.array(z.array(indexedCheckItemSchema)),
   }),
   execute: async ({ inputData, requestContext }) => {
-    const items = inputData.checkItemContents.map((c) => new CheckItem(c));
+    const indexedChecklist = new IndexedChecklist(inputData.checkItemContents);
+    const items = indexedChecklist.items.slice();
 
     // concurrentReviewCountが2以上かつ総チェック項目数より少ない場合はAI分割を実行
     const needsAiSplit =
@@ -84,7 +105,7 @@ const checklistSplitStep = createStep({
 
     const groups = await splitChecklist(items, inputData.concurrentReviewCount, agentContext);
     return {
-      groups: groups.map((group) => group.map((item) => item.content)),
+      groups: groups.map((group) => group.map((item) => ({ id: item.id, content: item.content }))),
     };
   },
 });
@@ -97,24 +118,23 @@ const reviewExecutionStep = createStep({
   id: 'review-execution',
   description: '各グループのチェック項目をレビューする',
   inputSchema: z.object({
-    items: z.array(z.string()),
+    items: z.array(indexedCheckItemSchema),
   }),
   outputSchema: z.object({
-    results: z.array(storedReviewResultSchema),
+    results: z.array(workflowResultItemSchema),
   }),
   execute: async ({ inputData, getInitData, requestContext }) => {
     const initData = getInitData<typeof reviewWorkflow>();
-    const checkItems = inputData.items.map((c) => new CheckItem(c));
+    const checkItems = inputData.items;
 
     // ReviewAgent用のRequestContextを組み立てる
-    // ワークフローのRequestContext（モデル設定）+ initData（レビュー設定・MRコンテキスト）
     const workflowCtx = requestContext.all as WorkflowRequestContext;
     const agentRequestContext = new RequestContext<ReviewAgentRequestContext>([
       ['userId', workflowCtx.userId],
       ['aiApiKey', workflowCtx.aiApiKey],
       ['aiApiEndpointUrl', workflowCtx.aiApiEndpointUrl],
       ['aiModelName', workflowCtx.aiModelName],
-      ['checkItems', checkItems.map((item) => item.content)],
+      ['checkItems', checkItems],
       ['ratings', initData.ratings.map((r) => ({ label: r.label, definition: r.definition }))],
       ['commentFormat', initData.commentFormat],
       ['additionalInstructions', initData.additionalInstructions],

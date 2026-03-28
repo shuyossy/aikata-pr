@@ -1,14 +1,13 @@
 import { z } from 'zod';
 import type { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
-import { CheckItem } from '../../../domain/checkItem/index.js';
-import { Checklist } from '../../../domain/checklist/index.js';
+import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 
 /**
- * AI分割結果のスキーマ
+ * AI分割結果のスキーマ（ID番号のグループ）
  */
 const aiSplitOutputSchema = z.object({
-  groups: z.array(z.array(z.string())),
+  groups: z.array(z.array(z.number())),
 });
 
 /**
@@ -33,10 +32,10 @@ export interface AgentContext {
  * - それ以外: AI分割を試み、失敗時は機械的分割にフォールバック
  */
 export async function splitChecklist(
-  items: CheckItem[],
+  items: IndexedCheckItem[],
   concurrentReviewCount: number,
   agentContext: AgentContext | null,
-): Promise<CheckItem[][]> {
+): Promise<IndexedCheckItem[][]> {
   if (concurrentReviewCount === 1) {
     return items.map((item) => [item]);
   }
@@ -62,30 +61,31 @@ export async function splitChecklist(
 
 /**
  * Agentを呼び出してチェック項目をグルーピングする
+ * AIにはIDと内容を[ID: N]形式で提示し、IDのグループを返させる
  */
 async function callAgent(
   agentContext: AgentContext,
-  items: CheckItem[],
+  items: IndexedCheckItem[],
   concurrentReviewCount: number,
-): Promise<CheckItem[][]> {
-  const itemTexts = items.map((item, index) => `${index + 1}. ${item.content}`).join('\n');
+): Promise<IndexedCheckItem[][]> {
+  const itemTexts = items.map((item) => `[ID: ${item.id}] ${item.content}`).join('\n');
 
   const result = await agentContext.agent.generate(
-    `Group the following check items into groups of approximately ${concurrentReviewCount} items each:\n\n${itemTexts}`,
+    `Group the following check items into groups of approximately ${concurrentReviewCount} items each. Return the item IDs (the numbers shown in [ID: N]) grouped together:\n\n${itemTexts}`,
     {
       structuredOutput: { schema: aiSplitOutputSchema },
       requestContext: agentContext.requestContext,
     },
   );
 
-  // AI出力のグループ(string[][])をCheckItem[][]に変換
-  const resultObject = (result as { object: { groups: string[][] } }).object;
-  const contentToItem = buildContentToItemMap(items);
+  // AI出力のグループ(number[][])をIndexedCheckItem[][]に変換
+  const resultObject = (result as { object: { groups: number[][] } }).object;
+  const idToItem = buildIdToItemMap(items);
 
   return resultObject.groups.map((group) =>
     group
-      .map((content) => contentToItem.get(content))
-      .filter((item): item is CheckItem => item !== undefined),
+      .map((id) => idToItem.get(id))
+      .filter((item): item is IndexedCheckItem => item !== undefined),
   );
 }
 
@@ -100,21 +100,21 @@ async function callAgent(
  * 6. 最後のグループ以外がconcurrentReviewCount未満にならないように統合
  */
 export function adjustGroups(
-  groups: CheckItem[][],
-  allItems: CheckItem[],
+  groups: IndexedCheckItem[][],
+  allItems: IndexedCheckItem[],
   count: number,
-): CheckItem[][] {
-  const validContents = new Set(allItems.map((item) => item.content));
+): IndexedCheckItem[][] {
+  const validIds = new Set(allItems.map((item) => item.id));
 
   // 1. フラット化して重複除去（最初の出現を保持）、無効な項目を除去
-  const seen = new Set<string>();
-  const cleanedGroups: CheckItem[][] = [];
+  const seen = new Set<number>();
+  const cleanedGroups: IndexedCheckItem[][] = [];
 
   for (const group of groups) {
-    const cleanedGroup: CheckItem[] = [];
+    const cleanedGroup: IndexedCheckItem[] = [];
     for (const item of group) {
-      if (validContents.has(item.content) && !seen.has(item.content)) {
-        seen.add(item.content);
+      if (validIds.has(item.id) && !seen.has(item.id)) {
+        seen.add(item.id);
         cleanedGroup.push(item);
       }
     }
@@ -124,15 +124,15 @@ export function adjustGroups(
   }
 
   // 2. 漏れた項目をプールに追加
-  const pool: CheckItem[] = [];
+  const pool: IndexedCheckItem[] = [];
   for (const item of allItems) {
-    if (!seen.has(item.content)) {
+    if (!seen.has(item.id)) {
       pool.push(item);
     }
   }
 
   // 3. concurrentReviewCountを超えるグループを分割
-  const splitGroups: CheckItem[][] = [];
+  const splitGroups: IndexedCheckItem[][] = [];
   for (const group of cleanedGroups) {
     if (group.length <= count) {
       splitGroups.push(group);
@@ -154,7 +154,7 @@ export function adjustGroups(
   }
   // 残りのプール項目は新グループとして追加
   while (poolIndex < pool.length) {
-    const newGroup: CheckItem[] = [];
+    const newGroup: IndexedCheckItem[] = [];
     while (newGroup.length < count && poolIndex < pool.length) {
       newGroup.push(pool[poolIndex]);
       poolIndex++;
@@ -169,7 +169,7 @@ export function adjustGroups(
 /**
  * count未満のグループを統合して、最後のグループのみcount未満を許容する
  */
-function mergeUndersizedGroups(groups: CheckItem[][], count: number): CheckItem[][] {
+function mergeUndersizedGroups(groups: IndexedCheckItem[][], count: number): IndexedCheckItem[][] {
   if (groups.length <= 1) {
     return groups;
   }
@@ -178,20 +178,26 @@ function mergeUndersizedGroups(groups: CheckItem[][], count: number): CheckItem[
 }
 
 /**
- * 機械的分割: Checklist.splitByCount()を利用
+ * 機械的分割: 元のIDを保持したまま指定数ごとに分割する
  */
-function mechanicalSplit(items: CheckItem[], count: number): CheckItem[][] {
-  const checklist = new Checklist(items);
-  return checklist.splitByCount(count);
+function mechanicalSplit(items: IndexedCheckItem[], count: number): IndexedCheckItem[][] {
+  if (count <= 0) {
+    throw new Error('count must be greater than 0');
+  }
+  const groups: IndexedCheckItem[][] = [];
+  for (let i = 0; i < items.length; i += count) {
+    groups.push(items.slice(i, i + count));
+  }
+  return groups;
 }
 
 /**
- * CheckItem配列からcontent→CheckItemのMapを構築する
+ * IndexedCheckItem配列からid→IndexedCheckItemのMapを構築する
  */
-function buildContentToItemMap(items: CheckItem[]): Map<string, CheckItem> {
-  const map = new Map<string, CheckItem>();
+function buildIdToItemMap(items: IndexedCheckItem[]): Map<number, IndexedCheckItem> {
+  const map = new Map<number, IndexedCheckItem>();
   for (const item of items) {
-    map.set(item.content, item);
+    map.set(item.id, item);
   }
   return map;
 }

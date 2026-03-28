@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
  * storeReviewResultツール、getReviewResultsツール、reviewWorkflowで共通利用する
  */
 export const storedReviewResultSchema = z.object({
-  checkItemContent: z.string(),
+  checkItemId: z.number(),
   ratingLabel: z.string(),
   ratingDefinition: z.string(),
   comment: z.string(),

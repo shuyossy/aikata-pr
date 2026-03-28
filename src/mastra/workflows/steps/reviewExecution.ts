@@ -1,8 +1,9 @@
 import type { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
-import { CheckItem } from '../../../domain/checkItem/index.js';
+import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
 import { Rating } from '../../../domain/rating/index.js';
+import { CheckItem } from '../../../domain/checkItem/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
 import { readStoredResults } from '../../types.js';
 
@@ -13,7 +14,7 @@ import { readStoredResults } from '../../types.js';
  * RequestContext経由でAgentに渡されるため、このConfigには含めない。
  */
 export interface ReviewExecutionConfig {
-  checkItems: CheckItem[];
+  checkItems: IndexedCheckItem[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   agent: Agent<string, Record<string, any>, any, any>;
   requestContext: RequestContext<ReviewAgentRequestContext>;
@@ -43,7 +44,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
   } catch (error) {
     // 初回Agent失敗時は全項目をエラー結果として返す
     const errorMessage = error instanceof Error ? error.message : 'Agent execution failed';
-    return checkItems.map((item) => ReviewResult.error(item, errorMessage));
+    return checkItems.map((item) => ReviewResult.error(new CheckItem(item.content), errorMessage));
   }
 
   // 漏れチェックとリトライ
@@ -51,7 +52,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
 
   for (let retry = 0; retry < MAX_RETRIES; retry++) {
     const missingItems = checkItems.filter(
-      (item) => !storedResults.some((r) => r.checkItemContent === item.content),
+      (item) => !storedResults.some((r) => r.checkItemId === item.id),
     );
 
     if (missingItems.length === 0) {
@@ -60,7 +61,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
 
     // 漏れた項目についてリトライ
     try {
-      const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- ${i.content}`).join('\n')}\nResult file path: ${resultFilePath}`;
+      const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- [ID: ${i.id}] ${i.content}`).join('\n')}\nResult file path: ${resultFilePath}`;
       await agent.generate(retryPrompt, { requestContext });
       storedResults = readStoredResults(resultFilePath);
     } catch {
@@ -71,15 +72,16 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
 
   // 結果をReviewResultに変換
   return checkItems.map((item) => {
-    const stored = storedResults.find((r) => r.checkItemContent === item.content);
+    const stored = storedResults.find((r) => r.checkItemId === item.id);
+    const checkItem = new CheckItem(item.content);
     if (!stored) {
-      return ReviewResult.error(item, 'Review result not found after agent execution');
+      return ReviewResult.error(checkItem, 'Review result not found after agent execution');
     }
     if (stored.isError) {
-      return ReviewResult.error(item, stored.errorMessage ?? 'Unknown error');
+      return ReviewResult.error(checkItem, stored.errorMessage ?? 'Unknown error');
     }
     return ReviewResult.success(
-      item,
+      checkItem,
       new Rating(stored.ratingLabel, stored.ratingDefinition),
       stored.comment,
     );

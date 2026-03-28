@@ -10,7 +10,7 @@ import { storeReviewResultTool } from '../storeReviewResult.js';
  */
 const executeStore = (input: {
   filePath: string;
-  checkItemContent: string;
+  checkItemId: number;
   ratingLabel: string;
   ratingDefinition: string;
   comment: string;
@@ -49,7 +49,7 @@ describe('排他制御', () => {
     const promises = Array.from({ length: concurrentCount }, (_, i) =>
       executeStore({
         filePath,
-        checkItemContent: `チェック項目${i}`,
+        checkItemId: i + 1,
         ratingLabel: 'A',
         ratingDefinition: '完全に満たしている',
         comment: `コメント${i}`,
@@ -66,10 +66,10 @@ describe('排他制御', () => {
     const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     expect(stored).toHaveLength(concurrentCount);
 
-    // 全てのチェック項目が含まれていること
-    const contents = stored.map((r: { checkItemContent: string }) => r.checkItemContent);
+    // 全てのチェック項目IDが含まれていること
+    const ids = stored.map((r: { checkItemId: number }) => r.checkItemId);
     for (let i = 0; i < concurrentCount; i++) {
-      expect(contents).toContain(`チェック項目${i}`);
+      expect(ids).toContain(i + 1);
     }
   });
 });

@@ -43,7 +43,7 @@ export const storeReviewResultTool = createTool({
   description: 'Store a single review result to a JSON file with exclusive file locking',
   inputSchema: z.object({
     filePath: z.string().describe('Path to the JSON file for storing results'),
-    checkItemContent: z.string().describe('Content of the check item'),
+    checkItemId: z.number().describe('1-based ID of the check item'),
     ratingLabel: z.string().describe('Rating label (e.g., A, B, C)'),
     ratingDefinition: z.string().describe('Definition of the rating label'),
     comment: z.string().describe('Review comment'),
@@ -54,15 +54,8 @@ export const storeReviewResultTool = createTool({
     success: z.boolean().describe('Whether the store operation succeeded'),
   }),
   execute: async (inputData) => {
-    const {
-      filePath,
-      checkItemContent,
-      ratingLabel,
-      ratingDefinition,
-      comment,
-      isError,
-      errorMessage,
-    } = inputData;
+    const { filePath, checkItemId, ratingLabel, ratingDefinition, comment, isError, errorMessage } =
+      inputData;
     const lockPath = `${filePath}.lock`;
 
     acquireLock(lockPath);
@@ -70,7 +63,7 @@ export const storeReviewResultTool = createTool({
       const results: StoredReviewResult[] = readStoredResults(filePath);
 
       const newResult: StoredReviewResult = {
-        checkItemContent,
+        checkItemId,
         ratingLabel,
         ratingDefinition,
         comment,
@@ -80,7 +73,7 @@ export const storeReviewResultTool = createTool({
         newResult.errorMessage = errorMessage;
       }
 
-      const existingIndex = results.findIndex((r) => r.checkItemContent === checkItemContent);
+      const existingIndex = results.findIndex((r) => r.checkItemId === checkItemId);
       if (existingIndex >= 0) {
         results[existingIndex] = newResult;
       } else {

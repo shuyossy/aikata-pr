@@ -66,12 +66,12 @@ function createWorkflowInput(overrides: Record<string, unknown> = {}) {
 }
 
 /**
- * 結果ファイルにレビュー結果を書き込むヘルパー
+ * 結果ファイルにレビュー結果を書き込むヘルパー（ID方式）
  */
 function writeResultsToFile(
   filePath: string,
   results: Array<{
-    checkItemContent: string;
+    checkItemId: number;
     ratingLabel: string;
     ratingDefinition: string;
     comment: string;
@@ -115,7 +115,6 @@ describe('reviewWorkflow 結合テスト', () => {
   });
 
   it('concurrentReviewCount=1でend-to-end実行できる', async () => {
-    // concurrentReviewCount=1の場合、AI分割は不要（各項目が個別グループ）
     const inputData = createWorkflowInput({
       checkItemContents: ['security check', 'performance check'],
       concurrentReviewCount: 1,
@@ -124,20 +123,17 @@ describe('reviewWorkflow 結合テスト', () => {
 
     // ReviewAgentのgenerate()を設定: 各呼び出しで結果を結果ファイルに書き込む
     (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      // 既存の結果を読み込んで追加
       const existing = fs.existsSync(resultFilePath)
         ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
         : [];
 
-      // foreachで1グループ1項目ずつ処理されるため、呼び出しごとに異なる項目を返す
-      const items = ['security check', 'performance check'];
-      const nextItem = items.find(
-        (item) => !existing.some((r: { checkItemContent: string }) => r.checkItemContent === item),
-      );
+      // foreachで1グループ1項目ずつ処理されるため、呼び出しごとにIDでマッチ
+      const nextId = existing.length === 0 ? 1 : 2;
+      const nextItem = nextId === 1 ? 'security check' : 'performance check';
 
-      if (nextItem) {
+      if (!existing.some((r: { checkItemId: number }) => r.checkItemId === nextId)) {
         existing.push({
-          checkItemContent: nextItem,
+          checkItemId: nextId,
           ratingLabel: 'A',
           ratingDefinition: 'Fully satisfies requirements',
           comment: `Review for ${nextItem}`,
@@ -157,8 +153,8 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(output.results.every((r) => !r.isError)).toBe(true);
 
     // 両方の項目がレビューされていること
-    const reviewedItems = output.results.map((r) => r.checkItemContent).sort();
-    expect(reviewedItems).toEqual(['performance check', 'security check']);
+    const reviewedContents = output.results.map((r) => r.checkItemContent).sort();
+    expect(reviewedContents).toEqual(['performance check', 'security check']);
   });
 
   it('concurrentReviewCount=2でforeachが正しく並列実行される', async () => {
@@ -168,40 +164,43 @@ describe('reviewWorkflow 結合テスト', () => {
       resultFilePath,
     });
 
-    // ChecklistSplitAgentは呼ばれない（concurrentReviewCount=2 < 4項目なのでAI分割が必要だが、
-    // agentContextが渡される場合にのみ呼ばれる）
-    // ワークフローステップ内でchecklistSplitAgentが渡され、generate()が呼ばれる
+    // ChecklistSplitAgentはID番号でグループを返す
     (mockedChecklistSplitAgent.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
       object: {
         groups: [
-          ['item1', 'item2'],
-          ['item3', 'item4'],
+          [1, 2],
+          [3, 4],
         ],
       },
     });
 
-    // ReviewAgentの結果を設定
-    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      const existing = fs.existsSync(resultFilePath)
-        ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
-        : [];
+    // ReviewAgentの結果をID方式で設定
+    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_prompt: unknown, options: { requestContext: RequestContext }) => {
+        const checkItems = options.requestContext.get('checkItems') as Array<{
+          id: number;
+          content: string;
+        }>;
 
-      const allItems = ['item1', 'item2', 'item3', 'item4'];
-      const nextItem = allItems.find(
-        (item) => !existing.some((r: { checkItemContent: string }) => r.checkItemContent === item),
-      );
+        const existing = fs.existsSync(resultFilePath)
+          ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
+          : [];
 
-      if (nextItem) {
-        existing.push({
-          checkItemContent: nextItem,
-          ratingLabel: 'A',
-          ratingDefinition: 'Fully satisfies requirements',
-          comment: `Review for ${nextItem}`,
-          isError: false,
-        });
+        for (const item of checkItems) {
+          if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
+            existing.push({
+              checkItemId: item.id,
+              ratingLabel: 'A',
+              ratingDefinition: 'Fully satisfies requirements',
+              comment: `Review for ${item.content}`,
+              isError: false,
+            });
+          }
+        }
+
         writeResultsToFile(resultFilePath, existing);
-      }
-    });
+      },
+    );
 
     const requestContext = createWorkflowRequestContext();
     const run = await reviewWorkflow.createRun();
@@ -212,8 +211,8 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(output.results).toHaveLength(4);
 
     // 全項目がレビューされていること
-    const reviewedItems = output.results.map((r) => r.checkItemContent).sort();
-    expect(reviewedItems).toEqual(['item1', 'item2', 'item3', 'item4']);
+    const reviewedContents = output.results.map((r) => r.checkItemContent).sort();
+    expect(reviewedContents).toEqual(['item1', 'item2', 'item3', 'item4']);
   });
 
   it('Agent失敗時にエラー結果が返される', async () => {
@@ -249,7 +248,7 @@ describe('reviewWorkflow 結合テスト', () => {
     (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       writeResultsToFile(resultFilePath, [
         {
-          checkItemContent: 'check1',
+          checkItemId: 1,
           ratingLabel: 'A',
           ratingDefinition: 'Fully satisfies requirements',
           comment: 'Good',
@@ -262,17 +261,19 @@ describe('reviewWorkflow 結合テスト', () => {
     const run = await reviewWorkflow.createRun();
     await run.start({ inputData, requestContext });
 
-    // ReviewAgentのgenerate()が呼ばれ、requestContextが渡されていること
     expect(mockedReviewAgent.generate).toHaveBeenCalled();
     const callArgs = (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mock.calls[0];
     const options = callArgs[1] as { requestContext: RequestContext };
     expect(options.requestContext).toBeDefined();
 
-    // Agent用のRequestContextにモデル設定が含まれていること
     expect(options.requestContext.get('userId')).toBe('test-user');
     expect(options.requestContext.get('aiApiKey')).toBe('test-key');
-    // チェック項目も含まれていること
-    expect(options.requestContext.get('checkItems')).toEqual(['check1']);
+    // チェック項目はIndexedCheckItem[]形式で渡される
+    const checkItems = options.requestContext.get('checkItems') as Array<{
+      id: number;
+      content: string;
+    }>;
+    expect(checkItems).toEqual([{ id: 1, content: 'check1' }]);
   });
 
   it('priorReviewResultsがある場合にpriorReviewContextが正しく組み立てられる', async () => {
@@ -295,7 +296,7 @@ describe('reviewWorkflow 結合テスト', () => {
     (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       writeResultsToFile(resultFilePath, [
         {
-          checkItemContent: 'check1',
+          checkItemId: 1,
           ratingLabel: 'A',
           ratingDefinition: 'Fully satisfies requirements',
           comment: 'Improved',
@@ -313,7 +314,6 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(output.results).toHaveLength(1);
     expect(output.results[0].isError).toBe(false);
 
-    // Agent呼び出し時のRequestContextにpriorReviewContextが含まれていること
     const callArgs = (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mock.calls[0];
     const options = callArgs[1] as { requestContext: RequestContext };
     const priorCtx = options.requestContext.get('priorReviewContext') as {
@@ -337,7 +337,7 @@ describe('reviewWorkflow 結合テスト', () => {
     (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       writeResultsToFile(resultFilePath, [
         {
-          checkItemContent: 'check1',
+          checkItemId: 1,
           ratingLabel: 'エラー',
           ratingDefinition: 'エラー',
           comment: 'Error occurred',

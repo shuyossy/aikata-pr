@@ -1,5 +1,6 @@
 import type { MastraLanguageModel } from '@mastra/core/agent';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import type { IndexedCheckItem } from './indexedCheckItem.js';
 
 /**
  * ワークフローレベルのRequestContext型（モデル設定のみ）
@@ -19,8 +20,9 @@ export type ChecklistSplitAgentRequestContext = WorkflowRequestContext;
 /**
  * ReviewAgent用RequestContext型（モデル設定 + レビュー全データ）
  */
+
 export interface ReviewAgentRequestContext extends WorkflowRequestContext {
-  checkItems: string[];
+  checkItems: IndexedCheckItem[];
   ratings: Array<{ label: string; definition: string }>;
   commentFormat: string;
   additionalInstructions: string;
