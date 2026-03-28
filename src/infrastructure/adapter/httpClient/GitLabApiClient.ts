@@ -26,6 +26,43 @@ export class GitLabApiClient {
   }
 
   /**
+   * ページネーション付きGETリクエストを送信する
+   * GitLab APIのLinkヘッダを辿って全ページのデータを結合する
+   */
+  async getAll<T>(path: string): Promise<T[]> {
+    const separator = path.includes('?') ? '&' : '?';
+    let url: string | null = `${this.baseUrl}${path}${separator}per_page=100`;
+    const allItems: T[] = [];
+
+    while (url) {
+      const response = await fetch(url, {
+        headers: { 'PRIVATE-TOKEN': this.token },
+      });
+      if (!response.ok) {
+        throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+      }
+      const items = (await response.json()) as T[];
+      allItems.push(...items);
+
+      // Linkヘッダから次ページURLを取得
+      url = this.extractNextPageUrl(response.headers.get('link'));
+    }
+
+    return allItems;
+  }
+
+  /**
+   * Linkヘッダから次ページのURLを抽出する
+   */
+  private extractNextPageUrl(linkHeader: string | null): string | null {
+    if (!linkHeader) {
+      return null;
+    }
+    const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+    return match ? match[1] : null;
+  }
+
+  /**
    * POSTリクエストを送信する
    */
   async post<T>(path: string, body: unknown): Promise<T> {

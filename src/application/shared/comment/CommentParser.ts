@@ -145,10 +145,10 @@ export class CommentParser {
   }
 
   /**
-   * エスケープされたパイプ文字を復元する
+   * エスケープされたパイプ文字と改行を復元する
    */
   private static unescapeCell(value: string): string {
-    return value.replace(/\\\|/g, '|');
+    return value.replace(/\\\|/g, '|').replace(/<br>/g, '\n');
   }
 
   /**

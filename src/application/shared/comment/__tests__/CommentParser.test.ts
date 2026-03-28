@@ -221,6 +221,58 @@ describe('CommentParser', () => {
       expect(parsed!.results[0].comment).toBe('Error | timeout');
     });
 
+    it('改行を含むコメントがラウンドトリップで正しくパースされる', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('可読性'),
+          new Rating('A', '完全に満たしている'),
+          '1行目\n2行目\n3行目',
+        ),
+      ];
+
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0].comment).toBe('1行目\n2行目\n3行目');
+    });
+
+    it('改行を含むチェック項目がラウンドトリップで正しくパースされる', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('項目A\n項目B'),
+          new Rating('A', '完全に満たしている'),
+          'コメント',
+        ),
+      ];
+
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0].checkItem.content).toBe('項目A\n項目B');
+    });
+
+    it('改行とパイプを両方含む場合のラウンドトリップ', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('A | B\nC | D'),
+          new Rating('A', '完全に満たしている'),
+          '行1\n行2 | 行3',
+        ),
+      ];
+
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0].checkItem.content).toBe('A | B\nC | D');
+      expect(parsed!.results[0].comment).toBe('行1\n行2 | 行3');
+    });
+
     it('エスケープなしの旧コメント（パイプなし）が引き続きパースできる', () => {
       // 旧フォーマットを手動で構築（エスケープなし）
       const body = [

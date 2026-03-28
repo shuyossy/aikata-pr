@@ -6,6 +6,7 @@ import { GitLabMrCommentGateway } from '../GitLabMrCommentGateway.js';
  */
 interface MockGitLabApiClient {
   get: ReturnType<typeof vi.fn>;
+  getAll: ReturnType<typeof vi.fn>;
   post: ReturnType<typeof vi.fn>;
 }
 
@@ -16,6 +17,7 @@ describe('GitLabMrCommentGateway', () => {
   beforeEach(() => {
     mockClient = {
       get: vi.fn(),
+      getAll: vi.fn(),
       post: vi.fn(),
     };
     gateway = new GitLabMrCommentGateway(
@@ -30,12 +32,12 @@ describe('GitLabMrCommentGateway', () => {
         { id: 2, body: 'Second comment', created_at: '2026-03-02T00:00:00Z' },
       ];
 
-      mockClient.get.mockResolvedValueOnce(notesResponse);
+      mockClient.getAll.mockResolvedValueOnce(notesResponse);
 
       const result = await gateway.getComments('123', '42');
 
       // API呼び出しの検証
-      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42/notes');
+      expect(mockClient.getAll).toHaveBeenCalledWith('/projects/123/merge_requests/42/notes');
 
       // マッピング結果の検証
       expect(result).toEqual([
@@ -45,11 +47,11 @@ describe('GitLabMrCommentGateway', () => {
     });
 
     it('ノートが空の場合は空配列を返す', async () => {
-      mockClient.get.mockResolvedValueOnce([]);
+      mockClient.getAll.mockResolvedValueOnce([]);
 
       const result = await gateway.getComments('456', '10');
 
-      expect(mockClient.get).toHaveBeenCalledWith('/projects/456/merge_requests/10/notes');
+      expect(mockClient.getAll).toHaveBeenCalledWith('/projects/456/merge_requests/10/notes');
       expect(result).toEqual([]);
     });
   });

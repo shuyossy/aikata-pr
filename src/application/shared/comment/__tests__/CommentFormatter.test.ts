@@ -167,5 +167,36 @@ describe('CommentFormatter', () => {
 
       expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
     });
+
+    it('コメントに改行を含む場合、<br>にエスケープされる', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('可読性'),
+          new Rating('A', '完全に満たしている'),
+          '1行目\n2行目\n3行目',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+
+      expect(output).toContain('| 可読性 | A | 1行目<br>2行目<br>3行目 |');
+      // 改行がそのまま残っていないことを確認（テーブル行内）
+      const tableLines = output.split('\n').filter((l) => l.startsWith('| 可読性'));
+      expect(tableLines).toHaveLength(1);
+    });
+
+    it('チェック項目に改行を含む場合、<br>にエスケープされる', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('項目A\n項目B'),
+          new Rating('A', '完全に満たしている'),
+          'コメント',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+
+      expect(output).toContain('| 項目A<br>項目B | A | コメント |');
+    });
   });
 });

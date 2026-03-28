@@ -69,9 +69,9 @@ export class CommentFormatter {
   }
 
   /**
-   * テーブルセル内のパイプ文字をGFM準拠でエスケープする
+   * テーブルセル内のパイプ文字と改行をGFM準拠でエスケープする
    */
   private static escapeCell(value: string): string {
-    return value.replace(/\|/g, '\\|');
+    return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
   }
 }

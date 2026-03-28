@@ -91,14 +91,3 @@
   - 振る舞い
     - なし
 
-- 前回チェック結果コンテキスト
-  - 識別子: PriorReviewContext
-  - 種類: 値オブジェクト
-  - 不変条件
-    - なし
-  - 属性
-    - results (ReviewResult[])
-    - commitMessages (string[])
-    - diffSincePrior (string)
-  - 振る舞い
-    - なし

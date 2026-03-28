@@ -7,6 +7,7 @@ import { MrContext } from '../../../../domain/mrContext/index.js';
  */
 interface MockGitLabApiClient {
   get: ReturnType<typeof vi.fn>;
+  getAll: ReturnType<typeof vi.fn>;
   post: ReturnType<typeof vi.fn>;
 }
 
@@ -17,6 +18,7 @@ describe('GitLabMrGateway', () => {
   beforeEach(() => {
     mockClient = {
       get: vi.fn(),
+      getAll: vi.fn(),
       post: vi.fn(),
     };
     gateway = new GitLabMrGateway(
@@ -114,11 +116,11 @@ describe('GitLabMrGateway', () => {
         { id: 'olderCommit', message: 'chore: older commit', created_at: '2026-02-27T00:00:00Z' },
       ];
 
-      mockClient.get.mockResolvedValueOnce(commitsResponse);
+      mockClient.getAll.mockResolvedValueOnce(commitsResponse);
 
       const result = await gateway.getCommitsSince('123', '42', 'sinceCommit');
 
-      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42/commits');
+      expect(mockClient.getAll).toHaveBeenCalledWith('/projects/123/merge_requests/42/commits');
       // sinceCommit以降（sinceCommit自体は含まない）のコミットメッセージを返す
       expect(result).toEqual(['feat: third commit', 'fix: second commit', 'feat: first commit']);
     });
@@ -129,7 +131,7 @@ describe('GitLabMrGateway', () => {
         { id: 'commit1', message: 'feat: first commit', created_at: '2026-03-01T00:00:00Z' },
       ];
 
-      mockClient.get.mockResolvedValueOnce(commitsResponse);
+      mockClient.getAll.mockResolvedValueOnce(commitsResponse);
 
       const result = await gateway.getCommitsSince('123', '42', 'nonExistentCommit');
 
@@ -137,7 +139,7 @@ describe('GitLabMrGateway', () => {
     });
 
     it('コミットが空の場合は空配列を返す', async () => {
-      mockClient.get.mockResolvedValueOnce([]);
+      mockClient.getAll.mockResolvedValueOnce([]);
 
       const result = await gateway.getCommitsSince('123', '42', 'someCommit');
 

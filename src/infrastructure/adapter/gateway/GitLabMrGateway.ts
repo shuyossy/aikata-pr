@@ -87,7 +87,7 @@ export class GitLabMrGateway implements MrGateway {
     mrIid: string,
     sinceCommitHash: string,
   ): Promise<string[]> {
-    const commits = await this.client.get<GitLabCommit[]>(
+    const commits = await this.client.getAll<GitLabCommit>(
       `/projects/${projectId}/merge_requests/${mrIid}/commits`,
     );
 

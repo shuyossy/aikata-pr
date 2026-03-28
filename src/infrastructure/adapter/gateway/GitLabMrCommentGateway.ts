@@ -28,7 +28,7 @@ export class GitLabMrCommentGateway implements MrCommentGateway {
    * MRのコメント一覧を取得する
    */
   async getComments(projectId: string, mrIid: string): Promise<MrComment[]> {
-    const notes = await this.client.get<GitLabNote[]>(
+    const notes = await this.client.getAll<GitLabNote>(
       `/projects/${projectId}/merge_requests/${mrIid}/notes`,
     );
 

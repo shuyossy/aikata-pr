@@ -1,4 +1,4 @@
-import { z } from 'zod/v4';
+import { z } from 'zod';
 import { ReviewSettings } from '../../../domain/reviewSettings/index.js';
 import { Rating } from '../../../domain/rating/index.js';
 

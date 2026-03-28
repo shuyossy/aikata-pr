@@ -1,6 +1,6 @@
 /**
  * チェック項目エンティティ
- * 単一のチェック観点を表す値オブジェクト
+ * 単一のチェック観点を表す
  */
 export class CheckItem {
   readonly content: string;

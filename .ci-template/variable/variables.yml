@@ -5,6 +5,7 @@ variables:
   AI_API_ENDPOINT_URL: ""
   AI_MODEL_NAME: "openai/o4-mini"
   # GitLab
+  GITLAB_API_URL: ""
   GITLAB_TOKEN: ""
   GITLAB_PROJECT_ID: "$CI_PROJECT_ID"
   GITLAB_MR_IID: "$CI_MERGE_REQUEST_IID"
