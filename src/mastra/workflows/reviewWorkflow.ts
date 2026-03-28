@@ -129,6 +129,14 @@ const reviewExecutionStep = createStep({
 
     // ReviewAgent用のRequestContextを組み立てる
     const workflowCtx = requestContext.all as WorkflowRequestContext;
+
+    // 過去のレビュー結果を現在のグループのチェック項目のみにフィルタ
+    const currentGroupContents = new Set(checkItems.map((item) => item.content));
+    const filteredPriorResults =
+      initData.priorReviewResults && initData.priorCommitMessages && initData.priorDiffSincePrior
+        ? initData.priorReviewResults.filter((r) => currentGroupContents.has(r.checkItemContent))
+        : null;
+
     const agentRequestContext = new RequestContext<ReviewAgentRequestContext>([
       ['userId', workflowCtx.userId],
       ['aiApiKey', workflowCtx.aiApiKey],
@@ -145,15 +153,15 @@ const reviewExecutionStep = createStep({
       ['mrDiff', initData.mrDiff],
       [
         'priorReviewContext',
-        initData.priorReviewResults && initData.priorCommitMessages && initData.priorDiffSincePrior
+        filteredPriorResults && filteredPriorResults.length > 0
           ? {
-              results: initData.priorReviewResults.map((r) => ({
+              results: filteredPriorResults.map((r) => ({
                 checkItemContent: r.checkItemContent,
                 ratingLabel: r.ratingLabel,
                 comment: r.comment,
               })),
-              commitMessages: initData.priorCommitMessages,
-              diffSincePrior: initData.priorDiffSincePrior,
+              commitMessages: initData.priorCommitMessages!,
+              diffSincePrior: initData.priorDiffSincePrior!,
             }
           : null,
       ],

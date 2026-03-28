@@ -327,6 +327,116 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(priorCtx.diffSincePrior).toBe('+ new change');
   });
 
+  it('複数グループに分割される場合、各Agentは自グループのチェック項目に対応する過去結果のみ受け取る', async () => {
+    const inputData = createWorkflowInput({
+      checkItemContents: ['item1', 'item2', 'item3', 'item4'],
+      concurrentReviewCount: 2,
+      resultFilePath,
+      priorReviewResults: [
+        {
+          checkItemContent: 'item1',
+          ratingLabel: 'A',
+          ratingDefinition: 'Fully satisfies requirements',
+          comment: 'Prior comment for item1',
+        },
+        {
+          checkItemContent: 'item2',
+          ratingLabel: 'B',
+          ratingDefinition: 'Partially satisfies requirements',
+          comment: 'Prior comment for item2',
+        },
+        {
+          checkItemContent: 'item3',
+          ratingLabel: 'A',
+          ratingDefinition: 'Fully satisfies requirements',
+          comment: 'Prior comment for item3',
+        },
+        {
+          checkItemContent: 'item4',
+          ratingLabel: 'B',
+          ratingDefinition: 'Partially satisfies requirements',
+          comment: 'Prior comment for item4',
+        },
+      ],
+      priorCommitMessages: ['fix: update'],
+      priorDiffSincePrior: '+ change',
+    });
+
+    // ChecklistSplitAgentはID番号でグループを返す
+    (mockedChecklistSplitAgent.generate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      object: {
+        groups: [
+          [1, 2],
+          [3, 4],
+        ],
+      },
+    });
+
+    // ReviewAgentの結果をID方式で設定
+    (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_prompt: unknown, options: { requestContext: RequestContext }) => {
+        const checkItems = options.requestContext.get('checkItems') as Array<{
+          id: number;
+          content: string;
+        }>;
+
+        const existing = fs.existsSync(resultFilePath)
+          ? JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'))
+          : [];
+
+        for (const item of checkItems) {
+          if (!existing.some((r: { checkItemId: number }) => r.checkItemId === item.id)) {
+            existing.push({
+              checkItemId: item.id,
+              ratingLabel: 'A',
+              ratingDefinition: 'Fully satisfies requirements',
+              comment: `Review for ${item.content}`,
+              isError: false,
+            });
+          }
+        }
+
+        writeResultsToFile(resultFilePath, existing);
+      },
+    );
+
+    const requestContext = createWorkflowRequestContext();
+    const run = await reviewWorkflow.createRun();
+    const result = await run.start({ inputData, requestContext });
+
+    expect(result.status).toBe('success');
+    const output = getSuccessResult(result);
+    expect(output.results).toHaveLength(4);
+
+    // 各Agent呼び出しのpriorReviewContextを検証
+    const calls = (mockedReviewAgent.generate as ReturnType<typeof vi.fn>).mock.calls;
+    // foreachで2グループ分の呼び出しがあるはず
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+
+    for (const call of calls) {
+      const opts = call[1] as { requestContext: RequestContext };
+      const checkItems = opts.requestContext.get('checkItems') as Array<{
+        id: number;
+        content: string;
+      }>;
+      const priorCtx = opts.requestContext.get('priorReviewContext') as {
+        results: Array<{ checkItemContent: string }>;
+      } | null;
+
+      if (priorCtx) {
+        const groupContents = checkItems.map((i) => i.content);
+        // 過去結果は自グループのチェック項目のみであること
+        for (const r of priorCtx.results) {
+          expect(groupContents).toContain(r.checkItemContent);
+        }
+        // 自グループに対応する過去結果が全て含まれていること
+        for (const content of groupContents) {
+          expect(priorCtx.results.some((r) => r.checkItemContent === content)).toBe(true);
+        }
+      }
+    }
+  });
+
   it('errorMessageフィールドがある場合に結果に含まれる', async () => {
     const inputData = createWorkflowInput({
       checkItemContents: ['check1'],
