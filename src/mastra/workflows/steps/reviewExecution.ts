@@ -8,14 +8,11 @@ import { CheckItem } from '../../../domain/checkItem/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
 import { readStoredResults, type StoredReviewResult } from '../../types.js';
 import { buildUserPrompt } from '../../agents/reviewAgent.js';
-import {
-  calculateBackoffDelay,
-  sleep,
-  type RateLimitRetryConfig,
-} from '../../../lib/rateLimitRetry.js';
+import { type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
 import { classifyError } from '../../../lib/errorClassifier.js';
 import { recoverFromContextLength } from './contextLengthRecovery.js';
 import { getLogger } from '../../../lib/logger.js';
+import { getCoordinator, RateLimitExhaustedError } from '../../../lib/rateLimitCoordinator.js';
 
 /**
  * レビュー実行ステップの設定
@@ -155,8 +152,9 @@ Continue reviewing the remaining check items. Store each result using the storeR
  * Agent呼び出しをエラーリカバリー付きで実行する
  *
  * 以下のエラーをループ内で処理する:
- * - レート制限: バックオフ待機 → 同じスレッドで継続プロンプト送信（最大rateLimitRetryConfig.maxRetries回）
+ * - レート制限: コーディネーター経由で待機 → 同じスレッドで継続プロンプト送信
  * - コンテキスト長: 要約 → 新スレッド → 継続プロンプト（最大MAX_CONTEXT_LENGTH_RECOVERIES回）
+ * - RateLimitExhaustedError: 呼び出し元に再スロー（グローバル上限到達）
  * - その他: 呼び出し元に再スロー
  */
 async function executeWithErrorRecovery(params: {
@@ -172,6 +170,7 @@ async function executeWithErrorRecovery(params: {
   allThreadIds: string[];
 }): Promise<{ currentThreadId: string }> {
   const logger = getLogger();
+  const coordinator = getCoordinator();
   let { initialPrompt: prompt, memoryOption } = params;
   const {
     agent,
@@ -184,35 +183,36 @@ async function executeWithErrorRecovery(params: {
   const resultFilePath = String(requestContext.get('resultFilePath'));
   let currentThreadId = memoryOption.thread;
   let contextLengthRecoveries = 0;
-  let rateLimitRetries = 0;
 
   while (true) {
     try {
+      await coordinator.acquirePermission();
       await agent.generate(prompt, { requestContext, memory: memoryOption });
+      coordinator.reportSuccess();
       return { currentThreadId };
     } catch (error) {
+      // コーディネーターの上限到達 → 呼び出し元に再スロー
+      if (error instanceof RateLimitExhaustedError) {
+        throw error;
+      }
+
       const classified = classifyError(error);
 
-      if (classified.type === 'rate_limit') {
-        if (rateLimitRetries >= rateLimitRetryConfig.maxRetries) {
-          throw error;
-        }
+      // レート制限以外のエラー = APIが応答した = レート制限解除済みと判断
+      if (classified.type !== 'rate_limit') {
+        coordinator.reportSuccess();
+      }
 
-        const delay = calculateBackoffDelay(
-          rateLimitRetries,
-          rateLimitRetryConfig.baseDelayMs,
-          rateLimitRetryConfig.maxDelayMs,
-        );
+      if (classified.type === 'rate_limit') {
+        coordinator.reportRateLimit();
         logger.warn(
           {
-            attempt: rateLimitRetries + 1,
+            globalRetryCount: coordinator.retryCount,
             maxRetries: rateLimitRetryConfig.maxRetries,
-            delayMs: Math.round(delay),
           },
-          `Rate limit error detected, resuming after ${Math.round(delay)}ms`,
+          `Rate limit error detected, reported to coordinator (global retry: ${coordinator.retryCount}/${rateLimitRetryConfig.maxRetries})`,
         );
-        await sleep(delay);
-        rateLimitRetries++;
+        // 次のループ冒頭のacquirePermission()でcooldown待機 + exhausted判定
 
         // 同じスレッドで継続プロンプトを送信
         const storedResults = readStoredResults(resultFilePath);
@@ -256,7 +256,6 @@ async function executeWithErrorRecovery(params: {
         currentThreadId = recovery.newThreadId;
         memoryOption = { thread: recovery.newThreadId, resource: memoryOption.resource };
         contextLengthRecoveries++;
-        rateLimitRetries = 0; // 新スレッドなのでリセット
 
         // レビュー済みチェック項目IDを取得
         const storedResults = readStoredResults(resultFilePath);

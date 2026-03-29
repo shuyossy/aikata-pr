@@ -16,6 +16,7 @@ import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
 import { UNEXPECTED_ERROR_MESSAGE } from '../../../../lib/errorClassifier.js';
 import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
+import { initializeCoordinator, resetCoordinator } from '../../../../lib/rateLimitCoordinator.js';
 
 /**
  * 結果ファイルにレビュー結果を書き込むヘルパー
@@ -132,6 +133,12 @@ function createContextLengthError(): APICallError {
 function createBaseConfig(overrides: Partial<ReviewExecutionConfig> = {}): ReviewExecutionConfig {
   const checkItems = overrides.checkItems ?? makeItems(['security check', 'performance check']);
   const resultFilePath = overrides.resultFilePath ?? '';
+  const rateLimitRetryConfig = overrides.rateLimitRetryConfig ?? DEFAULT_RATE_LIMIT_RETRY_CONFIG;
+
+  // コーディネーターを各テスト用の設定で初期化
+  resetCoordinator();
+  initializeCoordinator(rateLimitRetryConfig);
+
   return {
     checkItems,
     agent: {} as Agent,
@@ -139,7 +146,7 @@ function createBaseConfig(overrides: Partial<ReviewExecutionConfig> = {}): Revie
     requestContext:
       overrides.requestContext ?? createTestRequestContext(checkItems, resultFilePath),
     resultFilePath,
-    rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
+    rateLimitRetryConfig,
     ...overrides,
   };
 }
@@ -158,6 +165,7 @@ describe('executeReview', () => {
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     resetLogger();
+    resetCoordinator();
   });
 
   it('グループ内の全チェック項目のレビュー結果が返される', async () => {
@@ -1014,7 +1022,7 @@ describe('executeReview', () => {
       expect(mockAgent.generate as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(3);
     });
 
-    it('コンテキスト長リカバリー後にレート制限カウンタがリセットされる', async () => {
+    it('コンテキスト長リカバリー後にレート制限カウンタがリセットされ、リトライ予算が回復する', async () => {
       const checkItems = makeItems(['check1']);
       const mockMemory = createMockMemory();
       const rateLimitError = new APICallError({
@@ -1029,10 +1037,10 @@ describe('executeReview', () => {
       const mockAgent = createMockAgent(
         vi.fn().mockImplementation(async () => {
           callCount++;
-          if (callCount === 1) throw rateLimitError; // rate limit
-          if (callCount === 2) throw createContextLengthError(); // context length
-          if (callCount === 3) throw rateLimitError; // rate limit again (counter should be reset)
-          // 4th call: success
+          if (callCount === 1) throw rateLimitError; // rate limit (global count: 1)
+          if (callCount === 2) throw createContextLengthError(); // context length recovery → 要約Agent成功 → count=0
+          if (callCount === 3) throw rateLimitError; // rate limit (global count: 1, リセット済み)
+          // 4回目: リトライ予算回復済みのため成功
           writeResultsToFile(resultFilePath, [
             {
               checkItemId: 1,
@@ -1045,6 +1053,7 @@ describe('executeReview', () => {
         }),
         mockMemory,
       );
+      // maxRetries=1: 1回のリトライ許可
       const config = createBaseConfig({
         checkItems,
         resultFilePath,
@@ -1054,6 +1063,7 @@ describe('executeReview', () => {
 
       const results = await executeReview(config);
 
+      // カウンタがリセットされるため、リトライ予算が回復し成功する
       expect(results).toHaveLength(1);
       expect(results[0].isError).toBe(false);
       expect(callCount).toBe(4);

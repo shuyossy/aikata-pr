@@ -7,6 +7,7 @@ import {
   type RateLimitRetryConfig,
 } from '../rateLimitRetry.js';
 import { initializeLogger, resetLogger } from '../logger.js';
+import { initializeCoordinator, resetCoordinator } from '../rateLimitCoordinator.js';
 
 /**
  * テスト用のAPICallErrorを生成するヘルパー
@@ -153,6 +154,7 @@ describe('withRateLimitRetry', () => {
   afterEach(() => {
     vi.useRealTimers();
     resetLogger();
+    resetCoordinator();
     vi.restoreAllMocks();
   });
 
@@ -236,5 +238,97 @@ describe('withRateLimitRetry', () => {
     expect(logs.length).toBeGreaterThan(0);
     const logContent = logs.join('');
     expect(logContent).toContain('Rate limit');
+  });
+
+  describe('コーディネーター連携', () => {
+    it('コーディネーター初期化済みの場合、レート制限エラー時にコーディネーターにreportする', async () => {
+      const coordinator = initializeCoordinator(config);
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callback = vi.fn().mockRejectedValueOnce(rateLimitError).mockResolvedValue('success');
+
+      const promise = withRateLimitRetry(callback, config);
+
+      // コーディネーターのcooldownが終わるまで待機
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      await promise;
+
+      // reportRateLimitで1に増えた後、成功でリセットされる
+      expect(coordinator.retryCount).toBe(0);
+      expect(callback).toHaveBeenCalledTimes(2);
+    });
+
+    it('コーディネーター初期化済みの場合、成功時にリトライカウントがリセットされる', async () => {
+      const coordinator = initializeCoordinator(config);
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callback = vi
+        .fn()
+        .mockRejectedValueOnce(rateLimitError)
+        .mockRejectedValueOnce(rateLimitError)
+        .mockResolvedValue('success');
+
+      const promise = withRateLimitRetry(callback, config);
+
+      // 2回分のcooldownを進める
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      await promise;
+
+      // 2回reportRateLimitされた後、成功で0にリセット
+      expect(coordinator.retryCount).toBe(0);
+      expect(callback).toHaveBeenCalledTimes(3);
+    });
+
+    it('コーディネーター初期化済みの場合、レート制限以外のエラー時もリトライカウントがリセットされる', async () => {
+      const coordinator = initializeCoordinator(config);
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const nonRateLimitError = new Error('Some other error');
+      const callback = vi
+        .fn()
+        .mockRejectedValueOnce(rateLimitError)
+        .mockRejectedValueOnce(nonRateLimitError);
+
+      const promise = withRateLimitRetry(callback, config).catch((e) => e);
+
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      const caughtError = await promise;
+
+      // レート制限以外のエラーでもカウントがリセットされている
+      expect(caughtError).toBe(nonRateLimitError);
+      expect(coordinator.retryCount).toBe(0);
+    });
+
+    it('コーディネーター初期化済みの場合、コーディネーターの上限到達でRateLimitExhaustedErrorをスローする', async () => {
+      const coordinator = initializeCoordinator(config);
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callback = vi.fn().mockRejectedValue(rateLimitError);
+
+      let caughtError: unknown;
+      const promise = withRateLimitRetry(callback, config).catch((e) => {
+        caughtError = e;
+      });
+
+      // maxRetries + 1回分の待機を進める（maxRetries=3 → 4回呼び出し後に上限到達）
+      for (let i = 0; i <= config.maxRetries; i++) {
+        await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      }
+
+      await promise;
+      // maxRetries + 1回のreportで上限到達
+      expect(coordinator.retryCount).toBe(config.maxRetries + 1);
+      expect((caughtError as Error).name).toBe('RateLimitExhaustedError');
+    });
+
+    it('コーディネーター未初期化の場合は既存のローカルリトライ動作を維持する', async () => {
+      // coordinatorは初期化しない
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callback = vi.fn().mockRejectedValueOnce(rateLimitError).mockResolvedValue('success');
+
+      const promise = withRateLimitRetry(callback, config);
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      const result = await promise;
+
+      expect(result).toBe('success');
+      expect(callback).toHaveBeenCalledTimes(2);
+    });
   });
 });

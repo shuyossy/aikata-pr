@@ -1,5 +1,6 @@
 import { getLogger } from './logger.js';
 import { extractAPICallError, findStatusCodeInChain } from './aiApiError.js';
+import { getCoordinatorOrNull } from './rateLimitCoordinator.js';
 
 /**
  * レート制限リトライの設定
@@ -73,13 +74,49 @@ export function sleep(ms: number): Promise<void> {
  * コールバックを実行し、レート制限エラーが発生した場合は
  * ランダム要素を含む指数バックオフで待機してリトライする。
  * レート制限以外のエラーはそのままスローする。
+ *
+ * コーディネーターが初期化済みの場合:
+ * - レート制限をコーディネーターにreportし、コーディネーター経由で待機・上限判定を行う
+ * コーディネーター未初期化の場合:
+ * - 従来通りローカルでリトライ制御を行う（checklistSplit等のforeach前処理用）
  */
 export async function withRateLimitRetry<T>(
   callback: () => Promise<T>,
   config: RateLimitRetryConfig,
 ): Promise<T> {
   const logger = getLogger();
+  const coordinator = getCoordinatorOrNull();
 
+  if (coordinator) {
+    // コーディネーター経由のグローバル制御
+    for (;;) {
+      // acquirePermission()はtry外で呼ぶ（RateLimitExhaustedErrorは直接伝播させる）
+      await coordinator.acquirePermission();
+      try {
+        const result = await callback();
+        coordinator.reportSuccess();
+        return result;
+      } catch (error) {
+        if (!isRateLimitError(error)) {
+          // レート制限以外のエラー = APIが応答した = レート制限解除済み
+          coordinator.reportSuccess();
+          throw error;
+        }
+
+        coordinator.reportRateLimit();
+        logger.warn(
+          {
+            globalRetryCount: coordinator.retryCount,
+            maxRetries: config.maxRetries,
+          },
+          `Rate limit error detected, reported to coordinator (global retry: ${coordinator.retryCount}/${config.maxRetries})`,
+        );
+        // 次のループ冒頭のacquirePermission()でisExhausted判定 → RateLimitExhaustedErrorがスローされる
+      }
+    }
+  }
+
+  // コーディネーター未初期化: ローカルリトライ（従来動作）
   for (let attempt = 0; ; attempt++) {
     try {
       return await callback();

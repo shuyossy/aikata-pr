@@ -6,6 +6,7 @@ import { executeReview } from './steps/reviewExecution.js';
 import { IndexedChecklist } from '../indexedCheckItem.js';
 import type { ReviewAgentRequestContext, WorkflowRequestContext } from '../requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../lib/rateLimitRetry.js';
+import { initializeCoordinator, resetCoordinator } from '../../lib/rateLimitCoordinator.js';
 
 /**
  * IndexedCheckItemのZodスキーマ（ワークフロー内部用）
@@ -229,6 +230,11 @@ export const reviewWorkflow = createWorkflow({
 reviewWorkflow
   .then(checklistSplitStep)
   .map(async ({ inputData }) => {
+    // foreach開始前にレート制限コーディネーターを初期化
+    // 並列実行される全Agentがグローバルでレート制限状態を共有する
+    resetCoordinator();
+    initializeCoordinator(DEFAULT_RATE_LIMIT_RETRY_CONFIG);
+
     // 分割結果をforeach用の配列形式に変換
     const groups = inputData.groups;
     return groups.map((group) => ({ items: group }));
