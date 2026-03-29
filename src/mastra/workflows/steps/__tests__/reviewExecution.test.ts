@@ -10,6 +10,7 @@ import { executeReview, type ReviewExecutionConfig } from '../reviewExecution.js
 import type { Agent } from '@mastra/core/agent';
 import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
+import { UNEXPECTED_ERROR_MESSAGE } from '../../../../lib/errorClassifier.js';
 import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 
 /**
@@ -73,6 +74,7 @@ function createTestRequestContext(
 function createMockMemory() {
   return {
     deleteThread: vi.fn().mockResolvedValue(undefined),
+    recall: vi.fn().mockResolvedValue({ messages: [] }),
   };
 }
 
@@ -90,10 +92,31 @@ function createMockAgent(
 }
 
 /**
+ * テスト用のモック要約Agentを作成するヘルパー
+ */
+function createMockSummarizationAgent(summaryText: string): Agent {
+  return createMockAgent(vi.fn().mockResolvedValue({ text: summaryText }));
+}
+
+/**
  * テスト用のIndexedCheckItem配列を生成するヘルパー
  */
 function makeItems(contents: string[]): IndexedCheckItem[] {
   return new IndexedChecklist(contents).items.slice();
+}
+
+/**
+ * テスト用のコンテキスト長APICallErrorを生成するヘルパー
+ */
+function createContextLengthError(): APICallError {
+  return new APICallError({
+    message: 'Context length exceeded',
+    url: 'http://test-api/v1/chat',
+    requestBodyValues: {},
+    statusCode: 400,
+    responseBody: 'context_length_exceeded',
+    isRetryable: false,
+  });
 }
 
 /**
@@ -104,6 +127,7 @@ function createBaseConfig(overrides: Partial<ReviewExecutionConfig> = {}): Revie
   return {
     checkItems,
     agent: {} as Agent,
+    summarizationAgent: createMockSummarizationAgent('Summary of work'),
     requestContext: createTestRequestContext(checkItems),
     resultFilePath: '',
     rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
@@ -220,11 +244,9 @@ describe('executeReview', () => {
     await executeReview(config);
 
     const prompt = generateFn.mock.calls[0][0] as string;
-    // userプロンプトにMR情報が含まれること
     expect(prompt).toContain('Test MR');
     expect(prompt).toContain('Test description');
     expect(prompt).toContain('feature/test');
-    // resultFilePathが含まれること
     expect(prompt).toContain(resultFilePath);
   });
 
@@ -236,7 +258,6 @@ describe('executeReview', () => {
       vi.fn().mockImplementation(async () => {
         callCount++;
         if (callCount === 1) {
-          // 初回: ID:1のみ返す（ID:2, ID:3が漏れ）
           writeResultsToFile(resultFilePath, [
             {
               checkItemId: 1,
@@ -247,7 +268,6 @@ describe('executeReview', () => {
             },
           ]);
         } else if (callCount === 2) {
-          // リトライ1回目: ID:2を追加
           const existing = JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'));
           existing.push({
             checkItemId: 2,
@@ -258,7 +278,6 @@ describe('executeReview', () => {
           });
           writeResultsToFile(resultFilePath, existing);
         } else if (callCount === 3) {
-          // リトライ2回目: ID:3を追加
           const existing = JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'));
           existing.push({
             checkItemId: 3,
@@ -291,7 +310,6 @@ describe('executeReview', () => {
 
     const mockAgent = createMockAgent(
       vi.fn().mockImplementation(async () => {
-        // 常にID:1のみ返す（ID:2, ID:3は永遠に漏れ）
         writeResultsToFile(resultFilePath, [
           {
             checkItemId: 1,
@@ -321,7 +339,7 @@ describe('executeReview', () => {
     expect(results[2].isError).toBe(true);
   });
 
-  it('Agentがエラーの場合、エラー結果が返される', async () => {
+  it('Agentがエラーの場合、部分結果が保持され未完了項目のみエラーになる', async () => {
     const checkItems = makeItems(['security check', 'performance check']);
 
     const mockAgent = createMockAgent(
@@ -332,17 +350,12 @@ describe('executeReview', () => {
     const results = await executeReview(config);
 
     expect(results).toHaveLength(2);
-
-    expect(results[0].checkItem.content).toBe('security check');
+    // 部分結果がないので両方エラー
     expect(results[0].isError).toBe(true);
-    expect(results[0].errorMessage).toBe('AI API connection failed');
-
-    expect(results[1].checkItem.content).toBe('performance check');
     expect(results[1].isError).toBe(true);
-    expect(results[1].errorMessage).toBe('AI API connection failed');
   });
 
-  it('Agentがエラー（非Errorオブジェクト）の場合、デフォルトエラーメッセージが返される', async () => {
+  it('Agentがエラー（非Errorオブジェクト）の場合、定型エラーメッセージが返される', async () => {
     const checkItems = makeItems(['check1']);
 
     const mockAgent = createMockAgent(vi.fn().mockRejectedValue('string error'));
@@ -352,7 +365,7 @@ describe('executeReview', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].isError).toBe(true);
-    expect(results[0].errorMessage).toBe('Agent execution failed');
+    expect(results[0].errorMessage).toBe(UNEXPECTED_ERROR_MESSAGE);
   });
 
   it('リトライ中にAgentがエラーの場合でも処理が継続される', async () => {
@@ -363,7 +376,6 @@ describe('executeReview', () => {
       vi.fn().mockImplementation(async () => {
         callCount++;
         if (callCount === 1) {
-          // 初回: ID:1のみ返す
           writeResultsToFile(resultFilePath, [
             {
               checkItemId: 1,
@@ -387,6 +399,70 @@ describe('executeReview', () => {
     expect(results[0].isError).toBe(false);
     expect(results[1].checkItem.content).toBe('item2');
     expect(results[1].isError).toBe(true);
+  });
+
+  it('リトライ中にAgentが一部結果を格納した後エラーになっても、格納済み結果は保持される', async () => {
+    const checkItems = makeItems(['item1', 'item2', 'item3', 'item4', 'item5']);
+
+    let callCount = 0;
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          // 初回: 3項目成功
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'OK',
+              isError: false,
+            },
+            {
+              checkItemId: 2,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'OK',
+              isError: false,
+            },
+            {
+              checkItemId: 3,
+              ratingLabel: 'B',
+              ratingDefinition: 'Partial',
+              comment: 'Needs work',
+              isError: false,
+            },
+          ]);
+        } else if (callCount === 2) {
+          // リトライ: 1項目追加格納後にエラー
+          const existing = JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'));
+          existing.push({
+            checkItemId: 4,
+            ratingLabel: 'A',
+            ratingDefinition: 'Good',
+            comment: 'Done',
+            isError: false,
+          });
+          writeResultsToFile(resultFilePath, existing);
+          throw new Error('Agent crashed after partial write');
+        }
+      }),
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    const results = await executeReview(config);
+
+    expect(results).toHaveLength(5);
+    // 初回で格納された3項目は保持
+    expect(results[0].isError).toBe(false);
+    expect(results[1].isError).toBe(false);
+    expect(results[2].isError).toBe(false);
+    // リトライ中に格納された1項目も保持
+    expect(results[3].isError).toBe(false);
+    expect(results[3].checkItem.content).toBe('item4');
+    // 未格納の1項目のみエラー
+    expect(results[4].isError).toBe(true);
+    expect(results[4].checkItem.content).toBe('item5');
   });
 
   it('Agentが結果ファイルを作成しない場合、全項目がエラー結果になる', async () => {
@@ -460,7 +536,7 @@ describe('executeReview', () => {
     const callOptions = generateFn.mock.calls[0][1];
     expect(callOptions.memory).toBeDefined();
     expect(callOptions.memory.thread).toEqual(expect.any(String));
-    expect(callOptions.memory.thread).toHaveLength(36); // UUID形式
+    expect(callOptions.memory.thread).toHaveLength(36);
     expect(callOptions.memory.resource).toBe('test-user');
   });
 
@@ -524,7 +600,6 @@ describe('executeReview', () => {
     await executeReview(config);
 
     expect(mockMemory.deleteThread).toHaveBeenCalledTimes(1);
-    // deleteThreadに渡されたthreadIdがgenerate時のthreadIdと一致する
     const usedThreadId = generateFn.mock.calls[0][1].memory.thread;
     expect(mockMemory.deleteThread).toHaveBeenCalledWith(usedThreadId);
   });
@@ -540,13 +615,13 @@ describe('executeReview', () => {
 
     await executeReview(config);
 
-    // エラーでもfinallyでクリーンアップが実行される
     expect(mockMemory.deleteThread).toHaveBeenCalledTimes(1);
   });
 
   it('スレッド削除が失敗しても結果は正常に返される', async () => {
     const checkItems = makeItems(['check1']);
     const mockMemory = {
+      ...createMockMemory(),
       deleteThread: vi.fn().mockRejectedValue(new Error('DB locked')),
     };
     const mockAgent = createMockAgent(
@@ -567,7 +642,6 @@ describe('executeReview', () => {
 
     const results = await executeReview(config);
 
-    // クリーンアップ失敗してもレビュー結果は正常に返される
     expect(results).toHaveLength(1);
     expect(results[0].isError).toBe(false);
     expect(results[0].rating.label).toBe('A');
@@ -591,7 +665,6 @@ describe('executeReview', () => {
       }),
     );
 
-    // priorReviewContextを含むRequestContext
     const requestContext = new RequestContext<ReviewAgentRequestContext>([
       ['userId', 'test-user'],
       ['aiApiKey', 'test-key'],
@@ -672,7 +745,6 @@ describe('executeReview', () => {
     expect(results).toHaveLength(1);
     expect(results[0].isError).toBe(false);
     expect(results[0].rating.label).toBe('A');
-    // 初回失敗 + リトライ成功 = 2回
     expect(callCount).toBe(2);
   });
 
@@ -691,8 +763,370 @@ describe('executeReview', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].isError).toBe(true);
-    expect(results[0].errorMessage).toBe('Internal server error');
-    // リトライなし: 1回のみ
+    // 通常ErrorはAPICallErrorではないのでunknownに分類される
+    expect(results[0].errorMessage).toBe(UNEXPECTED_ERROR_MESSAGE);
     expect(mockAgent.generate as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
+  });
+
+  // --- 新規テスト: エラーハンドリング見直し ---
+
+  describe('API呼び出しエラーのハンドリング', () => {
+    it('API呼び出しエラー時、部分結果が保持され未完了項目にエラーメッセージが表示される', async () => {
+      const checkItems = makeItems(['check1', 'check2', 'check3']);
+
+      let callCount = 0;
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          callCount++;
+          if (callCount === 1) {
+            // 部分結果を書き込んでからAPIエラー
+            writeResultsToFile(resultFilePath, [
+              {
+                checkItemId: 1,
+                ratingLabel: 'A',
+                ratingDefinition: 'Good',
+                comment: 'OK',
+                isError: false,
+              },
+            ]);
+            throw new APICallError({
+              message: 'Invalid API key',
+              url: 'http://test-api/v1/chat',
+              requestBodyValues: {},
+              statusCode: 401,
+              isRetryable: false,
+            });
+          }
+        }),
+      );
+
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      expect(results).toHaveLength(3);
+      // 成功した結果は保持される
+      expect(results[0].isError).toBe(false);
+      expect(results[0].rating.label).toBe('A');
+      // 未完了項目はAPIエラーメッセージが表示される
+      expect(results[1].isError).toBe(true);
+      expect(results[1].errorMessage).toContain('Invalid API key');
+      expect(results[2].isError).toBe(true);
+      expect(results[2].errorMessage).toContain('Invalid API key');
+    });
+  });
+
+  describe('その他のエラーのハンドリング', () => {
+    it('その他のエラー時、部分結果が保持され未完了項目に定型メッセージが表示される', async () => {
+      const checkItems = makeItems(['check1', 'check2']);
+
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          // 部分結果を書き込んでから通常エラー
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'OK',
+              isError: false,
+            },
+          ]);
+          throw new Error('Something unexpected happened');
+        }),
+      );
+
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      expect(results).toHaveLength(2);
+      expect(results[0].isError).toBe(false);
+      expect(results[1].isError).toBe(true);
+      expect(results[1].errorMessage).toBe(UNEXPECTED_ERROR_MESSAGE);
+    });
+  });
+
+  describe('コンテキスト長エラーのハンドリング', () => {
+    it('コンテキスト長エラー → リカバリー → 継続 → 成功', async () => {
+      const checkItems = makeItems(['check1', 'check2']);
+      const mockMemory = createMockMemory();
+
+      let agentCallCount = 0;
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          agentCallCount++;
+          if (agentCallCount === 1) {
+            // 初回: 部分結果を書いてからコンテキスト長エラー
+            writeResultsToFile(resultFilePath, [
+              {
+                checkItemId: 1,
+                ratingLabel: 'A',
+                ratingDefinition: 'Good',
+                comment: 'OK',
+                isError: false,
+              },
+            ]);
+            throw createContextLengthError();
+          }
+          // 継続: 残りの結果を書く
+          const existing = JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'));
+          existing.push({
+            checkItemId: 2,
+            ratingLabel: 'B',
+            ratingDefinition: 'Partial',
+            comment: 'Needs work',
+            isError: false,
+          });
+          writeResultsToFile(resultFilePath, existing);
+        }),
+        mockMemory,
+      );
+
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      expect(results).toHaveLength(2);
+      expect(results[0].isError).toBe(false);
+      expect(results[0].rating.label).toBe('A');
+      expect(results[1].isError).toBe(false);
+      expect(results[1].rating.label).toBe('B');
+    });
+
+    it('コンテキスト長エラー → リカバリー → 再度コンテキスト長 → 再リカバリー → 成功', async () => {
+      const checkItems = makeItems(['check1']);
+      const mockMemory = createMockMemory();
+
+      let agentCallCount = 0;
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          agentCallCount++;
+          if (agentCallCount <= 2) {
+            throw createContextLengthError();
+          }
+          // 3回目で成功
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'Finally done',
+              isError: false,
+            },
+          ]);
+        }),
+        mockMemory,
+      );
+
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].isError).toBe(false);
+      expect(results[0].comment).toBe('Finally done');
+      // 3回呼び出されるはず（初回 + 2回リカバリー後の継続）
+      expect(agentCallCount).toBe(3);
+    });
+
+    it('継続プロンプトがPBI指定の構成に従っている', async () => {
+      const checkItems = makeItems(['check1', 'check2']);
+      const mockMemory = createMockMemory();
+
+      let agentCallCount = 0;
+      const agentGenerateFn = vi.fn().mockImplementation(async () => {
+        agentCallCount++;
+        if (agentCallCount === 1) {
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'OK',
+              isError: false,
+            },
+          ]);
+          throw createContextLengthError();
+        }
+        // 継続成功
+        const existing = JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'));
+        existing.push({
+          checkItemId: 2,
+          ratingLabel: 'B',
+          ratingDefinition: 'Partial',
+          comment: 'Done',
+          isError: false,
+        });
+        writeResultsToFile(resultFilePath, existing);
+      });
+      const mockAgent = createMockAgent(agentGenerateFn, mockMemory);
+
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      await executeReview(config);
+
+      // 2回目の呼び出し（継続プロンプト）を検証
+      const continuationPrompt = agentGenerateFn.mock.calls[1][0] as string;
+      // 1. 通常のuserプロンプト内容（MR情報）
+      expect(continuationPrompt).toContain('Test MR');
+      // 2. レビュー済みチェック項目
+      expect(continuationPrompt).toContain('Already Reviewed Items');
+      expect(continuationPrompt).toContain('[ID: 1]');
+      // 3. コンテキスト逼迫の旨
+      expect(continuationPrompt).toContain('Context Length Recovery Notice');
+      // 4. 要約内容
+      expect(continuationPrompt).toContain('Summary of Previous Work');
+    });
+
+    it('コンテキスト長リカバリー失敗時、部分結果が保持される', async () => {
+      const checkItems = makeItems(['check1', 'check2']);
+      const mockMemory = createMockMemory();
+
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'OK',
+              isError: false,
+            },
+          ]);
+          throw createContextLengthError();
+        }),
+        mockMemory,
+      );
+
+      // 要約Agent失敗
+      const failingSummarizationAgent = createMockAgent(
+        vi.fn().mockRejectedValue(new Error('Summarization failed')),
+      );
+
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        summarizationAgent: failingSummarizationAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      // 要約失敗はcatchされてclassifyErrorで分類される（context_length以外）
+      expect(results).toHaveLength(2);
+      expect(results[0].isError).toBe(false); // 部分結果は保持
+      expect(results[1].isError).toBe(true);
+    });
+
+    it('全スレッドがクリーンアップされる', async () => {
+      const checkItems = makeItems(['check1']);
+      const mockMemory = createMockMemory();
+
+      let agentCallCount = 0;
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          agentCallCount++;
+          if (agentCallCount === 1) {
+            throw createContextLengthError();
+          }
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'Done',
+              isError: false,
+            },
+          ]);
+        }),
+        mockMemory,
+      );
+
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      await executeReview(config);
+
+      // 旧スレッド + リカバリーで作成された新スレッド = 2回削除
+      // ただしrecoverFromContextLengthが旧スレッドを削除し、
+      // finallyで全スレッドを削除するので、deleteThreadの呼び出し回数は3回（recovery内1回 + finally2回）
+      expect(mockMemory.deleteThread.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('コンテキスト長リカバリー上限（3回）到達時、部分結果で終了する', async () => {
+      const checkItems = makeItems(['check1', 'check2']);
+      const mockMemory = createMockMemory();
+
+      // 全てのgenerate呼び出しでコンテキスト長エラーを投げる（4回: 初回 + 3回リカバリー後の継続）
+      let agentCallCount = 0;
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          agentCallCount++;
+          if (agentCallCount === 1) {
+            // 初回: 部分結果を書いてからエラー
+            writeResultsToFile(resultFilePath, [
+              {
+                checkItemId: 1,
+                ratingLabel: 'A',
+                ratingDefinition: 'Good',
+                comment: 'OK',
+                isError: false,
+              },
+            ]);
+          }
+          throw createContextLengthError();
+        }),
+        mockMemory,
+      );
+
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      // 無限ループせずに終了し、部分結果が保持される
+      // 初回executeWithContextLengthRecovery(4回) + リトライループ(2回 × 4回) = 12回
+      expect(agentCallCount).toBe(12);
+      expect(results).toHaveLength(2);
+      expect(results[0].isError).toBe(false);
+      expect(results[0].rating.label).toBe('A');
+      // 未完了項目はエラー
+      expect(results[1].isError).toBe(true);
+    });
   });
 });

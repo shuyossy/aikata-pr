@@ -243,7 +243,8 @@ describe('reviewWorkflow 結合テスト', () => {
     const output = getSuccessResult(result);
     expect(output.results).toHaveLength(1);
     expect(output.results[0].isError).toBe(true);
-    expect(output.results[0].errorMessage).toBe('AI API failed');
+    // 通常ErrorはAPICallErrorではないためunknownに分類され、定型メッセージが返される
+    expect(output.results[0].errorMessage).toBe('予期せぬエラー（実行ログを確認してください）');
   });
 
   it('RequestContextの値がAgent呼び出しに渡される', async () => {

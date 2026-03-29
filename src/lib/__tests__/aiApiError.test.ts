@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { APICallError } from 'ai';
-import { extractAPICallError, findStatusCodeInChain } from '../aiApiError.js';
+import {
+  extractAPICallError,
+  findStatusCodeInChain,
+  isContextLengthError,
+  isApiCallError,
+} from '../aiApiError.js';
 
 /**
  * テスト用のAPICallErrorを生成するヘルパー
@@ -113,5 +118,89 @@ describe('findStatusCodeInChain', () => {
     expect(findStatusCodeInChain('string')).toBeNull();
     expect(findStatusCodeInChain(null)).toBeNull();
     expect(findStatusCodeInChain(undefined)).toBeNull();
+  });
+});
+
+describe('isContextLengthError', () => {
+  it.each([
+    'maximum context length',
+    'tokens_limit_reached',
+    'context_length_exceeded',
+    'many images',
+    'tokens exceed',
+  ])('responseBodyに "%s" が含まれる場合trueを返す', (pattern) => {
+    const error = createAPICallError({
+      statusCode: 400,
+      responseBody: `Error: ${pattern} for this model`,
+    });
+
+    expect(isContextLengthError(error)).toBe(true);
+  });
+
+  it('関係ないresponseBodyの場合falseを返す', () => {
+    const error = createAPICallError({
+      statusCode: 400,
+      responseBody: 'Invalid request format',
+    });
+
+    expect(isContextLengthError(error)).toBe(false);
+  });
+
+  it('responseBodyがundefinedの場合falseを返す', () => {
+    const error = createAPICallError({ statusCode: 400 });
+
+    expect(isContextLengthError(error)).toBe(false);
+  });
+
+  it('APICallError以外のエラーの場合falseを返す', () => {
+    expect(isContextLengthError(new Error('generic error'))).toBe(false);
+  });
+
+  it('nullの場合falseを返す', () => {
+    expect(isContextLengthError(null)).toBe(false);
+  });
+
+  it('causeチェーン経由でも検出できる', () => {
+    const apiError = createAPICallError({
+      statusCode: 400,
+      responseBody: 'context_length_exceeded',
+    });
+    const wrapper = new Error('Wrapped', { cause: apiError });
+
+    expect(isContextLengthError(wrapper)).toBe(true);
+  });
+
+  it('RetryError経由でも検出できる', () => {
+    const apiError = createAPICallError({
+      statusCode: 400,
+      responseBody: 'maximum context length exceeded',
+    });
+    const retryLike = createRetryLikeError([apiError]);
+    const wrapper = new Error('Wrapped', { cause: retryLike });
+
+    expect(isContextLengthError(wrapper)).toBe(true);
+  });
+});
+
+describe('isApiCallError', () => {
+  it('直接のAPICallErrorの場合trueを返す', () => {
+    const error = createAPICallError({ statusCode: 500 });
+
+    expect(isApiCallError(error)).toBe(true);
+  });
+
+  it('causeチェーン経由のAPICallErrorの場合trueを返す', () => {
+    const apiError = createAPICallError({ statusCode: 500 });
+    const wrapper = new Error('Wrapped', { cause: apiError });
+
+    expect(isApiCallError(wrapper)).toBe(true);
+  });
+
+  it('通常Errorの場合falseを返す', () => {
+    expect(isApiCallError(new Error('generic'))).toBe(false);
+  });
+
+  it('nullの場合falseを返す', () => {
+    expect(isApiCallError(null)).toBe(false);
   });
 });

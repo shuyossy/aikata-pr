@@ -6,9 +6,12 @@ import { ReviewResult } from '../../../domain/reviewResult/index.js';
 import { Rating } from '../../../domain/rating/index.js';
 import { CheckItem } from '../../../domain/checkItem/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
-import { readStoredResults } from '../../types.js';
+import { readStoredResults, type StoredReviewResult } from '../../types.js';
 import { buildUserPrompt } from '../../agents/reviewAgent.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
+import { classifyError } from '../../../lib/errorClassifier.js';
+import { recoverFromContextLength } from './contextLengthRecovery.js';
+import { getLogger } from '../../../lib/logger.js';
 
 /**
  * レビュー実行ステップの設定
@@ -20,15 +23,193 @@ export interface ReviewExecutionConfig {
   checkItems: IndexedCheckItem[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   agent: Agent<string, Record<string, any>, any, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  summarizationAgent: Agent<string, Record<string, any>, any, any>;
   requestContext: RequestContext<ReviewAgentRequestContext>;
   resultFilePath: string;
   rateLimitRetryConfig: RateLimitRetryConfig;
 }
 
 /**
- * リトライの最大回数
+ * リトライの最大回数（漏れチェック用）
  */
 const MAX_RETRIES = 2;
+
+/**
+ * コンテキスト長リカバリーの最大回数（無限ループ防止）
+ * generate呼び出しは最大 MAX_CONTEXT_LENGTH_RECOVERIES + 1 回（初回 + リカバリー回数分の継続）
+ */
+const MAX_CONTEXT_LENGTH_RECOVERIES = 3;
+
+/**
+ * 部分的成功を保持して、未完了項目のみエラーにする
+ */
+function buildResults(
+  checkItems: IndexedCheckItem[],
+  storedResults: StoredReviewResult[],
+  defaultErrorMessage: string,
+): ReviewResult[] {
+  return checkItems.map((item) => {
+    const stored = storedResults.find((r) => r.checkItemId === item.id);
+    const checkItem = new CheckItem(item.content);
+    if (!stored) {
+      return ReviewResult.error(checkItem, defaultErrorMessage);
+    }
+    if (stored.isError) {
+      return ReviewResult.error(checkItem, stored.errorMessage ?? 'Unknown error');
+    }
+    return ReviewResult.success(
+      checkItem,
+      new Rating(stored.ratingLabel, stored.ratingDefinition),
+      stored.comment,
+    );
+  });
+}
+
+/**
+ * コンテキスト長リカバリー後のレビュー継続用プロンプトを構築する
+ *
+ * PBI指定の構成:
+ * 1. 通常通りのuserプロンプト（MR情報、diff等）
+ * 2. 現状レビュー済みのチェック項目
+ * 3. コンテキスト逼迫により今までの作業内容を要約した旨
+ * 4. 要約内容
+ */
+export function buildContinuationPrompt(
+  requestContext: RequestContext<ReviewAgentRequestContext>,
+  resultFilePath: string,
+  summary: string,
+  alreadyReviewedItemIds: number[],
+): string {
+  const ctx = requestContext.all;
+
+  // レビュー済み項目のリスト構築
+  const reviewedList =
+    alreadyReviewedItemIds.length > 0
+      ? alreadyReviewedItemIds
+          .map((id) => {
+            const item = ctx.checkItems.find((i) => i.id === id);
+            return item ? `- [ID: ${id}] ${item.content}` : `- [ID: ${id}] (unknown)`;
+          })
+          .join('\n')
+      : 'None';
+
+  // 1. 通常通りのuserプロンプト
+  const basePrompt = buildUserPrompt(requestContext, resultFilePath);
+
+  return `${basePrompt}
+
+---
+
+## Already Reviewed Items
+The following items have already been reviewed and their results stored. You do NOT need to review them again:
+${reviewedList}
+
+## Context Length Recovery Notice
+The previous review session was interrupted due to context length limitations. The work history has been summarized below. Please use this summary to continue reviewing the remaining items efficiently.
+
+## Summary of Previous Work
+${summary}
+
+---
+
+Continue reviewing the remaining check items. Store each result using the storeReviewResult tool. The result file path is: ${resultFilePath}`;
+}
+
+/**
+ * Agent呼び出しをコンテキスト長リカバリー付きで実行する
+ *
+ * コンテキスト長エラーが発生した場合、要約→継続をループする（最大MAX_CONTEXT_LENGTH_RECOVERIES回）。
+ * コンテキスト長以外のエラーは呼び出し元に再スローする。
+ */
+async function executeWithContextLengthRecovery(params: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  agent: Agent<string, Record<string, any>, any, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  summarizationAgent: Agent<string, Record<string, any>, any, any>;
+  initialPrompt: string;
+  requestContext: RequestContext<ReviewAgentRequestContext>;
+  memoryOption: { thread: string; resource: string };
+  checkItems: IndexedCheckItem[];
+  resultFilePath: string;
+  rateLimitRetryConfig: RateLimitRetryConfig;
+  allThreadIds: string[];
+}): Promise<{ currentThreadId: string }> {
+  const logger = getLogger();
+  let { initialPrompt: prompt, memoryOption } = params;
+  const {
+    agent,
+    summarizationAgent,
+    requestContext,
+    checkItems,
+    resultFilePath,
+    rateLimitRetryConfig,
+    allThreadIds,
+  } = params;
+  let currentThreadId = memoryOption.thread;
+
+  for (let attempt = 0; attempt <= MAX_CONTEXT_LENGTH_RECOVERIES; attempt++) {
+    try {
+      await withRateLimitRetry(
+        () => agent.generate(prompt, { requestContext, memory: memoryOption }),
+        rateLimitRetryConfig,
+      );
+      return { currentThreadId };
+    } catch (error) {
+      const classified = classifyError(error);
+
+      if (classified.type !== 'context_length') {
+        throw error;
+      }
+
+      if (attempt >= MAX_CONTEXT_LENGTH_RECOVERIES) {
+        logger.warn('Context length recovery limit reached, proceeding with partial results');
+        return { currentThreadId };
+      }
+
+      logger.info({ attempt: attempt + 1 }, 'Context length error detected, attempting recovery');
+
+      // リカバリー実行（リカバリー自体の失敗は呼び出し元でunknownエラーとして処理される）
+      let recovery: Awaited<ReturnType<typeof recoverFromContextLength>>;
+      try {
+        recovery = await recoverFromContextLength({
+          reviewAgent: agent,
+          summarizationAgent,
+          threadId: currentThreadId,
+          resourceId: memoryOption.resource,
+          requestContext,
+          checkItems,
+          resultFilePath,
+          rateLimitRetryConfig,
+        });
+      } catch (recoveryError) {
+        logger.error(
+          { err: recoveryError, attempt: attempt + 1 },
+          'Context length recovery failed',
+        );
+        throw recoveryError;
+      }
+
+      allThreadIds.push(recovery.newThreadId);
+      currentThreadId = recovery.newThreadId;
+      memoryOption = { thread: recovery.newThreadId, resource: memoryOption.resource };
+
+      // レビュー済みチェック項目IDを取得
+      const storedResults = readStoredResults(resultFilePath);
+      const alreadyReviewedItemIds = storedResults.map((r) => r.checkItemId);
+
+      // 継続プロンプトを構築
+      prompt = buildContinuationPrompt(
+        requestContext,
+        resultFilePath,
+        recovery.summary,
+        alreadyReviewedItemIds,
+      );
+    }
+  }
+
+  return { currentThreadId };
+}
 
 /**
  * レビュー実行のコアロジック
@@ -37,30 +218,51 @@ const MAX_RETRIES = 2;
  * 結果はエージェントがstoreReviewResultツールを使ってファイルに保存する。
  * 漏れがある場合は最大2回リトライし、それでも漏れがある場合はエラー結果を返す。
  * メモリ（threadId）により、リトライ時に初回の会話履歴が保持される。
+ *
+ * エラーハンドリング:
+ * - コンテキスト長エラー: 作業履歴を要約して継続（最大3回ループ）
+ * - API呼び出しエラー: 部分結果を保持し、未完了項目にエラーメッセージを表示
+ * - その他エラー: 部分結果を保持し、未完了項目に定型メッセージを表示
  */
 export async function executeReview(config: ReviewExecutionConfig): Promise<ReviewResult[]> {
-  const { checkItems, agent, requestContext, resultFilePath, rateLimitRetryConfig } = config;
+  const {
+    checkItems,
+    agent,
+    summarizationAgent,
+    requestContext,
+    resultFilePath,
+    rateLimitRetryConfig,
+  } = config;
 
   // スレッド管理: 実行ごとにユニークなthreadIdを生成
-  const threadId = randomUUID();
+  let threadId: string = randomUUID();
   const resourceId = String(requestContext.get('userId'));
-  const memoryOption = { thread: threadId, resource: resourceId };
+  let memoryOption = { thread: threadId, resource: resourceId };
+  const allThreadIds: string[] = [threadId];
 
   try {
-    // 初回のエージェント実行（MR情報・diff・過去結果を含むuserプロンプト）
+    // 初回のエージェント実行（コンテキスト長リカバリーループ付き）
     const prompt = buildUserPrompt(requestContext, resultFilePath);
 
     try {
-      await withRateLimitRetry(
-        () => agent.generate(prompt, { requestContext, memory: memoryOption }),
+      const result = await executeWithContextLengthRecovery({
+        agent,
+        summarizationAgent,
+        initialPrompt: prompt,
+        requestContext,
+        memoryOption,
+        checkItems,
+        resultFilePath,
         rateLimitRetryConfig,
-      );
+        allThreadIds,
+      });
+      threadId = result.currentThreadId;
+      memoryOption = { thread: threadId, resource: resourceId };
     } catch (error) {
-      // 初回Agent失敗時は全項目をエラー結果として返す
-      const errorMessage = error instanceof Error ? error.message : 'Agent execution failed';
-      return checkItems.map((item) =>
-        ReviewResult.error(new CheckItem(item.content), errorMessage),
-      );
+      // コンテキスト長以外のエラー（API/その他）→ 部分結果を保持
+      const classified = classifyError(error);
+      const storedResults = readStoredResults(resultFilePath);
+      return buildResults(checkItems, storedResults, classified.message);
     }
 
     // 漏れチェックとリトライ
@@ -75,42 +277,45 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
         break;
       }
 
-      // 漏れた項目についてリトライ（同じthreadIdで会話履歴を継続）
+      // 漏れた項目についてリトライ（コンテキスト長リカバリーループ付き）
       try {
         const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- [ID: ${i.id}] ${i.content}`).join('\n')}\nResult file path: ${resultFilePath}`;
-        await withRateLimitRetry(
-          () => agent.generate(retryPrompt, { requestContext, memory: memoryOption }),
+        const result = await executeWithContextLengthRecovery({
+          agent,
+          summarizationAgent,
+          initialPrompt: retryPrompt,
+          requestContext,
+          memoryOption,
+          checkItems,
+          resultFilePath,
           rateLimitRetryConfig,
-        );
+          allThreadIds,
+        });
+        threadId = result.currentThreadId;
+        memoryOption = { thread: threadId, resource: resourceId };
         storedResults = readStoredResults(resultFilePath);
       } catch {
-        // リトライ失敗時は次のリトライへ（または終了）
+        // リトライ失敗時はループ終了、部分結果で返す
+        // リトライ中に格納された結果を反映するため再読み込み
+        storedResults = readStoredResults(resultFilePath);
         break;
       }
     }
 
-    // 結果をReviewResultに変換
-    return checkItems.map((item) => {
-      const stored = storedResults.find((r) => r.checkItemId === item.id);
-      const checkItem = new CheckItem(item.content);
-      if (!stored) {
-        return ReviewResult.error(checkItem, 'Review result not found after agent execution');
-      }
-      if (stored.isError) {
-        return ReviewResult.error(checkItem, stored.errorMessage ?? 'Unknown error');
-      }
-      return ReviewResult.success(
-        checkItem,
-        new Rating(stored.ratingLabel, stored.ratingDefinition),
-        stored.comment,
-      );
-    });
+    // 結果をReviewResultに変換（部分的成功を保持）
+    return buildResults(checkItems, storedResults, 'Review result not found after agent execution');
   } finally {
-    // スレッド削除（クリーンアップ）
+    // 全スレッドをクリーンアップ
     try {
       const memory = await agent.getMemory();
       if (memory) {
-        await memory.deleteThread(threadId);
+        for (const tid of allThreadIds) {
+          try {
+            await memory.deleteThread(tid);
+          } catch {
+            // クリーンアップ失敗は無視
+          }
+        }
       }
     } catch {
       // クリーンアップ失敗は無視（CI/CD隔離環境でジョブ終了時に破棄される）

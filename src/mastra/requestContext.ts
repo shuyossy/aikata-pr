@@ -42,6 +42,17 @@ export interface ReviewAgentRequestContext extends WorkflowRequestContext {
 }
 
 /**
+ * SummarizationAgent用RequestContext型（モデル設定 + 要約に必要なコンテキスト）
+ */
+export interface SummarizationAgentRequestContext extends WorkflowRequestContext {
+  checkItems: IndexedCheckItem[];
+  mrTitle: string;
+  mrSourceBranch: string;
+  mrTargetBranch: string;
+  alreadyStoredSummary: string;
+}
+
+/**
  * RequestContextからAIモデルを動的に作成するヘルパー関数
  *
  * createOpenAICompatibleが返すLanguageModelV3をMastraLanguageModelとしてキャストする。

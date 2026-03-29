@@ -179,9 +179,11 @@ const reviewExecutionStep = createStep({
     ]);
 
     const reviewAgent = mastra.getAgent('reviewAgent');
+    const summarizationAgent = mastra.getAgent('summarizationAgent');
     const results = await executeReview({
       checkItems,
       agent: reviewAgent,
+      summarizationAgent,
       requestContext: agentRequestContext,
       resultFilePath: initData.resultFilePath,
       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,

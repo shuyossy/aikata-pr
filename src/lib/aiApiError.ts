@@ -61,3 +61,31 @@ export function findStatusCodeInChain(error: unknown): number | null {
 
   return null;
 }
+
+/**
+ * コンテキスト長エラーかどうかを判定する
+ *
+ * APICallErrorのresponseBodyに以下のパターンが含まれる場合にコンテキスト長エラーと判定する。
+ * extractAPICallError()を使用してエラーチェーンからAPICallErrorを抽出する。
+ */
+export function isContextLengthError(error: unknown): boolean {
+  const apiError = extractAPICallError(error);
+  if (!apiError) return false;
+  const body = typeof apiError.responseBody === 'string' ? apiError.responseBody : '';
+  return (
+    body.includes('maximum context length') ||
+    body.includes('tokens_limit_reached') ||
+    body.includes('context_length_exceeded') ||
+    body.includes('many images') ||
+    body.includes('tokens exceed')
+  );
+}
+
+/**
+ * API呼び出しエラーかどうかを判定する
+ *
+ * エラーチェーンにAPICallErrorが含まれる場合にtrueを返す。
+ */
+export function isApiCallError(error: unknown): boolean {
+  return extractAPICallError(error) !== null;
+}
