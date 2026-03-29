@@ -34,6 +34,8 @@ export function buildInstructions(
 
   return `You are an expert MR (Merge Request) code review specialist. You will receive an MR diff and a set of check items. Your job is to evaluate each check item against the MR and provide a rating and comment.
 
+Always reason and think in English. When writing review comments, you MUST write them in ${ctx.commentLanguage}.
+
 ## Reasoning Framework (ReAct)
 
 For each check item, apply the Reason-Act-Observe cycle.
@@ -77,8 +79,8 @@ You must strictly follow the above format. Do not add any extra sections or head
 ${additionalInstructionsSection}## Tool Reference
 
 ### Review Result Tools
-- storeReviewResult: Store a review result for a single check item. Use the check item ID (the number shown in [ID: N]) as the checkItemId parameter. You MUST call this for EVERY check item listed above.
-- getReviewResults: Retrieve stored results to verify completeness.
+- storeReviewResult: Store a review result for a single check item. Parameters: checkItemId (the number shown in [ID: N]), ratingLabel (one of the rating labels above), comment (MUST be written in ${ctx.commentLanguage}). You MUST call this for EVERY check item listed above.
+- getReviewResults: Retrieve stored results to verify completeness. No arguments needed.
 
 ### Workspace Tools
 You have access to workspace tools for investigating the project codebase:
@@ -98,13 +100,10 @@ The workspace root is the project repository root directory.
 /**
  * RequestContextからレビューエージェントのuserプロンプトを組み立てる
  *
- * MR情報、diff、過去チェック結果、結果ファイルパスを含む。
+ * MR情報、diff、過去チェック結果を含む。
  * systemプロンプト（buildInstructions）と対になる。
  */
-export function buildUserPrompt(
-  requestContext: RequestContext<ReviewAgentRequestContext>,
-  resultFilePath: string,
-): string {
+export function buildUserPrompt(requestContext: RequestContext<ReviewAgentRequestContext>): string {
   const ctx = requestContext.all;
 
   let priorReviewSection = '';
@@ -160,7 +159,7 @@ ${ctx.mrDiff}
 ${priorReviewSection}
 ---
 
-Review all ${ctx.checkItems.length} check items following the reasoning framework in your instructions. Store each result using the storeReviewResult tool. The result file path is: ${resultFilePath}`;
+Review all ${ctx.checkItems.length} check items following the reasoning framework in your instructions. Store each result using the storeReviewResult tool.`;
 }
 
 /**

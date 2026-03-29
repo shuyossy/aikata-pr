@@ -52,6 +52,7 @@ function createWorkflowInput(overrides: Record<string, unknown> = {}) {
     skillsPaths: [],
     resultFilePath: '',
     folderTree: 'src/\n  index.ts',
+    commentLanguage: 'Japanese',
     ...overrides,
   };
 }

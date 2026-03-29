@@ -61,6 +61,7 @@ function createToolMessage(toolName: string, result: string): MastraDBMessage {
 
 function createTestRequestContext(
   checkItems: IndexedCheckItem[] = new IndexedChecklist(['check1', 'check2']).items.slice(),
+  resultFilePath: string = '',
 ): RequestContext<ReviewAgentRequestContext> {
   return new RequestContext<ReviewAgentRequestContext>([
     ['userId', 'test-user'],
@@ -72,6 +73,8 @@ function createTestRequestContext(
     ['ratings', [{ label: 'A', definition: 'Good' }]],
     ['commentFormat', '{comment}'],
     ['additionalInstructions', ''],
+    ['resultFilePath', resultFilePath],
+    ['commentLanguage', 'Japanese'],
     ['mrTitle', 'Test MR'],
     ['mrDescription', 'Test'],
     ['mrSourceBranch', 'feature/test'],
@@ -322,9 +325,11 @@ describe('recoverFromContextLength', () => {
       summarizationAgent,
       threadId: 'old-thread-id',
       resourceId: 'test-user',
-      requestContext: createTestRequestContext(),
+      requestContext: createTestRequestContext(
+        new IndexedChecklist(['check1']).items.slice(),
+        resultFilePath,
+      ),
       checkItems: new IndexedChecklist(['check1']).items.slice(),
-      resultFilePath,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
@@ -351,9 +356,11 @@ describe('recoverFromContextLength', () => {
       summarizationAgent,
       threadId: 'old-thread-id',
       resourceId: 'test-user',
-      requestContext: createTestRequestContext(),
+      requestContext: createTestRequestContext(
+        new IndexedChecklist(['check1']).items.slice(),
+        resultFilePath,
+      ),
       checkItems: new IndexedChecklist(['check1']).items.slice(),
-      resultFilePath,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
@@ -383,9 +390,11 @@ describe('recoverFromContextLength', () => {
       summarizationAgent,
       threadId: 'old-thread-id',
       resourceId: 'test-user',
-      requestContext: createTestRequestContext(),
+      requestContext: createTestRequestContext(
+        new IndexedChecklist(['check1']).items.slice(),
+        resultFilePath,
+      ),
       checkItems: new IndexedChecklist(['check1']).items.slice(),
-      resultFilePath,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
@@ -425,9 +434,8 @@ describe('recoverFromContextLength', () => {
       summarizationAgent,
       threadId: 'old-thread-id',
       resourceId: 'test-user',
-      requestContext: createTestRequestContext(checkItems),
+      requestContext: createTestRequestContext(checkItems, resultFilePath),
       checkItems,
-      resultFilePath,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 

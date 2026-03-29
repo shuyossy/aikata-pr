@@ -12,6 +12,7 @@ export interface CliOptions {
   logLevel: string;
   verboseError: boolean;
   aiModelName: string;
+  commentLanguage: string;
 }
 
 /**
@@ -63,6 +64,9 @@ export function parseCliOptions(
       case '--verbose-error':
         parsed['verboseError'] = true;
         break;
+      case '--comment-language':
+        parsed['commentLanguage'] = args[++i]!;
+        break;
     }
   }
 
@@ -77,5 +81,6 @@ export function parseCliOptions(
     logLevel: (parsed['logLevel'] as string) ?? env['LOG_LEVEL'] ?? 'info',
     verboseError: (parsed['verboseError'] as boolean) ?? env['VERBOSE_ERROR'] === 'true',
     aiModelName: (parsed['aiModelName'] as string) ?? env['AI_MODEL_NAME'] ?? 'openai/o4-mini',
+    commentLanguage: (parsed['commentLanguage'] as string) ?? env['COMMENT_LANGUAGE'] ?? 'Japanese',
   };
 }

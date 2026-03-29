@@ -64,6 +64,7 @@ const workflowInputSchema = z.object({
   skillsPaths: z.array(z.string()),
   resultFilePath: z.string(),
   folderTree: z.string(),
+  commentLanguage: z.string(),
 });
 
 /**
@@ -155,6 +156,8 @@ const reviewExecutionStep = createStep({
       ['ratings', initData.ratings.map((r) => ({ label: r.label, definition: r.definition }))],
       ['commentFormat', initData.commentFormat],
       ['additionalInstructions', initData.additionalInstructions],
+      ['resultFilePath', initData.resultFilePath],
+      ['commentLanguage', initData.commentLanguage],
       ['mrTitle', initData.mrTitle],
       ['mrDescription', initData.mrDescription],
       ['mrSourceBranch', initData.mrSourceBranch],

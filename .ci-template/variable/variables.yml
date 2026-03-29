@@ -17,5 +17,6 @@ variables:
   USER_ID: "$GITLAB_USER_LOGIN"
   LOG_LEVEL: "info"
   VERBOSE_ERROR: "false"
+  COMMENT_LANGUAGE: "Japanese"
   # Tree
   TREE_MAX_DEPTH: ""

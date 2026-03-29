@@ -77,7 +77,6 @@ function buildResults(
  */
 export function buildContinuationPrompt(
   requestContext: RequestContext<ReviewAgentRequestContext>,
-  resultFilePath: string,
   summary: string,
   alreadyReviewedItemIds: number[],
 ): string {
@@ -95,7 +94,7 @@ export function buildContinuationPrompt(
       : 'None';
 
   // 1. 通常通りのuserプロンプト
-  const basePrompt = buildUserPrompt(requestContext, resultFilePath);
+  const basePrompt = buildUserPrompt(requestContext);
 
   return `${basePrompt}
 
@@ -113,7 +112,7 @@ ${summary}
 
 ---
 
-Continue reviewing the remaining check items. Store each result using the storeReviewResult tool. The result file path is: ${resultFilePath}`;
+Continue reviewing the remaining check items. Store each result using the storeReviewResult tool.`;
 }
 
 /**
@@ -131,7 +130,6 @@ async function executeWithContextLengthRecovery(params: {
   requestContext: RequestContext<ReviewAgentRequestContext>;
   memoryOption: { thread: string; resource: string };
   checkItems: IndexedCheckItem[];
-  resultFilePath: string;
   rateLimitRetryConfig: RateLimitRetryConfig;
   allThreadIds: string[];
 }): Promise<{ currentThreadId: string }> {
@@ -142,10 +140,10 @@ async function executeWithContextLengthRecovery(params: {
     summarizationAgent,
     requestContext,
     checkItems,
-    resultFilePath,
     rateLimitRetryConfig,
     allThreadIds,
   } = params;
+  const resultFilePath = String(requestContext.get('resultFilePath'));
   let currentThreadId = memoryOption.thread;
 
   for (let attempt = 0; attempt <= MAX_CONTEXT_LENGTH_RECOVERIES; attempt++) {
@@ -179,7 +177,6 @@ async function executeWithContextLengthRecovery(params: {
           resourceId: memoryOption.resource,
           requestContext,
           checkItems,
-          resultFilePath,
           rateLimitRetryConfig,
         });
       } catch (recoveryError) {
@@ -199,12 +196,7 @@ async function executeWithContextLengthRecovery(params: {
       const alreadyReviewedItemIds = storedResults.map((r) => r.checkItemId);
 
       // 継続プロンプトを構築
-      prompt = buildContinuationPrompt(
-        requestContext,
-        resultFilePath,
-        recovery.summary,
-        alreadyReviewedItemIds,
-      );
+      prompt = buildContinuationPrompt(requestContext, recovery.summary, alreadyReviewedItemIds);
     }
   }
 
@@ -242,7 +234,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
 
   try {
     // 初回のエージェント実行（コンテキスト長リカバリーループ付き）
-    const prompt = buildUserPrompt(requestContext, resultFilePath);
+    const prompt = buildUserPrompt(requestContext);
 
     try {
       const result = await executeWithContextLengthRecovery({
@@ -252,7 +244,6 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
         requestContext,
         memoryOption,
         checkItems,
-        resultFilePath,
         rateLimitRetryConfig,
         allThreadIds,
       });
@@ -279,7 +270,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
 
       // 漏れた項目についてリトライ（コンテキスト長リカバリーループ付き）
       try {
-        const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- [ID: ${i.id}] ${i.content}`).join('\n')}\nResult file path: ${resultFilePath}`;
+        const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- [ID: ${i.id}] ${i.content}`).join('\n')}`;
         const result = await executeWithContextLengthRecovery({
           agent,
           summarizationAgent,
@@ -287,7 +278,6 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
           requestContext,
           memoryOption,
           checkItems,
-          resultFilePath,
           rateLimitRetryConfig,
           allThreadIds,
         });

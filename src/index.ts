@@ -40,7 +40,9 @@ class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
     const result = await run.start({ inputData, requestContext });
 
     if (result.status === 'failed') {
-      throw new Error(`Workflow failed: ${result.error?.message ?? 'Unknown error'}`);
+      throw new Error(`Workflow failed: ${result.error?.message ?? 'Unknown error'}`, {
+        cause: result.error,
+      });
     }
 
     if (result.status !== 'success') {
@@ -164,6 +166,7 @@ async function main(): Promise<void> {
       aiModelName: options.aiModelName,
       gitlabToken: validated.gitlabToken,
       folderTree,
+      commentLanguage: options.commentLanguage,
     });
 
     logger.info(

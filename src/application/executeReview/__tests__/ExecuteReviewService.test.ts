@@ -51,6 +51,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
     aiModelName: 'openai/o4-mini',
     gitlabToken: 'test-gitlab-token',
     folderTree: 'src/\n  index.ts',
+    commentLanguage: 'Japanese',
     ...overrides,
   };
 }
@@ -574,5 +575,6 @@ describe('ExecuteReviewService', () => {
     expect(runCall.aiModelName).toBe('openai/o4-mini');
     expect(runCall.skillsPaths).toEqual([]);
     expect(runCall.folderTree).toBe('src/\n  index.ts');
+    expect(runCall.commentLanguage).toBe('Japanese');
   });
 });

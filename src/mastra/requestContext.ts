@@ -27,6 +27,8 @@ export interface ReviewAgentRequestContext extends WorkflowRequestContext {
   ratings: Array<{ label: string; definition: string }>;
   commentFormat: string;
   additionalInstructions: string;
+  resultFilePath: string;
+  commentLanguage: string;
   mrTitle: string;
   mrDescription: string;
   mrSourceBranch: string;

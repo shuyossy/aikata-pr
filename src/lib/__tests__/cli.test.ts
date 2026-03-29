@@ -63,6 +63,8 @@ describe('parseCliOptions', () => {
       '--log-level',
       'debug',
       '--verbose-error',
+      '--comment-language',
+      'English',
     ]);
     expect(result.userId).toBe('u1');
     expect(result.projectId).toBe('p1');
@@ -74,6 +76,7 @@ describe('parseCliOptions', () => {
     expect(result.aiModelName).toBe('openai/gpt-4');
     expect(result.logLevel).toBe('debug');
     expect(result.verboseError).toBe(true);
+    expect(result.commentLanguage).toBe('English');
   });
 
   it('未指定の場合はデフォルト値が使用される', () => {
@@ -125,5 +128,27 @@ describe('parseCliOptions', () => {
   it('不明なオプションは無視される', () => {
     const result = parseCliOptions(['--unknown', 'value', '--user-id', 'u1']);
     expect(result.userId).toBe('u1');
+  });
+
+  it('--comment-languageオプションをパースできる', () => {
+    const result = parseCliOptions(['--comment-language', 'English']);
+    expect(result.commentLanguage).toBe('English');
+  });
+
+  it('COMMENT_LANGUAGE環境変数からcommentLanguageを取得できる', () => {
+    const result = parseCliOptions([], { COMMENT_LANGUAGE: 'English' });
+    expect(result.commentLanguage).toBe('English');
+  });
+
+  it('--comment-languageがCOMMENT_LANGUAGE環境変数より優先される', () => {
+    const result = parseCliOptions(['--comment-language', 'Korean'], {
+      COMMENT_LANGUAGE: 'English',
+    });
+    expect(result.commentLanguage).toBe('Korean');
+  });
+
+  it('commentLanguageのデフォルト値はJapaneseである', () => {
+    const result = parseCliOptions([], {});
+    expect(result.commentLanguage).toBe('Japanese');
   });
 });

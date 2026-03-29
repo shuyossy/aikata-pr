@@ -2,27 +2,36 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { RequestContext } from '@mastra/core/request-context';
 import { storeReviewResultTool } from '../storeReviewResult.js';
 
 /**
- * Mastra Toolのexecuteを型安全に呼び出すヘルパー
- * Mastra の型定義上 execute が undefined の可能性があるため安全に呼び出す
+ * テスト用のデフォルト評定基準
  */
-const executeStore = (input: {
-  filePath: string;
-  checkItemId: number;
-  ratingLabel: string;
-  ratingDefinition: string;
-  comment: string;
-  isError: boolean;
-  errorMessage?: string;
-}): Promise<{ success: boolean }> => {
+const defaultRatings = [{ label: 'A', definition: '完全に満たしている' }];
+
+/**
+ * Mastra Toolのexecuteを型安全に呼び出すヘルパー
+ * RequestContextにresultFilePathとratingsを設定
+ */
+const executeStore = (
+  input: {
+    checkItemId: number;
+    ratingLabel: string;
+    comment: string;
+  },
+  resultFilePath: string,
+): Promise<{ success: boolean }> => {
   const executeFn = storeReviewResultTool.execute;
   if (!executeFn) throw new Error('execute is not defined');
-  return executeFn(
-    input,
-    {} as Parameters<NonNullable<typeof storeReviewResultTool.execute>>[1],
-  ) as Promise<{ success: boolean }>;
+  const requestContext = new RequestContext([
+    ['resultFilePath', resultFilePath],
+    ['ratings', defaultRatings],
+  ]);
+  const context = {
+    requestContext,
+  } as Parameters<NonNullable<typeof storeReviewResultTool.execute>>[1];
+  return executeFn(input, context) as Promise<{ success: boolean }>;
 };
 
 describe('排他制御', () => {
@@ -47,14 +56,14 @@ describe('排他制御', () => {
 
     // 同時に複数のstoreReviewResultを呼び出し
     const promises = Array.from({ length: concurrentCount }, (_, i) =>
-      executeStore({
+      executeStore(
+        {
+          checkItemId: i + 1,
+          ratingLabel: 'A',
+          comment: `コメント${i}`,
+        },
         filePath,
-        checkItemId: i + 1,
-        ratingLabel: 'A',
-        ratingDefinition: '完全に満たしている',
-        comment: `コメント${i}`,
-        isError: false,
-      }),
+      ),
     );
 
     const results = await Promise.all(promises);

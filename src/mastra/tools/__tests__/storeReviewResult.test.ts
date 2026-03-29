@@ -7,25 +7,37 @@ import { storeReviewResultTool } from '../storeReviewResult.js';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 
 /**
- * Mastra Toolのexecuteを型安全に呼び出すヘルパー
- * execute は Mastra の型定義上 undefined の可能性があるため非null断定で呼び出す
+ * テスト用のデフォルト評定基準
  */
-const executeStore = (input: {
-  filePath: string;
-  checkItemId: number;
-  ratingLabel: string;
-  ratingDefinition: string;
-  comment: string;
-  isError: boolean;
-  errorMessage?: string;
-}): Promise<{ success: boolean }> => {
-  // Mastra の型定義上 execute が undefined の可能性があるが、実装では常に定義されている
+const defaultRatings = [
+  { label: 'A', definition: '完全に満たしている' },
+  { label: 'B', definition: '概ね満たしている' },
+  { label: 'C', definition: '改善が必要' },
+];
+
+/**
+ * Mastra Toolのexecuteを型安全に呼び出すヘルパー
+ * RequestContextにresultFilePath, ratingsを設定
+ */
+const executeStore = (
+  input: {
+    checkItemId: number;
+    ratingLabel: string;
+    comment: string;
+  },
+  resultFilePath: string,
+  ratings: Array<{ label: string; definition: string }> = defaultRatings,
+): Promise<{ success: boolean; message?: string }> => {
   const executeFn = storeReviewResultTool.execute;
   if (!executeFn) throw new Error('execute is not defined');
-  return executeFn(
-    input,
-    {} as Parameters<NonNullable<typeof storeReviewResultTool.execute>>[1],
-  ) as Promise<{ success: boolean }>;
+  const requestContext = new RequestContext([
+    ['resultFilePath', resultFilePath],
+    ['ratings', ratings],
+  ]);
+  const context = {
+    requestContext,
+  } as Parameters<NonNullable<typeof storeReviewResultTool.execute>>[1];
+  return executeFn(input, context) as Promise<{ success: boolean; message?: string }>;
 };
 
 describe('storeReviewResult', () => {
@@ -46,14 +58,14 @@ describe('storeReviewResult', () => {
 
   it('レビュー結果をjsonファイルに書き込める', async () => {
     createTmpDir();
-    const result = await executeStore({
+    const result = await executeStore(
+      {
+        checkItemId: 1,
+        ratingLabel: 'A',
+        comment: '可読性は十分です',
+      },
       filePath,
-      checkItemId: 1,
-      ratingLabel: 'A',
-      ratingDefinition: '完全に満たしている',
-      comment: '可読性は十分です',
-      isError: false,
-    });
+    );
 
     expect(result.success).toBe(true);
 
@@ -71,24 +83,24 @@ describe('storeReviewResult', () => {
   it('既存の結果に追記できる', async () => {
     createTmpDir();
     // 1件目を書き込み
-    await executeStore({
+    await executeStore(
+      {
+        checkItemId: 1,
+        ratingLabel: 'A',
+        comment: '可読性は十分です',
+      },
       filePath,
-      checkItemId: 1,
-      ratingLabel: 'A',
-      ratingDefinition: '完全に満たしている',
-      comment: '可読性は十分です',
-      isError: false,
-    });
+    );
 
     // 2件目を書き込み
-    await executeStore({
+    await executeStore(
+      {
+        checkItemId: 2,
+        ratingLabel: 'B',
+        comment: 'カバレッジは75%です',
+      },
       filePath,
-      checkItemId: 2,
-      ratingLabel: 'B',
-      ratingDefinition: '概ね満たしている',
-      comment: 'カバレッジは75%です',
-      isError: false,
-    });
+    );
 
     const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     expect(stored).toHaveLength(2);
@@ -99,24 +111,24 @@ describe('storeReviewResult', () => {
   it('同じチェック項目IDの結果は上書きされる', async () => {
     createTmpDir();
     // 1回目の書き込み
-    await executeStore({
+    await executeStore(
+      {
+        checkItemId: 1,
+        ratingLabel: 'C',
+        comment: '可読性が低いです',
+      },
       filePath,
-      checkItemId: 1,
-      ratingLabel: 'C',
-      ratingDefinition: '改善が必要',
-      comment: '可読性が低いです',
-      isError: false,
-    });
+    );
 
     // 同じIDで2回目の書き込み（上書き）
-    await executeStore({
+    await executeStore(
+      {
+        checkItemId: 1,
+        ratingLabel: 'A',
+        comment: '修正後、可読性は十分です',
+      },
       filePath,
-      checkItemId: 1,
-      ratingLabel: 'A',
-      ratingDefinition: '完全に満たしている',
-      comment: '修正後、可読性は十分です',
-      isError: false,
-    });
+    );
 
     const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     expect(stored).toHaveLength(1);
@@ -124,24 +136,53 @@ describe('storeReviewResult', () => {
     expect(stored[0].comment).toBe('修正後、可読性は十分です');
   });
 
-  it('エラー情報を含むレビュー結果を書き込める', async () => {
+  it('ratingLabelに対応するdefinitionがratingsから正しく解決される', async () => {
     createTmpDir();
-    const result = await executeStore({
+    await executeStore(
+      {
+        checkItemId: 1,
+        ratingLabel: 'B',
+        comment: '概ね問題ありません',
+      },
       filePath,
-      checkItemId: 3,
-      ratingLabel: 'エラー',
-      ratingDefinition: 'エラーが発生しました',
-      comment: 'Timeout occurred',
-      isError: true,
-      errorMessage: 'AI API request timed out',
-    });
-
-    expect(result.success).toBe(true);
+    );
 
     const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    expect(stored).toHaveLength(1);
-    expect(stored[0].isError).toBe(true);
-    expect(stored[0].errorMessage).toBe('AI API request timed out');
+    expect(stored[0].ratingLabel).toBe('B');
+    expect(stored[0].ratingDefinition).toBe('概ね満たしている');
+  });
+
+  it('存在しないratingLabelを指定した場合エラーが返される', async () => {
+    createTmpDir();
+    const result = await executeStore(
+      {
+        checkItemId: 1,
+        ratingLabel: 'X',
+        comment: '問題ありません',
+      },
+      filePath,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('X');
+    // ファイルが作成されていないことを確認
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  it('isErrorは常にfalseで保存される', async () => {
+    createTmpDir();
+    await executeStore(
+      {
+        checkItemId: 1,
+        ratingLabel: 'A',
+        comment: '問題ありません',
+      },
+      filePath,
+    );
+
+    const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    expect(stored[0].isError).toBe(false);
+    expect(stored[0].errorMessage).toBeUndefined();
   });
 });
 
@@ -150,19 +191,21 @@ describe('storeReviewResult', () => {
  */
 const executeStoreWithContext = (
   input: {
-    filePath: string;
     checkItemId: number;
     ratingLabel: string;
-    ratingDefinition: string;
     comment: string;
-    isError: boolean;
-    errorMessage?: string;
   },
+  resultFilePath: string,
   checkItems: IndexedCheckItem[],
+  ratings: Array<{ label: string; definition: string }> = defaultRatings,
 ): Promise<{ success: boolean; message?: string }> => {
   const executeFn = storeReviewResultTool.execute;
   if (!executeFn) throw new Error('execute is not defined');
-  const requestContext = new RequestContext([['checkItems', checkItems]]);
+  const requestContext = new RequestContext([
+    ['resultFilePath', resultFilePath],
+    ['ratings', ratings],
+    ['checkItems', checkItems],
+  ]);
   const context = {
     requestContext,
   } as Parameters<NonNullable<typeof storeReviewResultTool.execute>>[1];
@@ -193,13 +236,11 @@ describe('storeReviewResult - チェック項目IDバリデーション', () => 
 
     const result = await executeStoreWithContext(
       {
-        filePath,
         checkItemId: 1,
         ratingLabel: 'A',
-        ratingDefinition: '完全に満たしている',
         comment: 'セキュリティは問題ありません',
-        isError: false,
       },
+      filePath,
       checkItems,
     );
 
@@ -218,13 +259,11 @@ describe('storeReviewResult - チェック項目IDバリデーション', () => 
 
     const result = await executeStoreWithContext(
       {
-        filePath,
         checkItemId: 99,
         ratingLabel: 'A',
-        ratingDefinition: '完全に満たしている',
         comment: '問題ありません',
-        isError: false,
       },
+      filePath,
       checkItems,
     );
 
@@ -238,26 +277,16 @@ describe('storeReviewResult - チェック項目IDバリデーション', () => 
 
   it('RequestContextにcheckItemsがない場合、バリデーションをスキップして保存される', async () => {
     createTmpDir();
-    const executeFn = storeReviewResultTool.execute;
-    if (!executeFn) throw new Error('execute is not defined');
 
-    // checkItemsを含まないRequestContext
-    const requestContext = new RequestContext([]);
-    const context = {
-      requestContext,
-    } as Parameters<NonNullable<typeof storeReviewResultTool.execute>>[1];
-
-    const result = (await executeFn(
+    // checkItemsなし
+    const result = await executeStore(
       {
-        filePath,
         checkItemId: 1,
         ratingLabel: 'A',
-        ratingDefinition: '完全に満たしている',
         comment: '問題ありません',
-        isError: false,
       },
-      context,
-    )) as { success: boolean };
+      filePath,
+    );
 
     expect(result.success).toBe(true);
     const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));

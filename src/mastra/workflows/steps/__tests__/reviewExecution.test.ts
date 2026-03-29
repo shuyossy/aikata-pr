@@ -39,6 +39,7 @@ function createTestRequestContext(
     'security check',
     'performance check',
   ]).items.slice(),
+  resultFilePath: string = '',
 ): RequestContext<ReviewAgentRequestContext> {
   return new RequestContext<ReviewAgentRequestContext>([
     ['userId', 'test-user'],
@@ -57,6 +58,8 @@ function createTestRequestContext(
     ],
     ['commentFormat', '## Review\n{comment}'],
     ['additionalInstructions', ''],
+    ['resultFilePath', resultFilePath],
+    ['commentLanguage', 'Japanese'],
     ['mrTitle', 'Test MR'],
     ['mrDescription', 'Test description'],
     ['mrSourceBranch', 'feature/test'],
@@ -124,12 +127,14 @@ function createContextLengthError(): APICallError {
  */
 function createBaseConfig(overrides: Partial<ReviewExecutionConfig> = {}): ReviewExecutionConfig {
   const checkItems = overrides.checkItems ?? makeItems(['security check', 'performance check']);
+  const resultFilePath = overrides.resultFilePath ?? '';
   return {
     checkItems,
     agent: {} as Agent,
     summarizationAgent: createMockSummarizationAgent('Summary of work'),
-    requestContext: createTestRequestContext(checkItems),
-    resultFilePath: '',
+    requestContext:
+      overrides.requestContext ?? createTestRequestContext(checkItems, resultFilePath),
+    resultFilePath,
     rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     ...overrides,
   };
@@ -219,7 +224,7 @@ describe('executeReview', () => {
     expect(callOptions.requestContext).toBe(requestContext);
   });
 
-  it('初回のuserプロンプトにMR情報とresultFilePathが含まれる', async () => {
+  it('初回のuserプロンプトにMR情報が含まれる', async () => {
     const checkItems = makeItems(['check1']);
     const generateFn = vi.fn().mockImplementation(async () => {
       writeResultsToFile(resultFilePath, [
@@ -233,7 +238,7 @@ describe('executeReview', () => {
       ]);
     });
     const mockAgent = createMockAgent(generateFn);
-    const requestContext = createTestRequestContext(checkItems);
+    const requestContext = createTestRequestContext(checkItems, resultFilePath);
     const config = createBaseConfig({
       checkItems,
       resultFilePath,
@@ -247,7 +252,6 @@ describe('executeReview', () => {
     expect(prompt).toContain('Test MR');
     expect(prompt).toContain('Test description');
     expect(prompt).toContain('feature/test');
-    expect(prompt).toContain(resultFilePath);
   });
 
   it('Agent実行後に漏れがあった場合、再度Agentに指示される (max 2 retries)', async () => {
@@ -675,6 +679,8 @@ describe('executeReview', () => {
       ['ratings', [{ label: 'A', definition: 'Fully satisfies requirements' }]],
       ['commentFormat', '## Review\n{comment}'],
       ['additionalInstructions', ''],
+      ['resultFilePath', resultFilePath],
+      ['commentLanguage', 'Japanese'],
       ['mrTitle', 'Test MR'],
       ['mrDescription', 'Test description'],
       ['mrSourceBranch', 'feature/test'],

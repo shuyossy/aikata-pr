@@ -20,6 +20,8 @@ function createTestContext(
     ratings: [],
     commentFormat: '',
     additionalInstructions: '',
+    resultFilePath: '/tmp/test-results.json',
+    commentLanguage: 'Japanese',
     mrTitle: '',
     mrDescription: '',
     mrSourceBranch: '',
@@ -49,6 +51,8 @@ function createTestRequestContext(
     ['ratings', ctx.ratings],
     ['commentFormat', ctx.commentFormat],
     ['additionalInstructions', ctx.additionalInstructions],
+    ['resultFilePath', ctx.resultFilePath],
+    ['commentLanguage', ctx.commentLanguage],
     ['mrTitle', ctx.mrTitle],
     ['mrDescription', ctx.mrDescription],
     ['mrSourceBranch', ctx.mrSourceBranch],
@@ -117,6 +121,7 @@ describe('buildInstructions', () => {
 
     expect(result).toContain('storeReviewResult');
     expect(result).toContain('getReviewResults');
+    expect(result).toContain('No arguments needed');
     expect(result).toMatch(/Workspace/i);
   });
 
@@ -176,6 +181,31 @@ describe('buildInstructions', () => {
     expect(result).toContain('Focus on security vulnerabilities');
   });
 
+  it('commentLanguageで指定された言語がsystemプロンプトに含まれる', () => {
+    const requestContext = createTestRequestContext({
+      commentLanguage: 'English',
+    });
+
+    const result = buildInstructions(requestContext);
+
+    // 冒頭の言語指示: 思考は英語、コメントのみ指定言語
+    expect(result).toContain('Always reason and think in English');
+    expect(result).toContain('you MUST write them in English');
+    // storeReviewResultの説明にもコメント言語の指示が含まれる
+    expect(result).toContain('comment (MUST be written in English)');
+  });
+
+  it('デフォルト(Japanese)の場合もsystemプロンプトに言語指定が含まれる', () => {
+    const requestContext = createTestRequestContext({
+      commentLanguage: 'Japanese',
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('you MUST write them in Japanese');
+    expect(result).toContain('comment (MUST be written in Japanese)');
+  });
+
   it('additionalInstructionsが空の場合、Additional Instructionsセクションが含まれない', () => {
     const requestContext = createTestRequestContext({
       additionalInstructions: '',
@@ -196,7 +226,7 @@ describe('buildUserPrompt', () => {
       mrTargetBranch: 'main',
     });
 
-    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+    const result = buildUserPrompt(requestContext);
 
     expect(result).toContain('Add login feature');
     expect(result).toContain('Implements OAuth2 login');
@@ -209,17 +239,19 @@ describe('buildUserPrompt', () => {
       mrDiff: '+ added new line\n- removed old line',
     });
 
-    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+    const result = buildUserPrompt(requestContext);
 
     expect(result).toContain('+ added new line\n- removed old line');
   });
 
-  it('resultFilePathがuserプロンプトに含まれる', () => {
-    const requestContext = createTestRequestContext();
+  it('resultFilePathがuserプロンプトに含まれない', () => {
+    const requestContext = createTestRequestContext({
+      resultFilePath: '/tmp/test-results.json',
+    });
 
-    const result = buildUserPrompt(requestContext, '/tmp/test-results.json');
+    const result = buildUserPrompt(requestContext);
 
-    expect(result).toContain('/tmp/test-results.json');
+    expect(result).not.toContain('/tmp/test-results.json');
   });
 
   it('priorReviewContextがnullの場合、Prior Reviewセクションが含まれない', () => {
@@ -227,7 +259,7 @@ describe('buildUserPrompt', () => {
       priorReviewContext: null,
     });
 
-    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+    const result = buildUserPrompt(requestContext);
 
     expect(result).not.toContain('Prior Review');
     expect(result).not.toContain('Commits Since');
@@ -246,7 +278,7 @@ describe('buildUserPrompt', () => {
       },
     });
 
-    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+    const result = buildUserPrompt(requestContext);
 
     expect(result).toContain('Prior Review');
     expect(result).toContain('fix: update auth logic');
@@ -263,7 +295,7 @@ describe('buildUserPrompt', () => {
       folderTree: 'src/\n  domain/\n    CheckItem.ts\nREADME.md',
     });
 
-    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+    const result = buildUserPrompt(requestContext);
 
     expect(result).toContain('Project Folder Tree');
     expect(result).toContain('src/\n  domain/\n    CheckItem.ts\nREADME.md');
@@ -275,7 +307,7 @@ describe('buildUserPrompt', () => {
       mrDiff: '+ added line',
     });
 
-    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+    const result = buildUserPrompt(requestContext);
 
     const treeIndex = result.indexOf('Project Folder Tree');
     const diffIndex = result.indexOf('Merge Request Diff');
@@ -293,7 +325,7 @@ describe('buildUserPrompt', () => {
       ],
     });
 
-    const result = buildUserPrompt(requestContext, '/tmp/results.json');
+    const result = buildUserPrompt(requestContext);
 
     expect(result).toContain('3');
     expect(result).toContain('storeReviewResult');

@@ -41,6 +41,7 @@
     - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
     - `--log-level` / `LOG_LEVEL`: ログレベル
     - `--verbose-error` / `VERBOSE_ERROR`: エラーログ詳細表示の有無
+    - `--comment-language` / `COMMENT_LANGUAGE`: レビューコメントの言語（デフォルト: `Japanese`）
   - 環境変数のみ（秘密情報・環境固有）
     - `AI_API_KEY`: AI APIキー
     - `AI_API_ENDPOINT_URL`: AI APIエンドポイントURL

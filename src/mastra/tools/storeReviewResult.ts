@@ -37,27 +37,39 @@ function releaseLock(lockPath: string): void {
 
 /**
  * レビュー結果をJSONファイルに保存するMastra Tool
+ * resultFilePath, ratingsはRequestContextから取得する
  * 排他制御付きでファイルへの読み書きを行う
  */
 export const storeReviewResultTool = createTool({
   id: 'store-review-result',
-  description: 'Store a single review result to a JSON file with exclusive file locking',
+  description: 'Store a review result for a single check item.',
   inputSchema: z.object({
-    filePath: z.string().describe('Path to the JSON file for storing results'),
-    checkItemId: z.number().describe('1-based ID of the check item'),
+    checkItemId: z.number().describe('ID of the check item (the number shown in [ID: N])'),
     ratingLabel: z.string().describe('Rating label (e.g., A, B, C)'),
-    ratingDefinition: z.string().describe('Definition of the rating label'),
-    comment: z.string().describe('Review comment'),
-    isError: z.boolean().describe('Whether this result is an error'),
-    errorMessage: z.string().optional().describe('Error message if isError is true'),
+    comment: z.string().describe('Review comment for this check item'),
   }),
   outputSchema: z.object({
     success: z.boolean().describe('Whether the store operation succeeded'),
     message: z.string().optional().describe('Error or informational message'),
   }),
   execute: async (inputData, context) => {
-    const { filePath, checkItemId, ratingLabel, ratingDefinition, comment, isError, errorMessage } =
-      inputData;
+    const { checkItemId, ratingLabel, comment } = inputData;
+
+    // RequestContextからresultFilePathを取得
+    const filePath = context?.requestContext?.get('resultFilePath') as string;
+
+    // RequestContextからratingsを取得し、ratingLabelからdefinitionを導出
+    const ratings = context?.requestContext?.get('ratings') as
+      | Array<{ label: string; definition: string }>
+      | undefined;
+    const matchedRating = ratings?.find((r) => r.label === ratingLabel);
+    if (!matchedRating) {
+      const validLabels = ratings?.map((r) => r.label).join(', ') ?? 'none';
+      return {
+        success: false,
+        message: `Invalid ratingLabel "${ratingLabel}". Valid labels are: ${validLabels}`,
+      };
+    }
 
     // RequestContextからチェック項目一覧を取得し、IDが対象範囲内か検証する
     const checkItems = context?.requestContext?.get('checkItems') as IndexedCheckItem[] | undefined;
@@ -81,13 +93,10 @@ export const storeReviewResultTool = createTool({
       const newResult: StoredReviewResult = {
         checkItemId,
         ratingLabel,
-        ratingDefinition,
+        ratingDefinition: matchedRating.definition,
         comment,
-        isError,
+        isError: false,
       };
-      if (errorMessage !== undefined) {
-        newResult.errorMessage = errorMessage;
-      }
 
       const existingIndex = results.findIndex((r) => r.checkItemId === checkItemId);
       if (existingIndex >= 0) {

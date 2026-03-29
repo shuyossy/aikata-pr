@@ -29,7 +29,6 @@ export interface ContextLengthRecoveryConfig {
   resourceId: string;
   requestContext: RequestContext<ReviewAgentRequestContext>;
   checkItems: IndexedCheckItem[];
-  resultFilePath: string;
   rateLimitRetryConfig: RateLimitRetryConfig;
 }
 
@@ -160,9 +159,9 @@ export async function recoverFromContextLength(
     threadId,
     requestContext,
     checkItems,
-    resultFilePath,
     rateLimitRetryConfig,
   } = config;
+  const resultFilePath = String(requestContext.get('resultFilePath'));
 
   logger.info({ threadId }, 'Starting context length recovery');
 

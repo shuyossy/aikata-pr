@@ -17,4 +17,5 @@ export interface ExecuteReviewCommand {
   aiModelName: string;
   gitlabToken: string;
   folderTree: string;
+  commentLanguage: string;
 }
