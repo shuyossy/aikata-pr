@@ -139,6 +139,7 @@ export class ExecuteReviewService {
         results,
         command.reviewSettings.ratings,
         mrContext.commitHash,
+        mrContext.commitMessage,
       );
       await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
 
@@ -185,6 +186,7 @@ export class ExecuteReviewService {
         keptResults,
         command.reviewSettings.ratings,
         mrContext.commitHash,
+        mrContext.commitMessage,
       );
       await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
       return { results: keptResults, commitHash: mrContext.commitHash, commentPosted: true };
@@ -218,6 +220,7 @@ export class ExecuteReviewService {
         mergedResults,
         command.reviewSettings.ratings,
         mrContext.commitHash,
+        mrContext.commitMessage,
       );
       await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
 

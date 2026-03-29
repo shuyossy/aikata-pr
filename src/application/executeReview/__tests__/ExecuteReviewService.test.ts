@@ -24,6 +24,7 @@ function createMrContext(
     targetBranch: 'main',
     diff: 'diff content',
     commitHash: 'current-commit-hash',
+    commitMessage: 'feat: test commit message',
     ...overrides,
   });
 }
@@ -102,7 +103,7 @@ function createAikataComment(
     if (!rating) throw new Error(`Rating not found: ${item.ratingLabel}`);
     return ReviewResult.success(new CheckItem(item.content), rating, item.comment);
   });
-  const body = CommentFormatter.formatComment(results, ratings, commitHash);
+  const body = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
   return { id: 1, body, createdAt };
 }
 

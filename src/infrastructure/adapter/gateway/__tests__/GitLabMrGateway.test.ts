@@ -52,13 +52,28 @@ describe('GitLabMrGateway', () => {
         ],
       };
 
-      mockClient.get.mockResolvedValueOnce(mrInfoResponse).mockResolvedValueOnce(mrChangesResponse);
+      // 最新コミットのレスポンス
+      const commitsResponse = [
+        {
+          id: 'abc123def456',
+          message: 'feat: add new feature\n\nDetailed description',
+          created_at: '2026-03-03T00:00:00Z',
+        },
+      ];
+
+      mockClient.get
+        .mockResolvedValueOnce(mrInfoResponse)
+        .mockResolvedValueOnce(mrChangesResponse)
+        .mockResolvedValueOnce(commitsResponse);
 
       const result = await gateway.getMrContext('123', '42');
 
       // API呼び出しの検証
       expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42');
       expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42/changes');
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/projects/123/merge_requests/42/commits?per_page=1',
+      );
 
       // マッピング結果の検証
       expect(result).toBeInstanceOf(MrContext);
@@ -67,6 +82,8 @@ describe('GitLabMrGateway', () => {
       expect(result.sourceBranch).toBe('feature/new-feature');
       expect(result.targetBranch).toBe('main');
       expect(result.commitHash).toBe('abc123def456');
+      // コミットメッセージは1行目のみ
+      expect(result.commitMessage).toBe('feat: add new feature');
       // 複数のdiffが結合されること
       expect(result.diff).toBe(
         '--- a/file1.ts\n+++ b/file1.ts\n@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n' +
@@ -93,11 +110,18 @@ describe('GitLabMrGateway', () => {
         changes: [],
       };
 
-      mockClient.get.mockResolvedValueOnce(mrInfoResponse).mockResolvedValueOnce(mrChangesResponse);
+      // 空のコミットレスポンス
+      const commitsResponse: unknown[] = [];
+
+      mockClient.get
+        .mockResolvedValueOnce(mrInfoResponse)
+        .mockResolvedValueOnce(mrChangesResponse)
+        .mockResolvedValueOnce(commitsResponse);
 
       const result = await gateway.getMrContext('123', '10');
 
       expect(result.diff).toBe('');
+      expect(result.commitMessage).toBe('');
     });
   });
 

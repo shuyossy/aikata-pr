@@ -21,7 +21,12 @@ export class CommentFormatter {
   /**
    * レビュー結果からMRコメント用のMarkdownテキストを生成する
    */
-  static formatComment(results: ReviewResult[], ratings: Rating[], commitHash: string): string {
+  static formatComment(
+    results: ReviewResult[],
+    ratings: Rating[],
+    commitHash: string,
+    commitMessage: string,
+  ): string {
     const lines: string[] = [];
 
     // 識別用マーカー
@@ -37,6 +42,7 @@ export class CommentFormatter {
     // ヘッダー
     lines.push('');
     lines.push('## AIKATA-PR レビュー結果');
+    lines.push(`レビュー時最新コミット: ${commitMessage}`);
 
     // Markdownテーブルを生成
     const table = CommentFormatter.buildTable(results);

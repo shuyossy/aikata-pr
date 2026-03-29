@@ -60,12 +60,16 @@ export class GitLabMrGateway implements MrGateway {
    * MR情報とdiffを取得し、MrContextにマッピングする
    */
   async getMrContext(projectId: string, mrIid: string): Promise<MrContext> {
-    const [mrInfo, mrChanges] = await Promise.all([
+    const [mrInfo, mrChanges, commitsPage] = await Promise.all([
       this.client.get<GitLabMrInfo>(`/projects/${projectId}/merge_requests/${mrIid}`),
       this.client.get<GitLabMrChanges>(`/projects/${projectId}/merge_requests/${mrIid}/changes`),
+      this.client.get<GitLabCommit[]>(
+        `/projects/${projectId}/merge_requests/${mrIid}/commits?per_page=1`,
+      ),
     ]);
 
     const diff = this.combineDiffs(mrChanges.changes.map((c) => c.diff));
+    const commitMessage = commitsPage.length > 0 ? commitsPage[0].message.split('\n')[0] : '';
 
     return new MrContext({
       title: mrInfo.title,
@@ -74,6 +78,7 @@ export class GitLabMrGateway implements MrGateway {
       targetBranch: mrInfo.target_branch,
       diff,
       commitHash: mrInfo.sha,
+      commitMessage,
     });
   }
 

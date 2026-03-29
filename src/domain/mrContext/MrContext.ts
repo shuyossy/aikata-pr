@@ -9,6 +9,7 @@ interface MrContextParams {
   targetBranch: string;
   diff: string;
   commitHash: string;
+  commitMessage: string;
 }
 
 export class MrContext {
@@ -18,6 +19,7 @@ export class MrContext {
   readonly targetBranch: string;
   readonly diff: string;
   readonly commitHash: string;
+  readonly commitMessage: string;
 
   constructor(params: MrContextParams) {
     this.title = params.title;
@@ -26,5 +28,6 @@ export class MrContext {
     this.targetBranch = params.targetBranch;
     this.diff = params.diff;
     this.commitHash = params.commitHash;
+    this.commitMessage = params.commitMessage;
   }
 }

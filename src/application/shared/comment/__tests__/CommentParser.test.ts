@@ -28,7 +28,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -63,7 +63,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -85,7 +85,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -101,7 +101,7 @@ describe('CommentParser', () => {
         return ReviewResult.success(checkItem, rating, `コメント${i + 1}`);
       });
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       // 折りたたみ形式であることを確認
       expect(comment).toContain('<details>');
 
@@ -124,7 +124,7 @@ describe('CommentParser', () => {
         ReviewResult.error(new CheckItem('テストカバレッジ'), 'Timeout occurred'),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -150,7 +150,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -169,7 +169,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -197,7 +197,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -211,7 +211,7 @@ describe('CommentParser', () => {
     it('エラー行にパイプ文字を含む場合も正しくパースされる', () => {
       const results = [ReviewResult.error(new CheckItem('A | B のチェック'), 'Error | timeout')];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -230,7 +230,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -247,7 +247,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();
@@ -264,7 +264,7 @@ describe('CommentParser', () => {
         ),
       ];
 
-      const comment = CommentFormatter.formatComment(results, ratings, commitHash);
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
       const parsed = CommentParser.parseComment(comment);
 
       expect(parsed).not.toBeNull();

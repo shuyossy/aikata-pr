@@ -17,6 +17,7 @@ describe('CommentFormatter', () => {
     new Rating('C', '満たしていない'),
   ];
   const commitHash = 'abc1234';
+  const commitMessage = 'feat: add new feature';
 
   /**
    * テストヘルパー: 指定件数のレビュー結果を生成する
@@ -44,7 +45,7 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       // テーブルヘッダの確認
       expect(output).toContain('| チェック項目 | 評定 | コメント |');
@@ -63,9 +64,28 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain('## AIKATA-PR レビュー結果');
+    });
+
+    it('ヘッダーの下にコミットメッセージが表示される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        'feat: implement login',
+      );
+
+      expect(output).toContain('レビュー時最新コミット: feat: implement login');
     });
 
     it('マーカーが含まれている', () => {
@@ -77,7 +97,7 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain(REVIEW_MARKER);
     });
@@ -91,7 +111,7 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       // メタデータマーカーの存在確認
       expect(output).toContain(REVIEW_DATA_PREFIX);
@@ -118,7 +138,7 @@ describe('CommentFormatter', () => {
         ReviewResult.error(new CheckItem('エラーのチェック項目'), 'Timeout occurred'),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain('| エラーのチェック項目 | エラー | Timeout occurred |');
     });
@@ -126,7 +146,7 @@ describe('CommentFormatter', () => {
     it('15項目超の場合は折りたたみ形式になる', () => {
       const results = createResults(FOLD_THRESHOLD + 1);
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain('<details>');
       expect(output).toContain('<summary>');
@@ -137,7 +157,7 @@ describe('CommentFormatter', () => {
     it('15項目以下の場合は折りたたみにならない', () => {
       const results = createResults(FOLD_THRESHOLD);
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).not.toContain('<details>');
       expect(output).not.toContain('<summary>');
@@ -153,7 +173,7 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain('| 条件A \\| 条件B の確認 | A | 問題ありません |');
     });
@@ -167,7 +187,7 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain('| 可読性 | A | if (a \\| b) のパターンに注意 |');
     });
@@ -177,7 +197,7 @@ describe('CommentFormatter', () => {
         ReviewResult.success(new CheckItem('A|B'), new Rating('A', '完全に満たしている'), 'X|Y|Z'),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
     });
@@ -191,7 +211,7 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain('| 可読性 | A | 1行目<br>2行目<br>3行目 |');
       // 改行がそのまま残っていないことを確認（テーブル行内）
@@ -208,7 +228,7 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
 
       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
     });
