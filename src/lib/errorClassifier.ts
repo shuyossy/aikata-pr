@@ -20,6 +20,12 @@ export interface ClassifiedError {
 export const UNEXPECTED_ERROR_MESSAGE = '予期せぬエラー（実行ログを確認してください）';
 
 /**
+ * Agentによるレビュー漏れ時のユーザ向け表示メッセージ
+ */
+export const REVIEW_MISSED_MESSAGE =
+  '本チェック項目のレビューが完了しませんでした。再度実行してください';
+
+/**
  * エラーを種別に分類する
  *
  * 判定優先順位:

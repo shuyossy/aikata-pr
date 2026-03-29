@@ -9,7 +9,7 @@ import type { ReviewAgentRequestContext } from '../../requestContext.js';
 import { readStoredResults, type StoredReviewResult } from '../../types.js';
 import { buildUserPrompt } from '../../agents/reviewAgent.js';
 import { type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
-import { classifyError } from '../../../lib/errorClassifier.js';
+import { classifyError, REVIEW_MISSED_MESSAGE } from '../../../lib/errorClassifier.js';
 import { recoverFromContextLength } from './contextLengthRecovery.js';
 import { getLogger } from '../../../lib/logger.js';
 import { getCoordinator, RateLimitExhaustedError } from '../../../lib/rateLimitCoordinator.js';
@@ -322,6 +322,12 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
     } catch (error) {
       // リカバリー不能なエラー（API/その他、レート制限上限到達含む）→ 部分結果を保持
       const classified = classifyError(error);
+      const logger = getLogger();
+      // エラー内容をログに出力（ユーザには定型メッセージを表示するが、ログには詳細を残す）
+      logger.error(
+        { err: error, errorType: classified.type },
+        'Review execution failed with unrecoverable error',
+      );
       const storedResults = readStoredResults(resultFilePath);
       return buildResults(checkItems, storedResults, classified.message);
     }
@@ -354,16 +360,19 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
         threadId = result.currentThreadId;
         memoryOption = { thread: threadId, resource: resourceId };
         storedResults = readStoredResults(resultFilePath);
-      } catch {
-        // リトライ失敗時はループ終了、部分結果で返す
+      } catch (error) {
+        // リトライ失敗時はエラー種別に応じたメッセージで即座に返す
         // リトライ中に格納された結果を反映するため再読み込み
+        const logger = getLogger();
+        const classified = classifyError(error);
+        logger.error({ err: error, errorType: classified.type }, 'Retry review execution failed');
         storedResults = readStoredResults(resultFilePath);
-        break;
+        return buildResults(checkItems, storedResults, classified.message);
       }
     }
 
     // 結果をReviewResultに変換（部分的成功を保持）
-    return buildResults(checkItems, storedResults, 'Review result not found after agent execution');
+    return buildResults(checkItems, storedResults, REVIEW_MISSED_MESSAGE);
   } finally {
     // 全スレッドをクリーンアップ
     try {

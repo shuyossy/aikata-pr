@@ -14,8 +14,11 @@ import {
 import type { Agent } from '@mastra/core/agent';
 import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
-import { UNEXPECTED_ERROR_MESSAGE } from '../../../../lib/errorClassifier.js';
-import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
+import {
+  UNEXPECTED_ERROR_MESSAGE,
+  REVIEW_MISSED_MESSAGE,
+} from '../../../../lib/errorClassifier.js';
+import { initializeLogger, resetLogger, getLogger } from '../../../../lib/logger.js';
 import { initializeCoordinator, resetCoordinator } from '../../../../lib/rateLimitCoordinator.js';
 
 /**
@@ -349,7 +352,7 @@ describe('executeReview', () => {
 
     expect(results[1].checkItem.content).toBe('item2');
     expect(results[1].isError).toBe(true);
-    expect(results[1].errorMessage).toContain('Review result not found after agent execution');
+    expect(results[1].errorMessage).toContain(REVIEW_MISSED_MESSAGE);
 
     expect(results[2].checkItem.content).toBe('item3');
     expect(results[2].isError).toBe(true);
@@ -415,6 +418,125 @@ describe('executeReview', () => {
     expect(results[0].isError).toBe(false);
     expect(results[1].checkItem.content).toBe('item2');
     expect(results[1].isError).toBe(true);
+  });
+
+  it('初回実行でunknownエラーが発生した場合、エラー詳細がログに出力される', async () => {
+    const checkItems = makeItems(['check1']);
+    const originalError = new Error('Something unexpected happened');
+    const mockAgent = createMockAgent(vi.fn().mockRejectedValue(originalError));
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    const logger = getLogger();
+    const loggerErrorSpy = vi.spyOn(logger, 'error');
+
+    await executeReview(config);
+
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ err: originalError, errorType: 'unknown' }),
+      'Review execution failed with unrecoverable error',
+    );
+  });
+
+  it('初回実行でAPIエラーが発生した場合、エラー詳細がログに出力される', async () => {
+    const checkItems = makeItems(['check1']);
+    const apiError = new APICallError({
+      message: 'API connection timeout',
+      url: 'http://test-api/v1/chat',
+      requestBodyValues: {},
+      statusCode: 500,
+      isRetryable: false,
+    });
+    const mockAgent = createMockAgent(vi.fn().mockRejectedValue(apiError));
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    const logger = getLogger();
+    const loggerErrorSpy = vi.spyOn(logger, 'error');
+
+    const results = await executeReview(config);
+
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ err: apiError, errorType: 'api_call' }),
+      'Review execution failed with unrecoverable error',
+    );
+    expect(results[0].isError).toBe(true);
+    expect(results[0].errorMessage).toBe('API connection timeout');
+  });
+
+  it('リトライ中にエラーが発生した場合、エラー詳細がログに出力される', async () => {
+    const checkItems = makeItems(['item1', 'item2']);
+    const retryError = new Error('Retry failed unexpectedly');
+
+    let callCount = 0;
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Fully satisfies requirements',
+              comment: 'Good',
+              isError: false,
+            },
+          ]);
+        } else {
+          throw retryError;
+        }
+      }),
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    const logger = getLogger();
+    const loggerErrorSpy = vi.spyOn(logger, 'error');
+
+    await executeReview(config);
+
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ err: retryError, errorType: 'unknown' }),
+      'Retry review execution failed',
+    );
+  });
+
+  it('リトライ中にAPIエラーが発生した場合、漏れた項目にAPIエラーメッセージが反映される', async () => {
+    const checkItems = makeItems(['item1', 'item2']);
+    const apiError = new APICallError({
+      message: 'Service unavailable',
+      url: 'http://test-api/v1/chat',
+      requestBodyValues: {},
+      statusCode: 503,
+      isRetryable: false,
+    });
+
+    let callCount = 0;
+    const mockAgent = createMockAgent(
+      vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Fully satisfies requirements',
+              comment: 'Good',
+              isError: false,
+            },
+          ]);
+        } else {
+          throw apiError;
+        }
+      }),
+    );
+    const config = createBaseConfig({ checkItems, resultFilePath, agent: mockAgent });
+
+    const results = await executeReview(config);
+
+    expect(results).toHaveLength(2);
+    expect(results[0].checkItem.content).toBe('item1');
+    expect(results[0].isError).toBe(false);
+    expect(results[1].checkItem.content).toBe('item2');
+    expect(results[1].isError).toBe(true);
+    expect(results[1].errorMessage).toBe('Service unavailable');
   });
 
   it('リトライ中にAgentが一部結果を格納した後エラーになっても、格納済み結果は保持される', async () => {
@@ -493,9 +615,9 @@ describe('executeReview', () => {
 
     expect(results).toHaveLength(2);
     expect(results[0].isError).toBe(true);
-    expect(results[0].errorMessage).toContain('Review result not found after agent execution');
+    expect(results[0].errorMessage).toContain(REVIEW_MISSED_MESSAGE);
     expect(results[1].isError).toBe(true);
-    expect(results[1].errorMessage).toContain('Review result not found after agent execution');
+    expect(results[1].errorMessage).toContain(REVIEW_MISSED_MESSAGE);
   });
 
   it('結果ファイルにisError=trueの結果がある場合、エラー結果として返される', async () => {
