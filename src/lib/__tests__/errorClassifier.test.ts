@@ -98,4 +98,57 @@ describe('classifyError', () => {
     expect(result.type).toBe('api_call');
     expect(result.message).toBe('API failed');
   });
+
+  it('レート制限エラー（statusCode 429）の場合、type: rate_limit を返す', () => {
+    const error = createAPICallError({
+      statusCode: 429,
+      responseBody: 'Too many requests',
+      message: 'Rate limit exceeded',
+    });
+
+    const result = classifyError(error);
+
+    expect(result.type).toBe('rate_limit');
+    expect(result.message).toBe('Rate limit exceeded');
+  });
+
+  it('レート制限エラー（responseBodyに"rate limit"を含む）の場合、type: rate_limit を返す', () => {
+    const error = createAPICallError({
+      statusCode: 200,
+      responseBody: 'You have exceeded the rate limit',
+      message: 'Rate limited',
+    });
+
+    const result = classifyError(error);
+
+    expect(result.type).toBe('rate_limit');
+    expect(result.message).toBe('Rate limited');
+  });
+
+  it('causeチェーン経由のレート制限エラーを正しく分類する', () => {
+    const apiError = createAPICallError({
+      statusCode: 429,
+      responseBody: 'Too many requests',
+      message: 'Too many requests',
+    });
+    const wrapper = new Error('Wrapped rate limit', { cause: apiError });
+
+    const result = classifyError(wrapper);
+
+    expect(result.type).toBe('rate_limit');
+    expect(result.message).toBe('Wrapped rate limit');
+  });
+
+  it('コンテキスト長エラーがレート制限より優先される', () => {
+    // statusCode 429 かつ context_length パターンが responseBody に含まれるケース
+    const error = createAPICallError({
+      statusCode: 429,
+      responseBody: 'context_length_exceeded',
+      message: 'Context length exceeded at rate limit',
+    });
+
+    const result = classifyError(error);
+
+    expect(result.type).toBe('context_length');
+  });
 });

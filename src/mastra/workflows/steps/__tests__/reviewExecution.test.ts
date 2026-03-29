@@ -6,7 +6,11 @@ import { RequestContext } from '@mastra/core/request-context';
 import { APICallError } from 'ai';
 import { IndexedChecklist } from '../../../indexedCheckItem.js';
 import type { IndexedCheckItem } from '../../../indexedCheckItem.js';
-import { executeReview, type ReviewExecutionConfig } from '../reviewExecution.js';
+import {
+  executeReview,
+  type ReviewExecutionConfig,
+  buildRateLimitContinuationPrompt,
+} from '../reviewExecution.js';
 import type { Agent } from '@mastra/core/agent';
 import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
@@ -711,7 +715,7 @@ describe('executeReview', () => {
     expect(results[0].isError).toBe(false);
   });
 
-  it('初回のレート制限エラー→リトライ→成功の場合、レビュー結果が正常に返される', async () => {
+  it('初回のレート制限エラー→リトライ→成功の場合、継続プロンプトでレビュー結果が正常に返される', async () => {
     const checkItems = makeItems(['check1']);
     const rateLimitError = new APICallError({
       message: 'Rate limit exceeded',
@@ -722,23 +726,22 @@ describe('executeReview', () => {
     });
 
     let callCount = 0;
-    const mockAgent = createMockAgent(
-      vi.fn().mockImplementation(async () => {
-        callCount++;
-        if (callCount === 1) {
-          throw rateLimitError;
-        }
-        writeResultsToFile(resultFilePath, [
-          {
-            checkItemId: 1,
-            ratingLabel: 'A',
-            ratingDefinition: 'Fully satisfies requirements',
-            comment: 'Good',
-            isError: false,
-          },
-        ]);
-      }),
-    );
+    const generateFn = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        throw rateLimitError;
+      }
+      writeResultsToFile(resultFilePath, [
+        {
+          checkItemId: 1,
+          ratingLabel: 'A',
+          ratingDefinition: 'Fully satisfies requirements',
+          comment: 'Good',
+          isError: false,
+        },
+      ]);
+    });
+    const mockAgent = createMockAgent(generateFn);
     const config = createBaseConfig({
       checkItems,
       resultFilePath,
@@ -752,6 +755,9 @@ describe('executeReview', () => {
     expect(results[0].isError).toBe(false);
     expect(results[0].rating.label).toBe('A');
     expect(callCount).toBe(2);
+    // 2回目は継続プロンプトが送信される
+    const secondPrompt = generateFn.mock.calls[1][0] as string;
+    expect(secondPrompt).toContain('Rate Limit Recovery Notice');
   });
 
   it('レート制限以外のエラーはリトライされずエラー結果が返される', async () => {
@@ -860,6 +866,218 @@ describe('executeReview', () => {
       expect(results[0].isError).toBe(false);
       expect(results[1].isError).toBe(true);
       expect(results[1].errorMessage).toBe(UNEXPECTED_ERROR_MESSAGE);
+    });
+  });
+
+  describe('レート制限リカバリーのハンドリング', () => {
+    it('レート制限エラー → バックオフ → 継続プロンプトで再開 → 成功', async () => {
+      const checkItems = makeItems(['check1', 'check2']);
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const generateFn = vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          // 初回: 部分結果を書いてからレート制限エラー
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'OK',
+              isError: false,
+            },
+          ]);
+          throw rateLimitError;
+        }
+        // 継続: 残りの結果を書く
+        const existing = JSON.parse(fs.readFileSync(resultFilePath, 'utf-8'));
+        existing.push({
+          checkItemId: 2,
+          ratingLabel: 'B',
+          ratingDefinition: 'Partial',
+          comment: 'Needs work',
+          isError: false,
+        });
+        writeResultsToFile(resultFilePath, existing);
+      });
+      const mockAgent = createMockAgent(generateFn);
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      expect(results).toHaveLength(2);
+      expect(results[0].isError).toBe(false);
+      expect(results[1].isError).toBe(false);
+      // 2回目の呼び出しでは継続プロンプトが送信される
+      const secondPrompt = generateFn.mock.calls[1][0] as string;
+      expect(secondPrompt).toContain('Rate Limit Recovery Notice');
+      expect(secondPrompt).toContain('Already Reviewed Items');
+      expect(secondPrompt).toContain('[ID: 1]');
+    });
+
+    it('レート制限リカバリー時、同じスレッドIDが使用される', async () => {
+      const checkItems = makeItems(['check1']);
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const generateFn = vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) throw rateLimitError;
+        writeResultsToFile(resultFilePath, [
+          {
+            checkItemId: 1,
+            ratingLabel: 'A',
+            ratingDefinition: 'Good',
+            comment: 'OK',
+            isError: false,
+          },
+        ]);
+      });
+      const mockAgent = createMockAgent(generateFn);
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      await executeReview(config);
+
+      const firstMemory = generateFn.mock.calls[0][1].memory;
+      const secondMemory = generateFn.mock.calls[1][1].memory;
+      expect(firstMemory.thread).toBe(secondMemory.thread);
+    });
+
+    it('レート制限リトライ上限到達時、部分結果が保持されエラー結果が返される', async () => {
+      const checkItems = makeItems(['check1', 'check2']);
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          callCount++;
+          if (callCount === 1) {
+            // 初回: 部分結果を書いてからレート制限
+            writeResultsToFile(resultFilePath, [
+              {
+                checkItemId: 1,
+                ratingLabel: 'A',
+                ratingDefinition: 'Good',
+                comment: 'OK',
+                isError: false,
+              },
+            ]);
+          }
+          throw rateLimitError;
+        }),
+      );
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      expect(results).toHaveLength(2);
+      // 部分結果は保持
+      expect(results[0].isError).toBe(false);
+      expect(results[0].rating.label).toBe('A');
+      // 未完了項目はエラー
+      expect(results[1].isError).toBe(true);
+      // maxRetries=2 → 初回 + 2回リトライ = 3回呼び出し
+      expect(mockAgent.generate as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(3);
+    });
+
+    it('コンテキスト長リカバリー後にレート制限カウンタがリセットされる', async () => {
+      const checkItems = makeItems(['check1']);
+      const mockMemory = createMockMemory();
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const mockAgent = createMockAgent(
+        vi.fn().mockImplementation(async () => {
+          callCount++;
+          if (callCount === 1) throw rateLimitError; // rate limit
+          if (callCount === 2) throw createContextLengthError(); // context length
+          if (callCount === 3) throw rateLimitError; // rate limit again (counter should be reset)
+          // 4th call: success
+          writeResultsToFile(resultFilePath, [
+            {
+              checkItemId: 1,
+              ratingLabel: 'A',
+              ratingDefinition: 'Good',
+              comment: 'OK',
+              isError: false,
+            },
+          ]);
+        }),
+        mockMemory,
+      );
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].isError).toBe(false);
+      expect(callCount).toBe(4);
+    });
+  });
+
+  describe('buildRateLimitContinuationPrompt', () => {
+    it('レート制限リカバリー通知とレビュー済み項目が含まれる', () => {
+      const checkItems = makeItems(['check1', 'check2', 'check3']);
+      const prompt = buildRateLimitContinuationPrompt([1, 2], checkItems);
+
+      expect(prompt).toContain('Rate Limit Recovery Notice');
+      expect(prompt).toContain('Already Reviewed Items');
+      expect(prompt).toContain('[ID: 1] check1');
+      expect(prompt).toContain('[ID: 2] check2');
+      expect(prompt).not.toContain('[ID: 3]');
+      expect(prompt).toContain('resume reviewing');
+    });
+
+    it('レビュー済み項目がない場合、"None"が表示される', () => {
+      const checkItems = makeItems(['check1']);
+      const prompt = buildRateLimitContinuationPrompt([], checkItems);
+
+      expect(prompt).toContain('None');
     });
   });
 

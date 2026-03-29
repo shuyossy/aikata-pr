@@ -1,9 +1,10 @@
 import { isContextLengthError, isApiCallError } from './aiApiError.js';
+import { isRateLimitError } from './rateLimitRetry.js';
 
 /**
  * エラー種別
  */
-export type ErrorType = 'context_length' | 'api_call' | 'unknown';
+export type ErrorType = 'context_length' | 'rate_limit' | 'api_call' | 'unknown';
 
 /**
  * 分類されたエラー
@@ -23,15 +24,19 @@ export const UNEXPECTED_ERROR_MESSAGE = '予期せぬエラー（実行ログを
  *
  * 判定優先順位:
  * 1. コンテキスト長エラー（APICallError + responseBodyにパターン一致）
- * 2. API呼び出しエラー（APICallErrorが存在）
- * 3. その他のエラー
- *
- * レート制限エラー（429）はwithRateLimitRetryで処理済みのため、ここには到達しない前提。
+ * 2. レート制限エラー（statusCode 429 または responseBodyに"rate limit"を含む）
+ * 3. API呼び出しエラー（APICallErrorが存在）
+ * 4. その他のエラー
  */
 export function classifyError(error: unknown): ClassifiedError {
   if (isContextLengthError(error)) {
     const msg = error instanceof Error ? error.message : 'Context length exceeded';
     return { type: 'context_length', message: msg };
+  }
+
+  if (isRateLimitError(error)) {
+    const msg = error instanceof Error ? error.message : 'Rate limit exceeded';
+    return { type: 'rate_limit', message: msg };
   }
 
   if (isApiCallError(error)) {

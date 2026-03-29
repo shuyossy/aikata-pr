@@ -8,7 +8,11 @@ import { CheckItem } from '../../../domain/checkItem/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
 import { readStoredResults, type StoredReviewResult } from '../../types.js';
 import { buildUserPrompt } from '../../agents/reviewAgent.js';
-import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
+import {
+  calculateBackoffDelay,
+  sleep,
+  type RateLimitRetryConfig,
+} from '../../../lib/rateLimitRetry.js';
 import { classifyError } from '../../../lib/errorClassifier.js';
 import { recoverFromContextLength } from './contextLengthRecovery.js';
 import { getLogger } from '../../../lib/logger.js';
@@ -67,6 +71,38 @@ function buildResults(
 }
 
 /**
+ * レート制限リカバリー後の継続プロンプトを構築する
+ *
+ * 同じスレッドに送信するため、会話履歴はメモリで保持されている。
+ * エージェントに「中断されたので再開してください」と伝えるだけでよい。
+ */
+export function buildRateLimitContinuationPrompt(
+  alreadyReviewedItemIds: number[],
+  checkItems: IndexedCheckItem[],
+): string {
+  const reviewedList =
+    alreadyReviewedItemIds.length > 0
+      ? alreadyReviewedItemIds
+          .map((id) => {
+            const item = checkItems.find((i) => i.id === id);
+            return item ? `- [ID: ${id}] ${item.content}` : `- [ID: ${id}] (unknown)`;
+          })
+          .join('\n')
+      : 'None';
+
+  return `## Rate Limit Recovery Notice
+The previous operation was interrupted due to a rate limit error. The conversation history is preserved.
+
+## Already Reviewed Items
+The following items have already been reviewed and their results stored. You do NOT need to review them again:
+${reviewedList}
+
+---
+
+Please resume reviewing the remaining check items. Store each result using the storeReviewResult tool.`;
+}
+
+/**
  * コンテキスト長リカバリー後のレビュー継続用プロンプトを構築する
  *
  * PBI指定の構成:
@@ -116,12 +152,14 @@ Continue reviewing the remaining check items. Store each result using the storeR
 }
 
 /**
- * Agent呼び出しをコンテキスト長リカバリー付きで実行する
+ * Agent呼び出しをエラーリカバリー付きで実行する
  *
- * コンテキスト長エラーが発生した場合、要約→継続をループする（最大MAX_CONTEXT_LENGTH_RECOVERIES回）。
- * コンテキスト長以外のエラーは呼び出し元に再スローする。
+ * 以下のエラーをループ内で処理する:
+ * - レート制限: バックオフ待機 → 同じスレッドで継続プロンプト送信（最大rateLimitRetryConfig.maxRetries回）
+ * - コンテキスト長: 要約 → 新スレッド → 継続プロンプト（最大MAX_CONTEXT_LENGTH_RECOVERIES回）
+ * - その他: 呼び出し元に再スロー
  */
-async function executeWithContextLengthRecovery(params: {
+async function executeWithErrorRecovery(params: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   agent: Agent<string, Record<string, any>, any, any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -145,62 +183,94 @@ async function executeWithContextLengthRecovery(params: {
   } = params;
   const resultFilePath = String(requestContext.get('resultFilePath'));
   let currentThreadId = memoryOption.thread;
+  let contextLengthRecoveries = 0;
+  let rateLimitRetries = 0;
 
-  for (let attempt = 0; attempt <= MAX_CONTEXT_LENGTH_RECOVERIES; attempt++) {
+  while (true) {
     try {
-      await withRateLimitRetry(
-        () => agent.generate(prompt, { requestContext, memory: memoryOption }),
-        rateLimitRetryConfig,
-      );
+      await agent.generate(prompt, { requestContext, memory: memoryOption });
       return { currentThreadId };
     } catch (error) {
       const classified = classifyError(error);
 
-      if (classified.type !== 'context_length') {
-        throw error;
-      }
+      if (classified.type === 'rate_limit') {
+        if (rateLimitRetries >= rateLimitRetryConfig.maxRetries) {
+          throw error;
+        }
 
-      if (attempt >= MAX_CONTEXT_LENGTH_RECOVERIES) {
-        logger.warn('Context length recovery limit reached, proceeding with partial results');
-        return { currentThreadId };
-      }
-
-      logger.info({ attempt: attempt + 1 }, 'Context length error detected, attempting recovery');
-
-      // リカバリー実行（リカバリー自体の失敗は呼び出し元でunknownエラーとして処理される）
-      let recovery: Awaited<ReturnType<typeof recoverFromContextLength>>;
-      try {
-        recovery = await recoverFromContextLength({
-          reviewAgent: agent,
-          summarizationAgent,
-          threadId: currentThreadId,
-          resourceId: memoryOption.resource,
-          requestContext,
-          checkItems,
-          rateLimitRetryConfig,
-        });
-      } catch (recoveryError) {
-        logger.error(
-          { err: recoveryError, attempt: attempt + 1 },
-          'Context length recovery failed',
+        const delay = calculateBackoffDelay(
+          rateLimitRetries,
+          rateLimitRetryConfig.baseDelayMs,
+          rateLimitRetryConfig.maxDelayMs,
         );
-        throw recoveryError;
+        logger.warn(
+          {
+            attempt: rateLimitRetries + 1,
+            maxRetries: rateLimitRetryConfig.maxRetries,
+            delayMs: Math.round(delay),
+          },
+          `Rate limit error detected, resuming after ${Math.round(delay)}ms`,
+        );
+        await sleep(delay);
+        rateLimitRetries++;
+
+        // 同じスレッドで継続プロンプトを送信
+        const storedResults = readStoredResults(resultFilePath);
+        const alreadyReviewedItemIds = storedResults.map((r) => r.checkItemId);
+        prompt = buildRateLimitContinuationPrompt(alreadyReviewedItemIds, checkItems);
+        continue;
       }
 
-      allThreadIds.push(recovery.newThreadId);
-      currentThreadId = recovery.newThreadId;
-      memoryOption = { thread: recovery.newThreadId, resource: memoryOption.resource };
+      if (classified.type === 'context_length') {
+        if (contextLengthRecoveries >= MAX_CONTEXT_LENGTH_RECOVERIES) {
+          logger.warn('Context length recovery limit reached, proceeding with partial results');
+          return { currentThreadId };
+        }
 
-      // レビュー済みチェック項目IDを取得
-      const storedResults = readStoredResults(resultFilePath);
-      const alreadyReviewedItemIds = storedResults.map((r) => r.checkItemId);
+        logger.info(
+          { attempt: contextLengthRecoveries + 1 },
+          'Context length error detected, attempting recovery',
+        );
 
-      // 継続プロンプトを構築
-      prompt = buildContinuationPrompt(requestContext, recovery.summary, alreadyReviewedItemIds);
+        // リカバリー実行（リカバリー自体の失敗は呼び出し元でunknownエラーとして処理される）
+        let recovery: Awaited<ReturnType<typeof recoverFromContextLength>>;
+        try {
+          recovery = await recoverFromContextLength({
+            reviewAgent: agent,
+            summarizationAgent,
+            threadId: currentThreadId,
+            resourceId: memoryOption.resource,
+            requestContext,
+            checkItems,
+            rateLimitRetryConfig,
+          });
+        } catch (recoveryError) {
+          logger.error(
+            { err: recoveryError, attempt: contextLengthRecoveries + 1 },
+            'Context length recovery failed',
+          );
+          throw recoveryError;
+        }
+
+        allThreadIds.push(recovery.newThreadId);
+        currentThreadId = recovery.newThreadId;
+        memoryOption = { thread: recovery.newThreadId, resource: memoryOption.resource };
+        contextLengthRecoveries++;
+        rateLimitRetries = 0; // 新スレッドなのでリセット
+
+        // レビュー済みチェック項目IDを取得
+        const storedResults = readStoredResults(resultFilePath);
+        const alreadyReviewedItemIds = storedResults.map((r) => r.checkItemId);
+
+        // 継続プロンプトを構築
+        prompt = buildContinuationPrompt(requestContext, recovery.summary, alreadyReviewedItemIds);
+        continue;
+      }
+
+      // api_call or unknown → 呼び出し元に再スロー
+      throw error;
     }
   }
-
-  return { currentThreadId };
 }
 
 /**
@@ -212,6 +282,7 @@ async function executeWithContextLengthRecovery(params: {
  * メモリ（threadId）により、リトライ時に初回の会話履歴が保持される。
  *
  * エラーハンドリング:
+ * - レート制限エラー: バックオフ待機後、同じスレッドで継続プロンプトを送信（最大rateLimitRetryConfig.maxRetries回）
  * - コンテキスト長エラー: 作業履歴を要約して継続（最大3回ループ）
  * - API呼び出しエラー: 部分結果を保持し、未完了項目にエラーメッセージを表示
  * - その他エラー: 部分結果を保持し、未完了項目に定型メッセージを表示
@@ -233,11 +304,11 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
   const allThreadIds: string[] = [threadId];
 
   try {
-    // 初回のエージェント実行（コンテキスト長リカバリーループ付き）
+    // 初回のエージェント実行（エラーリカバリーループ付き）
     const prompt = buildUserPrompt(requestContext);
 
     try {
-      const result = await executeWithContextLengthRecovery({
+      const result = await executeWithErrorRecovery({
         agent,
         summarizationAgent,
         initialPrompt: prompt,
@@ -250,7 +321,7 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
       threadId = result.currentThreadId;
       memoryOption = { thread: threadId, resource: resourceId };
     } catch (error) {
-      // コンテキスト長以外のエラー（API/その他）→ 部分結果を保持
+      // リカバリー不能なエラー（API/その他、レート制限上限到達含む）→ 部分結果を保持
       const classified = classifyError(error);
       const storedResults = readStoredResults(resultFilePath);
       return buildResults(checkItems, storedResults, classified.message);
@@ -268,10 +339,10 @@ export async function executeReview(config: ReviewExecutionConfig): Promise<Revi
         break;
       }
 
-      // 漏れた項目についてリトライ（コンテキスト長リカバリーループ付き）
+      // 漏れた項目についてリトライ（エラーリカバリーループ付き）
       try {
         const retryPrompt = `The following check items are still missing results. Please review them and store results using the storeReviewResult tool:\n${missingItems.map((i) => `- [ID: ${i.id}] ${i.content}`).join('\n')}`;
-        const result = await executeWithContextLengthRecovery({
+        const result = await executeWithErrorRecovery({
           agent,
           summarizationAgent,
           initialPrompt: retryPrompt,
