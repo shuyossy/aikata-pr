@@ -54,6 +54,20 @@ describe('CommentFormatter', () => {
       expect(output).toContain('| テストカバレッジ | B | カバレッジを改善してください |');
     });
 
+    it('ヘッダー「## AIKATA-PR レビュー結果」が含まれている', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash);
+
+      expect(output).toContain('## AIKATA-PR レビュー結果');
+    });
+
     it('マーカーが含まれている', () => {
       const results = [
         ReviewResult.success(

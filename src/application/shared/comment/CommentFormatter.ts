@@ -34,6 +34,10 @@ export class CommentFormatter {
     };
     lines.push(`${REVIEW_DATA_PREFIX}${JSON.stringify(metadata)}${REVIEW_DATA_SUFFIX}`);
 
+    // ヘッダー
+    lines.push('');
+    lines.push('## AIKATA-PR レビュー結果');
+
     // Markdownテーブルを生成
     const table = CommentFormatter.buildTable(results);
 
