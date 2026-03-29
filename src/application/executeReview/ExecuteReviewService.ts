@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import type { MrGateway } from '../shared/port/gateway/index.js';
 import type { MrCommentGateway } from '../shared/port/gateway/index.js';
+import type { ProjectTreeGateway } from '../shared/port/gateway/index.js';
 import { CommentFormatter } from '../shared/comment/index.js';
 import { CommentParser } from '../shared/comment/index.js';
 import type { ExecuteReviewCommand } from './ExecuteReviewCommand.js';
@@ -72,12 +73,14 @@ export class ExecuteReviewService {
     private readonly mrGateway: MrGateway,
     private readonly mrCommentGateway: MrCommentGateway,
     private readonly workflowRunner: ReviewWorkflowRunner,
+    private readonly projectTreeGateway: ProjectTreeGateway,
   ) {}
 
   async execute(command: ExecuteReviewCommand): Promise<ExecuteReviewDto> {
-    const [mrContext, comments] = await Promise.all([
+    const [mrContext, comments, folderTree] = await Promise.all([
       this.mrGateway.getMrContext(command.projectId, command.mrIid),
       this.mrCommentGateway.getComments(command.projectId, command.mrIid),
+      this.projectTreeGateway.getTree(command.projectDir, { maxDepth: command.treeMaxDepth }),
     ]);
 
     const priorContext = await this.buildPriorContext(command, comments, mrContext.commitHash);
@@ -110,7 +113,7 @@ export class ExecuteReviewService {
         projectDir: command.projectDir,
         skillsPaths: command.skillsPaths,
         resultFilePath,
-        folderTree: command.folderTree,
+        folderTree,
         commentLanguage: command.commentLanguage,
       });
 

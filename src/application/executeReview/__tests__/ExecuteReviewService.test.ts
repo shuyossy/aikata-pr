@@ -4,6 +4,7 @@ import type { ReviewWorkflowRunner, ReviewWorkflowResult } from '../ExecuteRevie
 import type { ExecuteReviewCommand } from '../ExecuteReviewCommand.js';
 import type { MrGateway } from '../../shared/port/gateway/index.js';
 import type { MrCommentGateway, MrComment } from '../../shared/port/gateway/index.js';
+import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
 import { MrContext } from '../../../domain/mrContext/index.js';
 import { CheckItem } from '../../../domain/checkItem/index.js';
 import { Checklist } from '../../../domain/checklist/index.js';
@@ -50,7 +51,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
     aiApiEndpointUrl: 'https://api.example.com',
     aiModelName: 'openai/o4-mini',
     gitlabToken: 'test-gitlab-token',
-    folderTree: 'src/\n  index.ts',
+    treeMaxDepth: undefined,
     commentLanguage: 'Japanese',
     ...overrides,
   };
@@ -99,6 +100,7 @@ describe('ExecuteReviewService', () => {
   let mrGateway: MrGateway;
   let mrCommentGateway: MrCommentGateway;
   let workflowRunner: ReviewWorkflowRunner;
+  let projectTreeGateway: ProjectTreeGateway;
   let service: ExecuteReviewService;
 
   beforeEach(() => {
@@ -114,7 +116,15 @@ describe('ExecuteReviewService', () => {
     workflowRunner = {
       run: vi.fn(),
     };
-    service = new ExecuteReviewService(mrGateway, mrCommentGateway, workflowRunner);
+    projectTreeGateway = {
+      getTree: vi.fn().mockResolvedValue('src/\n  index.ts'),
+    };
+    service = new ExecuteReviewService(
+      mrGateway,
+      mrCommentGateway,
+      workflowRunner,
+      projectTreeGateway,
+    );
   });
 
   it('正常系: 事前処理→Workflow実行→コメント投稿の全フローが実行される', async () => {
@@ -576,5 +586,30 @@ describe('ExecuteReviewService', () => {
     expect(runCall.skillsPaths).toEqual([]);
     expect(runCall.folderTree).toBe('src/\n  index.ts');
     expect(runCall.commentLanguage).toBe('Japanese');
+  });
+
+  it('ProjectTreeGateway.getTreeが正しい引数で呼ばれる', async () => {
+    const command = createCommand({ treeMaxDepth: 3 });
+    const mrContext = createMrContext();
+    const workflowResult = createWorkflowResult();
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+    await service.execute(command);
+
+    expect(projectTreeGateway.getTree).toHaveBeenCalledWith('/test/project', { maxDepth: 3 });
+  });
+
+  it('ProjectTreeGateway.getTreeのエラーが伝播される', async () => {
+    const command = createCommand();
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(createMrContext());
+    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(projectTreeGateway.getTree).mockRejectedValue(new Error('Tree retrieval failed'));
+
+    await expect(service.execute(command)).rejects.toThrow('Tree retrieval failed');
   });
 });

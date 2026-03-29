@@ -16,6 +16,6 @@ export interface ExecuteReviewCommand {
   aiApiEndpointUrl: string;
   aiModelName: string;
   gitlabToken: string;
-  folderTree: string;
+  treeMaxDepth: number | undefined;
   commentLanguage: string;
 }

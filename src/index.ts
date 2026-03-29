@@ -135,14 +135,19 @@ async function main(): Promise<void> {
     const mrGateway = new GitLabMrGateway(gitlabClient);
     const mrCommentGateway = new GitLabMrCommentGateway(gitlabClient);
     const workflowRunner = new MastraReviewWorkflowRunner();
+    const treeGateway = new LocalProjectTreeGateway();
 
-    const service = new ExecuteReviewService(mrGateway, mrCommentGateway, workflowRunner);
+    const service = new ExecuteReviewService(
+      mrGateway,
+      mrCommentGateway,
+      workflowRunner,
+      treeGateway,
+    );
 
     // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
     const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
 
-    // フォルダツリー取得
-    const treeGateway = new LocalProjectTreeGateway();
+    // TREE_MAX_DEPTHバリデーション
     const treeMaxDepthEnv = process.env['TREE_MAX_DEPTH'];
     let treeMaxDepth: number | undefined;
     if (treeMaxDepthEnv) {
@@ -151,7 +156,6 @@ async function main(): Promise<void> {
         throw new Error(`Invalid TREE_MAX_DEPTH: ${treeMaxDepthEnv}. Must be a positive integer.`);
       }
     }
-    const folderTree = await treeGateway.getTree(projectDir, { maxDepth: treeMaxDepth });
 
     const result = await service.execute({
       userId: validated.userId,
@@ -165,7 +169,7 @@ async function main(): Promise<void> {
       aiApiEndpointUrl: validated.aiApiEndpointUrl,
       aiModelName: options.aiModelName,
       gitlabToken: validated.gitlabToken,
-      folderTree,
+      treeMaxDepth,
       commentLanguage: options.commentLanguage,
     });
 
