@@ -55,11 +55,11 @@
   - 識別子: ReviewSettings
   - 種類: 値オブジェクト
   - 不変条件
-    - concurrentReviewCountが1以上
+    - concurrentReviewCountがnullまたは1以上
     - ratingsが空でないこと
   - 属性
     - additionalInstructions (string)
-    - concurrentReviewCount (number)
+    - concurrentReviewCount (number | null)
     - commentFormat (string)
     - ratings (Rating[])
   - 振る舞い

@@ -7,7 +7,7 @@ import { Rating } from '../../../domain/rating/index.js';
  */
 const reviewSettingsSchema = z.object({
   additionalInstructions: z.string().optional(),
-  concurrentReviewCount: z.number().int().min(1).optional(),
+  concurrentReviewCount: z.number().int().optional(),
   commentFormat: z.string().optional(),
   ratings: z
     .array(
@@ -47,9 +47,13 @@ export class ReviewSettingsParser {
     const data = result.data;
     const defaults = ReviewSettings.default();
 
+    // 未設定または1未満の場合はnull（分割しない）に変換
+    const rawCount = data.concurrentReviewCount;
+    const concurrentReviewCount = rawCount === undefined || rawCount < 1 ? null : rawCount;
+
     return new ReviewSettings({
       additionalInstructions: data.additionalInstructions ?? defaults.additionalInstructions,
-      concurrentReviewCount: data.concurrentReviewCount ?? defaults.concurrentReviewCount,
+      concurrentReviewCount,
       commentFormat: data.commentFormat ?? defaults.commentFormat,
       ratings: data.ratings
         ? data.ratings.map((r) => new Rating(r.label, r.definition))

@@ -59,6 +59,32 @@ describe('splitChecklist', () => {
     resetLogger();
   });
 
+  describe('分割なしのケース', () => {
+    it('concurrentReviewCountがnullの場合、全項目が1グループになる', async () => {
+      const items = makeItems(['item1', 'item2', 'item3']);
+
+      const result = await splitChecklist(items, null, null);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toHaveLength(3);
+      expect(result[0].map((i) => i.content)).toEqual(['item1', 'item2', 'item3']);
+    });
+
+    it('concurrentReviewCountがnullの場合はagentContextが渡されてもAI不使用', async () => {
+      const items = makeItems(['a', 'b', 'c']);
+      const agentContext = createMockAgentContext(async () => ({
+        object: { groups: [[1], [2], [3]] },
+      }));
+      const generateSpy = vi.spyOn(agentContext.agent, 'generate');
+
+      const result = await splitChecklist(items, null, agentContext);
+
+      expect(generateSpy).not.toHaveBeenCalled();
+      expect(result).toHaveLength(1);
+      expect(result[0]).toHaveLength(3);
+    });
+  });
+
   describe('AI不使用のケース', () => {
     it('concurrentReviewCount=1の場合、各項目が個別グループになる', async () => {
       const items = makeItems(['item1', 'item2', 'item3']);

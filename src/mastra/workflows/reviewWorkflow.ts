@@ -34,7 +34,7 @@ const workflowResultItemSchema = z.object({
  */
 const workflowInputSchema = z.object({
   checkItemContents: z.array(z.string()),
-  concurrentReviewCount: z.number(),
+  concurrentReviewCount: z.number().nullable(),
   ratings: z.array(
     z.object({
       label: z.string(),
@@ -100,9 +100,11 @@ const checklistSplitStep = createStep({
     const indexedChecklist = new IndexedChecklist(inputData.checkItemContents);
     const items = indexedChecklist.items.slice();
 
-    // concurrentReviewCountが2以上かつ総チェック項目数より少ない場合はAI分割を実行
+    // concurrentReviewCountがnull以外で2以上かつ総チェック項目数より少ない場合はAI分割を実行
     const needsAiSplit =
-      inputData.concurrentReviewCount > 1 && inputData.concurrentReviewCount < items.length;
+      inputData.concurrentReviewCount !== null &&
+      inputData.concurrentReviewCount > 1 &&
+      inputData.concurrentReviewCount < items.length;
     const checklistSplitAgent = mastra.getAgent('checklistSplitAgent');
     const agentContext = needsAiSplit
       ? {

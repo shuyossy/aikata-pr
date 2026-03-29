@@ -17,10 +17,20 @@ describe('ReviewSettings', () => {
     expect(settings.ratings).toEqual(ratings);
   });
 
+  it('concurrentReviewCountがnullの場合は正常に生成できる', () => {
+    const settings = new ReviewSettings({
+      additionalInstructions: '',
+      concurrentReviewCount: null,
+      commentFormat: '{comment}',
+      ratings: [new Rating('A', 'def')],
+    });
+    expect(settings.concurrentReviewCount).toBeNull();
+  });
+
   it('デフォルト値で生成できる', () => {
     const settings = ReviewSettings.default();
     expect(settings.additionalInstructions).toBe('');
-    expect(settings.concurrentReviewCount).toBe(1);
+    expect(settings.concurrentReviewCount).toBeNull();
     expect(settings.commentFormat).not.toBe('');
     expect(settings.ratings.length).toBe(3);
   });
@@ -31,6 +41,15 @@ describe('ReviewSettings', () => {
         new ReviewSettings({
           additionalInstructions: '',
           concurrentReviewCount: 0,
+          commentFormat: '{comment}',
+          ratings: [new Rating('A', 'def')],
+        }),
+    ).toThrow();
+    expect(
+      () =>
+        new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: -1,
           commentFormat: '{comment}',
           ratings: [new Rating('A', 'def')],
         }),

@@ -13,7 +13,7 @@ import { Rating } from '../../domain/rating/index.js';
  */
 export interface ReviewWorkflowParams {
   checkItemContents: string[];
-  concurrentReviewCount: number;
+  concurrentReviewCount: number | null;
   ratings: Array<{ label: string; definition: string }>;
   commentFormat: string;
   additionalInstructions: string;

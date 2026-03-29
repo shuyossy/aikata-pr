@@ -57,11 +57,18 @@ describe('ReviewSettingsParser', () => {
     expect(() => ReviewSettingsParser.parse('{invalid}')).toThrow();
   });
 
-  it('concurrentReviewCountが0以下ではエラーになる', () => {
-    const json = JSON.stringify({ concurrentReviewCount: 0 });
-    expect(() => ReviewSettingsParser.parse(json)).toThrow();
+  it('concurrentReviewCountが0の場合はnullに変換される', () => {
+    const settings = ReviewSettingsParser.parse(JSON.stringify({ concurrentReviewCount: 0 }));
+    expect(settings.concurrentReviewCount).toBeNull();
+  });
 
-    const json2 = JSON.stringify({ concurrentReviewCount: -1 });
-    expect(() => ReviewSettingsParser.parse(json2)).toThrow();
+  it('concurrentReviewCountがマイナスの場合はnullに変換される', () => {
+    const settings = ReviewSettingsParser.parse(JSON.stringify({ concurrentReviewCount: -1 }));
+    expect(settings.concurrentReviewCount).toBeNull();
+  });
+
+  it('concurrentReviewCountが未設定の場合はnullに変換される', () => {
+    const settings = ReviewSettingsParser.parse(JSON.stringify({}));
+    expect(settings.concurrentReviewCount).toBeNull();
   });
 });

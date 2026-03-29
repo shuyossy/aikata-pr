@@ -13,7 +13,7 @@ const DEFAULT_RATINGS = [
 /** ReviewSettingsのコンストラクタパラメータ */
 interface ReviewSettingsParams {
   additionalInstructions: string;
-  concurrentReviewCount: number;
+  concurrentReviewCount: number | null;
   commentFormat: string;
   ratings: Rating[];
 }
@@ -24,13 +24,13 @@ interface ReviewSettingsParams {
  */
 export class ReviewSettings {
   readonly additionalInstructions: string;
-  readonly concurrentReviewCount: number;
+  readonly concurrentReviewCount: number | null;
   readonly commentFormat: string;
   readonly ratings: Rating[];
 
   constructor(params: ReviewSettingsParams) {
-    if (params.concurrentReviewCount < 1) {
-      throw new Error('concurrentReviewCount must be at least 1');
+    if (params.concurrentReviewCount !== null && params.concurrentReviewCount < 1) {
+      throw new Error('concurrentReviewCount must be at least 1 or null');
     }
     if (params.ratings.length === 0) {
       throw new Error('ratings must not be empty');
@@ -45,7 +45,7 @@ export class ReviewSettings {
   static default(): ReviewSettings {
     return new ReviewSettings({
       additionalInstructions: '',
-      concurrentReviewCount: 1,
+      concurrentReviewCount: null,
       commentFormat: DEFAULT_COMMENT_FORMAT,
       ratings: DEFAULT_RATINGS,
     });

@@ -144,6 +144,34 @@ describe('reviewWorkflow 結合テスト', () => {
     resetLogger();
   });
 
+  it('concurrentReviewCount=nullでend-to-end実行できる（分割なし）', async () => {
+    const inputData = createWorkflowInput({
+      checkItemContents: ['security check', 'performance check'],
+      concurrentReviewCount: null,
+      resultFilePath,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(mockGenerateWithFileWrite as any);
+
+    const requestContext = createWorkflowRequestContext();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
+    const result = await run.start({ inputData, requestContext });
+
+    expect(result.status).toBe('success');
+    const output = getSuccessResult(result);
+    expect(output.results).toHaveLength(2);
+    expect(output.results.every((r) => !r.isError)).toBe(true);
+
+    // 全項目がレビューされていること
+    const reviewedContents = output.results.map((r) => r.checkItemContent).sort();
+    expect(reviewedContents).toEqual(['performance check', 'security check']);
+
+    // ChecklistSplitAgentが呼ばれないこと（分割なし）
+    expect(checklistSplitAgentInstance.generate).not.toHaveBeenCalled();
+  });
+
   it('concurrentReviewCount=1でend-to-end実行できる', async () => {
     const inputData = createWorkflowInput({
       checkItemContents: ['security check', 'performance check'],

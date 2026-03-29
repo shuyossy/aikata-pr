@@ -29,15 +29,21 @@ export interface AgentContext {
 /**
  * チェックリストをconcurrentReviewCountに基づいて分割する
  *
+ * - concurrentReviewCount=null: 全項目を1グループに（分割なし）
  * - concurrentReviewCount=1: 各項目を個別グループに
  * - concurrentReviewCount>=総項目数: 全項目を1グループに
  * - それ以外: AI分割を試み、失敗時は機械的分割にフォールバック
  */
 export async function splitChecklist(
   items: IndexedCheckItem[],
-  concurrentReviewCount: number,
+  concurrentReviewCount: number | null,
   agentContext: AgentContext | null,
 ): Promise<IndexedCheckItem[][]> {
+  // 分割なし（nullの場合は全項目を1グループに）
+  if (concurrentReviewCount === null) {
+    return [[...items]];
+  }
+
   if (concurrentReviewCount === 1) {
     return items.map((item) => [item]);
   }

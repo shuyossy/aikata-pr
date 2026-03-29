@@ -36,7 +36,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
     checklist: new Checklist([new CheckItem('コードの可読性'), new CheckItem('テストカバレッジ')]),
     reviewSettings: new ReviewSettings({
       additionalInstructions: '',
-      concurrentReviewCount: 1,
+      concurrentReviewCount: null,
       commentFormat: '{comment}',
       ratings: [
         new Rating('A', '完全に満たしている'),
@@ -555,7 +555,7 @@ describe('ExecuteReviewService', () => {
 
     const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
     expect(runCall.checkItemContents).toEqual(['コードの可読性', 'テストカバレッジ']);
-    expect(runCall.concurrentReviewCount).toBe(1);
+    expect(runCall.concurrentReviewCount).toBeNull();
     expect(runCall.ratings).toEqual([
       { label: 'A', definition: '完全に満たしている' },
       { label: 'B', definition: '概ね満たしている' },
