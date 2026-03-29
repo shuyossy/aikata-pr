@@ -224,7 +224,10 @@ export const reviewAgent = new Agent<
   },
   tools: reviewAgentTools,
   workspace: ({ requestContext }) => {
-    const ctx = requestContext.all as ReviewAgentRequestContext;
+    const ctx = requestContext?.all as ReviewAgentRequestContext | undefined;
+    if (!ctx?.projectDir) {
+      return undefined;
+    }
     return createWorkspaceFromContext(ctx);
   },
 });
