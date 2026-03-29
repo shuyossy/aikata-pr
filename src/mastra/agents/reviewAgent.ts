@@ -72,6 +72,8 @@ ${ratingsText}
 Use the following format for your comments:
 ${ctx.commentFormat}
 
+You must strictly follow the above format. Do not add any extra sections or headings beyond what is specified.
+
 ${additionalInstructionsSection}## Tool Reference
 
 ### Review Result Tools
