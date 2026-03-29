@@ -4,6 +4,7 @@ import type { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
 import { buildGenerateOptions, type WorkflowRequestContext } from '../../requestContext.js';
+import { getLogger } from '../../../lib/logger.js';
 
 /**
  * AI分割結果のスキーマ（ID番号のグループ）
@@ -62,8 +63,13 @@ export async function splitChecklist(
     const aiGroups = await callAgent(agentContext, items, concurrentReviewCount);
     const adjusted = adjustGroups(aiGroups, items, concurrentReviewCount);
     return adjusted;
-  } catch {
+  } catch (error) {
     // AI分割失敗時は機械的分割にフォールバック
+    const logger = getLogger();
+    logger.warn(
+      { err: error },
+      'AI-based checklist split failed, falling back to mechanical split',
+    );
     return mechanicalSplit(items, concurrentReviewCount);
   }
 }

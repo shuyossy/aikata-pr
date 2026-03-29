@@ -7,7 +7,7 @@ import { splitChecklist, adjustGroups } from '../checklistSplit.js';
 import type { AgentContext } from '../checklistSplit.js';
 import type { Agent } from '@mastra/core/agent';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
-import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
+import { initializeLogger, resetLogger, getLogger } from '../../../../lib/logger.js';
 
 /**
  * Agent.generate() のモックを作成するヘルパー
@@ -312,6 +312,23 @@ describe('splitChecklist', () => {
       expect(result).toHaveLength(2);
       expect(result[0].map((i) => i.content)).toEqual(['x', 'y']);
       expect(result[1].map((i) => i.content)).toEqual(['z', 'w']);
+    });
+
+    it('AI分割失敗時にwarnログが出力される', async () => {
+      const items = makeItems(['x', 'y', 'z', 'w']);
+      const aiError = new Error('AI API error');
+      const agentContext = createMockAgentContext(async () => {
+        throw aiError;
+      });
+      const logger = getLogger();
+      const warnSpy = vi.spyOn(logger, 'warn');
+
+      await splitChecklist(items, 2, agentContext);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        { err: aiError },
+        'AI-based checklist split failed, falling back to mechanical split',
+      );
     });
   });
 
