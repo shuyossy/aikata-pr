@@ -29,7 +29,7 @@ export function buildInstructions(
     .join('\n');
 
   const additionalInstructionsSection = ctx.additionalInstructions
-    ? `## Additional Instructions\n\n${ctx.additionalInstructions}\n\n`
+    ? `## User-Specified Review Instructions (HIGHEST PRIORITY)\n\nThe following instructions were provided by the user as review requirements. You MUST follow these instructions with the highest priority.\n\n${ctx.additionalInstructions}\n\n`
     : '';
 
   return `You are an expert MR (Merge Request) code review specialist. You will receive an MR diff and a set of check items. Your job is to evaluate each check item against the MR and provide a rating and comment.

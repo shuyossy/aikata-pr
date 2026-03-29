@@ -179,7 +179,8 @@ describe('buildInstructions', () => {
 
     const result = buildInstructions(requestContext);
 
-    expect(result).toContain('Additional Instructions');
+    expect(result).toContain('User-Specified Review Instructions (HIGHEST PRIORITY)');
+    expect(result).toContain('You MUST follow these instructions with the highest priority');
     expect(result).toContain('Focus on security vulnerabilities');
   });
 
@@ -215,7 +216,7 @@ describe('buildInstructions', () => {
 
     const result = buildInstructions(requestContext);
 
-    expect(result).not.toContain('Additional Instructions');
+    expect(result).not.toContain('User-Specified Review Instructions (HIGHEST PRIORITY)');
   });
 });
 
