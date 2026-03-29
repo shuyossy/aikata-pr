@@ -66,6 +66,23 @@ export function createModelFromContext(ctx: WorkflowRequestContext) {
 }
 
 /**
+ * requestContext.allをログ出力用にサニタイズする
+ * - aiApiKey: マスク
+ * - mrDiff: 文字数のみ表示（長大なため）
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function sanitizeForLog(ctx: Record<string, any>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = { ...ctx };
+  if ('aiApiKey' in sanitized) {
+    sanitized.aiApiKey = '***';
+  }
+  if ('mrDiff' in sanitized && typeof sanitized.mrDiff === 'string') {
+    sanitized.mrDiff = `[${(sanitized.mrDiff as string).length} chars]`;
+  }
+  return sanitized;
+}
+
+/**
  * OPENAI_REASONING_EFFORTが設定されている場合のgenerate()オプションを構築する
  * 未設定の場合は空オブジェクトを返す（spread時に影響なし）
  */

@@ -9,6 +9,7 @@ import {
   type ReviewAgentRequestContext,
   type WorkflowRequestContext,
   buildGenerateOptions,
+  sanitizeForLog,
 } from '../../requestContext.js';
 import { readStoredResults, type StoredReviewResult } from '../../types.js';
 import { buildUserPrompt } from '../../agents/reviewAgent.js';
@@ -191,6 +192,10 @@ async function executeWithErrorRecovery(params: {
   while (true) {
     try {
       await coordinator.acquirePermission();
+      logger.debug(
+        { requestContext: sanitizeForLog(requestContext.all) },
+        'Calling reviewAgent.generate',
+      );
       await agent.generate(prompt, {
         requestContext,
         memory: memoryOption,

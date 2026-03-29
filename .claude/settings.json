@@ -1,6 +1,6 @@
 {
   "enabledPlugins": {
-    "mgrep@Mixedbread-Grep": true,
+    "mgrep@Mixedbread-Grep": false,
     "superpowers@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,

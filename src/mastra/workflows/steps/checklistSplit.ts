@@ -3,7 +3,11 @@ import type { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
-import { buildGenerateOptions, type WorkflowRequestContext } from '../../requestContext.js';
+import {
+  buildGenerateOptions,
+  sanitizeForLog,
+  type WorkflowRequestContext,
+} from '../../requestContext.js';
 import { getLogger } from '../../../lib/logger.js';
 
 /**
@@ -85,6 +89,11 @@ async function callAgent(
 ): Promise<IndexedCheckItem[][]> {
   const itemTexts = items.map((item) => `[ID: ${item.id}] ${item.content}`).join('\n');
 
+  const logger = getLogger();
+  logger.debug(
+    { requestContext: sanitizeForLog(agentContext.requestContext.all) },
+    'Calling checklistSplitAgent.generate',
+  );
   const result = await withRateLimitRetry(
     () =>
       agentContext.agent.generate(

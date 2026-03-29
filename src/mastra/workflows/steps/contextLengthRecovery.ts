@@ -6,7 +6,7 @@ import type {
   ReviewAgentRequestContext,
   SummarizationAgentRequestContext,
 } from '../../requestContext.js';
-import { buildGenerateOptions } from '../../requestContext.js';
+import { buildGenerateOptions, sanitizeForLog } from '../../requestContext.js';
 import { readStoredResults } from '../../types.js';
 import { buildSummarizationUserPrompt } from '../../agents/summarizationAgent.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
@@ -198,6 +198,10 @@ export async function recoverFromContextLength(
 
   // 5. 要約Agentで会話履歴を要約
   const userPrompt = buildSummarizationUserPrompt(serializedText, wasTrimmed);
+  logger.debug(
+    { requestContext: sanitizeForLog(summarizationContext.all) },
+    'Calling summarizationAgent.generate',
+  );
   const result = await withRateLimitRetry(
     () =>
       summarizationAgent.generate(userPrompt, {
