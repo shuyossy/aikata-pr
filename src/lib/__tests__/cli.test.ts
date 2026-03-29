@@ -64,6 +64,7 @@ describe('parseCliOptions', () => {
       'debug',
       '--comment-language',
       'English',
+      '--pretty-print',
     ]);
     expect(result.userId).toBe('u1');
     expect(result.projectId).toBe('p1');
@@ -75,6 +76,7 @@ describe('parseCliOptions', () => {
     expect(result.aiModelName).toBe('openai/gpt-4');
     expect(result.logLevel).toBe('debug');
     expect(result.commentLanguage).toBe('English');
+    expect(result.prettyPrint).toBe(true);
   });
 
   it('未指定の場合はデフォルト値が使用される', () => {
@@ -140,5 +142,35 @@ describe('parseCliOptions', () => {
   it('commentLanguageのデフォルト値はJapaneseである', () => {
     const result = parseCliOptions([], {});
     expect(result.commentLanguage).toBe('Japanese');
+  });
+
+  it('--pretty-printオプションをパースできる', () => {
+    const result = parseCliOptions(['--pretty-print']);
+    expect(result.prettyPrint).toBe(true);
+  });
+
+  it('--no-pretty-printオプションをパースできる', () => {
+    const result = parseCliOptions(['--no-pretty-print']);
+    expect(result.prettyPrint).toBe(false);
+  });
+
+  it('PRETTY_PRINT環境変数からprettyPrintを取得できる（true）', () => {
+    const result = parseCliOptions([], { PRETTY_PRINT: 'true' });
+    expect(result.prettyPrint).toBe(true);
+  });
+
+  it('PRETTY_PRINT環境変数がfalseの場合はprettyPrintがfalseになる', () => {
+    const result = parseCliOptions([], { PRETTY_PRINT: 'false' });
+    expect(result.prettyPrint).toBe(false);
+  });
+
+  it('--no-pretty-printがPRETTY_PRINT環境変数より優先される', () => {
+    const result = parseCliOptions(['--no-pretty-print'], { PRETTY_PRINT: 'true' });
+    expect(result.prettyPrint).toBe(false);
+  });
+
+  it('prettyPrintのデフォルト値はtrueである', () => {
+    const result = parseCliOptions([], {});
+    expect(result.prettyPrint).toBe(true);
   });
 });

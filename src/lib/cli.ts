@@ -12,6 +12,7 @@ export interface CliOptions {
   logLevel: string;
   aiModelName: string;
   commentLanguage: string;
+  prettyPrint: boolean;
 }
 
 /**
@@ -63,6 +64,12 @@ export function parseCliOptions(
       case '--comment-language':
         parsed['commentLanguage'] = args[++i]!;
         break;
+      case '--pretty-print':
+        parsed['prettyPrint'] = true;
+        break;
+      case '--no-pretty-print':
+        parsed['prettyPrint'] = false;
+        break;
     }
   }
 
@@ -77,5 +84,11 @@ export function parseCliOptions(
     logLevel: (parsed['logLevel'] as string) ?? env['LOG_LEVEL'] ?? 'info',
     aiModelName: (parsed['aiModelName'] as string) ?? env['AI_MODEL_NAME'] ?? 'openai/o4-mini',
     commentLanguage: (parsed['commentLanguage'] as string) ?? env['COMMENT_LANGUAGE'] ?? 'Japanese',
+    prettyPrint:
+      parsed['prettyPrint'] !== undefined
+        ? (parsed['prettyPrint'] as boolean)
+        : env['PRETTY_PRINT'] !== undefined
+          ? env['PRETTY_PRINT'] === 'true'
+          : true,
   };
 }

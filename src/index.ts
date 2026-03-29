@@ -115,6 +115,7 @@ async function main(): Promise<void> {
   initializeLogger({
     userId: options.userId ?? 'unknown',
     level: options.logLevel,
+    prettyPrint: options.prettyPrint,
   });
 
   const logger = getLogger();

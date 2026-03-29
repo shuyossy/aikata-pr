@@ -36,7 +36,7 @@ export function initializeLogger(config: LoggerConfig): AppLogger {
     throw new Error('Logger is already initialized. Call resetLogger() before re-initializing.');
   }
 
-  const { userId, level = 'info', prettyPrint = false, stream } = config;
+  const { userId, level = 'info', prettyPrint = true, stream } = config;
 
   // pinoのベースオプション
   const pinoOptions: pino.LoggerOptions = {

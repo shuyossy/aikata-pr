@@ -9,7 +9,7 @@ describe('Logger', () => {
 
   describe('initializeLogger', () => {
     it('userIdを指定して初期化するとロガーが生成される', () => {
-      const logger = initializeLogger({ userId: 'user-001' });
+      const logger = initializeLogger({ userId: 'user-001', prettyPrint: false });
       expect(logger).toBeDefined();
       expect(logger.info).toBeTypeOf('function');
       expect(logger.error).toBeTypeOf('function');
@@ -18,7 +18,7 @@ describe('Logger', () => {
     });
 
     it('ログレベルを指定して初期化できる', () => {
-      const logger = initializeLogger({ userId: 'user-001', level: 'debug' });
+      const logger = initializeLogger({ userId: 'user-001', level: 'debug', prettyPrint: false });
       expect(logger).toBeDefined();
     });
 
@@ -28,17 +28,23 @@ describe('Logger', () => {
       expect(logger.info).toBeTypeOf('function');
     });
 
+    it('prettyPrint有効でロガーが生成される', () => {
+      const logger = initializeLogger({ userId: 'user-001', prettyPrint: true });
+      expect(logger).toBeDefined();
+      expect(logger.info).toBeTypeOf('function');
+    });
+
     it('既に初期化済みの場合に再初期化するとエラーをスローする', () => {
-      initializeLogger({ userId: 'user-001' });
+      initializeLogger({ userId: 'user-001', prettyPrint: false });
       expect(() => initializeLogger({ userId: 'user-002' })).toThrowError(
         'Logger is already initialized. Call resetLogger() before re-initializing.',
       );
     });
 
     it('resetLogger後に再初期化すると正常にロガーが生成される', () => {
-      initializeLogger({ userId: 'user-001' });
+      initializeLogger({ userId: 'user-001', prettyPrint: false });
       resetLogger();
-      const logger = initializeLogger({ userId: 'user-002' });
+      const logger = initializeLogger({ userId: 'user-002', prettyPrint: false });
       expect(logger).toBeDefined();
     });
   });
@@ -51,14 +57,14 @@ describe('Logger', () => {
     });
 
     it('initializeLogger後に呼び出すと同一インスタンスを返す', () => {
-      initializeLogger({ userId: 'user-001' });
+      initializeLogger({ userId: 'user-001', prettyPrint: false });
       const logger1 = getLogger();
       const logger2 = getLogger();
       expect(logger1).toBe(logger2);
     });
 
     it('initializeLoggerの戻り値とgetLoggerの戻り値が同一インスタンスである', () => {
-      const initialized = initializeLogger({ userId: 'user-001' });
+      const initialized = initializeLogger({ userId: 'user-001', prettyPrint: false });
       const retrieved = getLogger();
       expect(initialized).toBe(retrieved);
     });
@@ -163,7 +169,7 @@ describe('Logger', () => {
 
   describe('resetLogger', () => {
     it('resetLogger後にgetLoggerを呼ぶとエラーをスローする', () => {
-      initializeLogger({ userId: 'user-001' });
+      initializeLogger({ userId: 'user-001', prettyPrint: false });
       expect(() => getLogger()).not.toThrow();
 
       resetLogger();
