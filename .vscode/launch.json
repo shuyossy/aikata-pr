@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug CLI",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx"],
+      "args": [
+        "src/index.ts",
+        "--checklist", "${workspaceFolder}/debug/checklist.csv",
+        "--review-settings", "${workspaceFolder}/debug/review-settings.json"
+      ],
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}
