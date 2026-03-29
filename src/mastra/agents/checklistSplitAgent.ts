@@ -29,5 +29,6 @@ Rules:
 - Do not add or remove any items.
 - Return item IDs (the numbers shown in [ID: N]) instead of text.
 - Group by thematic similarity (e.g., code quality items together, security items together, performance items together, etc.).
-- Try to keep groups roughly equal in size, close to the target group size.`,
+- Try to keep groups roughly equal in size, close to the target group size.
+- Return the result as a JSON object with a "groups" key containing an array of arrays of item IDs.`,
 });
