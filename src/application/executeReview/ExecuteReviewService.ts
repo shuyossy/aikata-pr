@@ -177,9 +177,9 @@ export class ExecuteReviewService {
         continue;
       }
 
-      // 今回のチェックリストに含まれる項目のみフィルタ
+      // エラー結果を除外し、今回のチェックリストに含まれる項目のみフィルタ
       const filteredResults = parsed.results
-        .filter((r) => currentCheckItemContents.includes(r.checkItem.content))
+        .filter((r) => !r.isError && currentCheckItemContents.includes(r.checkItem.content))
         .map((r) => ({
           checkItemContent: r.checkItem.content,
           ratingLabel: r.rating.label,

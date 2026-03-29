@@ -80,14 +80,23 @@ function createWorkflowResult(overrides?: Partial<ReviewWorkflowResult>): Review
   };
 }
 
-// ヘルパー: aikataレビューコメントを生成
+// ヘルパー: aikataレビューコメントを生成（エラー項目対応）
 function createAikataComment(
-  items: { content: string; ratingLabel: string; ratingDefinition: string; comment: string }[],
+  items: {
+    content: string;
+    ratingLabel: string;
+    ratingDefinition: string;
+    comment: string;
+    isError?: boolean;
+  }[],
   commitHash: string,
   ratings: Rating[],
   createdAt: string,
 ): MrComment {
   const results = items.map((item) => {
+    if (item.isError) {
+      return ReviewResult.error(new CheckItem(item.content), item.comment);
+    }
     const rating = ratings.find((r) => r.label === item.ratingLabel);
     if (!rating) throw new Error(`Rating not found: ${item.ratingLabel}`);
     return ReviewResult.success(new CheckItem(item.content), rating, item.comment);
@@ -611,5 +620,104 @@ describe('ExecuteReviewService', () => {
     vi.mocked(projectTreeGateway.getTree).mockRejectedValue(new Error('Tree retrieval failed'));
 
     await expect(service.execute(command)).rejects.toThrow('Tree retrieval failed');
+  });
+
+  it('過去のチェック結果にエラー項目がある場合、エラー項目が除外されて正常項目のみpriorReviewResultsに含まれる', async () => {
+    const ratings = [
+      new Rating('A', '完全に満たしている'),
+      new Rating('B', '概ね満たしている'),
+      new Rating('C', '満たしていない'),
+    ];
+    const command = createCommand();
+    const mrContext = createMrContext();
+    const workflowResult = createWorkflowResult();
+
+    // 前回のレビューには正常項目とエラー項目が混在
+    const priorComment = createAikataComment(
+      [
+        {
+          content: 'コードの可読性',
+          ratingLabel: 'A',
+          ratingDefinition: '完全に満たしている',
+          comment: '良いです',
+        },
+        {
+          content: 'テストカバレッジ',
+          ratingLabel: '',
+          ratingDefinition: '',
+          comment: 'AI processing timeout',
+          isError: true,
+        },
+      ],
+      'prior-commit-hash',
+      ratings,
+      '2026-01-01T00:00:00Z',
+    );
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+    vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
+    vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
+    vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+    await service.execute(command);
+
+    // エラー項目「テストカバレッジ」は除外され、正常項目「コードの可読性」のみ
+    const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+    expect(runCall.priorReviewResults).toHaveLength(1);
+    expect(runCall.priorReviewResults![0].checkItemContent).toBe('コードの可読性');
+    expect(runCall.priorReviewResults![0].ratingLabel).toBe('A');
+  });
+
+  it('過去のチェック結果が全てエラーの場合、priorReviewContextがnullになる', async () => {
+    const ratings = [
+      new Rating('A', '完全に満たしている'),
+      new Rating('B', '概ね満たしている'),
+      new Rating('C', '満たしていない'),
+    ];
+    const command = createCommand();
+    const mrContext = createMrContext();
+    const workflowResult = createWorkflowResult();
+
+    // 前回のレビューは全てエラー
+    const priorComment = createAikataComment(
+      [
+        {
+          content: 'コードの可読性',
+          ratingLabel: '',
+          ratingDefinition: '',
+          comment: 'API error occurred',
+          isError: true,
+        },
+        {
+          content: 'テストカバレッジ',
+          ratingLabel: '',
+          ratingDefinition: '',
+          comment: 'AI processing timeout',
+          isError: true,
+        },
+      ],
+      'prior-commit-hash',
+      ratings,
+      '2026-01-01T00:00:00Z',
+    );
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+    vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+    await service.execute(command);
+
+    // 全てエラーなのでnull
+    const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+    expect(runCall.priorReviewResults).toBeNull();
+    expect(runCall.priorCommitMessages).toBeNull();
+    expect(runCall.priorDiffSincePrior).toBeNull();
+
+    // getCommitsSince/getDiffSinceは呼ばれない
+    expect(mrGateway.getCommitsSince).not.toHaveBeenCalled();
+    expect(mrGateway.getDiffSince).not.toHaveBeenCalled();
   });
 });
