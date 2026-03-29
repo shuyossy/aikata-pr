@@ -53,6 +53,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
     gitlabToken: 'test-gitlab-token',
     treeMaxDepth: undefined,
     commentLanguage: 'Japanese',
+    openaiReasoningEffort: undefined,
     ...overrides,
   };
 }

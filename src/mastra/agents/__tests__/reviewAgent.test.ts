@@ -30,6 +30,7 @@ function createTestContext(
     priorReviewContext: null,
     skillsPaths: [],
     folderTree: '',
+    openaiReasoningEffort: undefined,
     ...overrides,
   };
 }
@@ -61,6 +62,7 @@ function createTestRequestContext(
     ['priorReviewContext', ctx.priorReviewContext],
     ['skillsPaths', ctx.skillsPaths],
     ['folderTree', ctx.folderTree],
+    ['openaiReasoningEffort', ctx.openaiReasoningEffort],
   ]);
 }
 

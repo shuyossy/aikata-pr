@@ -10,6 +10,7 @@ export interface WorkflowRequestContext {
   aiApiEndpointUrl: string;
   aiModelName: string;
   projectDir: string;
+  openaiReasoningEffort: string | undefined;
 }
 
 /**
@@ -58,8 +59,25 @@ export interface SummarizationAgentRequestContext extends WorkflowRequestContext
  */
 export function createModelFromContext(ctx: WorkflowRequestContext) {
   return createOpenAICompatible({
-    name: ctx.userId,
+    name: 'openai',
     apiKey: ctx.aiApiKey,
     baseURL: ctx.aiApiEndpointUrl,
   }).chatModel(ctx.aiModelName);
+}
+
+/**
+ * OPENAI_REASONING_EFFORTが設定されている場合のgenerate()オプションを構築する
+ * 未設定の場合は空オブジェクトを返す（spread時に影響なし）
+ */
+export function buildGenerateOptions(ctx: WorkflowRequestContext): {
+  modelSettings?: { temperature: number };
+  providerOptions?: { openai: { reasoningEffort: string } };
+} {
+  if (!ctx.openaiReasoningEffort) return {};
+  return {
+    modelSettings: { temperature: 1 },
+    providerOptions: {
+      openai: { reasoningEffort: ctx.openaiReasoningEffort },
+    },
+  };
 }

@@ -31,6 +31,7 @@ function createTestContext(
     ['mrSourceBranch', overrides.mrSourceBranch ?? 'feature/test'],
     ['mrTargetBranch', overrides.mrTargetBranch ?? 'main'],
     ['alreadyStoredSummary', overrides.alreadyStoredSummary ?? 'None yet'],
+    ['openaiReasoningEffort', undefined],
   ]);
 }
 

@@ -83,6 +83,7 @@ function createTestRequestContext(
     ['priorReviewContext', null],
     ['skillsPaths', []],
     ['folderTree', 'src/'],
+    ['openaiReasoningEffort', undefined],
   ]);
 }
 

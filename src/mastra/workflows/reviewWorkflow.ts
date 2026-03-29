@@ -84,6 +84,7 @@ const requestContextSchema = z.object({
   aiApiEndpointUrl: z.string(),
   aiModelName: z.string(),
   projectDir: z.string(),
+  openaiReasoningEffort: z.string().or(z.undefined()),
 });
 
 /**
@@ -182,6 +183,7 @@ const reviewExecutionStep = createStep({
       ],
       ['skillsPaths', initData.skillsPaths],
       ['folderTree', initData.folderTree],
+      ['openaiReasoningEffort', workflowCtx.openaiReasoningEffort],
     ]);
 
     const reviewAgent = mastra.getAgent('reviewAgent');

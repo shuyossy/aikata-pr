@@ -24,6 +24,7 @@ function createWorkflowRequestContext(): RequestContext<WorkflowRequestContext> 
     ['aiApiEndpointUrl', 'http://localhost:8080'],
     ['aiModelName', 'test-model'],
     ['projectDir', '/test/project'],
+    ['openaiReasoningEffort', undefined],
   ]);
 }
 

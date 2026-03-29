@@ -24,7 +24,15 @@ import fs from 'node:fs';
 class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
   async run(params: ReviewWorkflowParams): Promise<ReviewWorkflowResult> {
     // inputDataからモデル設定・プロジェクト情報を分離
-    const { userId, aiApiKey, aiApiEndpointUrl, aiModelName, projectDir, ...inputData } = params;
+    const {
+      userId,
+      aiApiKey,
+      aiApiEndpointUrl,
+      aiModelName,
+      projectDir,
+      openaiReasoningEffort,
+      ...inputData
+    } = params;
 
     // モデル設定・プロジェクト情報をRequestContextに設定
     const requestContext = new RequestContext<WorkflowRequestContext>([
@@ -33,6 +41,7 @@ class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
       ['aiApiEndpointUrl', aiApiEndpointUrl],
       ['aiModelName', aiModelName],
       ['projectDir', projectDir],
+      ['openaiReasoningEffort', openaiReasoningEffort],
     ]);
 
     const workflow = mastra.getWorkflow('reviewWorkflow');
@@ -171,6 +180,7 @@ async function main(): Promise<void> {
       gitlabToken: validated.gitlabToken,
       treeMaxDepth,
       commentLanguage: options.commentLanguage,
+      openaiReasoningEffort: process.env['OPENAI_REASONING_EFFORT'],
     });
 
     logger.info(

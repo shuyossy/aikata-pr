@@ -5,7 +5,11 @@ import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
 import { Rating } from '../../../domain/rating/index.js';
 import { CheckItem } from '../../../domain/checkItem/index.js';
-import type { ReviewAgentRequestContext } from '../../requestContext.js';
+import {
+  type ReviewAgentRequestContext,
+  type WorkflowRequestContext,
+  buildGenerateOptions,
+} from '../../requestContext.js';
 import { readStoredResults, type StoredReviewResult } from '../../types.js';
 import { buildUserPrompt } from '../../agents/reviewAgent.js';
 import { type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
@@ -187,7 +191,11 @@ async function executeWithErrorRecovery(params: {
   while (true) {
     try {
       await coordinator.acquirePermission();
-      await agent.generate(prompt, { requestContext, memory: memoryOption });
+      await agent.generate(prompt, {
+        requestContext,
+        memory: memoryOption,
+        ...buildGenerateOptions(requestContext.all as WorkflowRequestContext),
+      });
       coordinator.reportSuccess();
       return { currentThreadId };
     } catch (error) {

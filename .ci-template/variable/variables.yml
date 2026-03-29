@@ -4,6 +4,7 @@ variables:
   AI_API_KEY: ""
   AI_API_ENDPOINT_URL: ""
   AI_MODEL_NAME: "openai/o4-mini"
+  OPENAI_REASONING_EFFORT: ""
   # GitLab
   GITLAB_API_URL: ""
   GITLAB_TOKEN: ""

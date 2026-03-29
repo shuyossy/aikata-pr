@@ -76,6 +76,7 @@ function createTestRequestContext(
     ['priorReviewContext', null],
     ['skillsPaths', []],
     ['folderTree', 'src/\n  index.ts'],
+    ['openaiReasoningEffort', undefined],
   ]);
 }
 
@@ -830,6 +831,7 @@ describe('executeReview', () => {
       ],
       ['skillsPaths', []],
       ['folderTree', 'src/\n  index.ts'],
+      ['openaiReasoningEffort', undefined],
     ]);
 
     const config = createBaseConfig({

@@ -18,4 +18,5 @@ export interface ExecuteReviewCommand {
   gitlabToken: string;
   treeMaxDepth: number | undefined;
   commentLanguage: string;
+  openaiReasoningEffort: string | undefined;
 }

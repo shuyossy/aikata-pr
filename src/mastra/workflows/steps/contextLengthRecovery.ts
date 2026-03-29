@@ -6,6 +6,7 @@ import type {
   ReviewAgentRequestContext,
   SummarizationAgentRequestContext,
 } from '../../requestContext.js';
+import { buildGenerateOptions } from '../../requestContext.js';
 import { readStoredResults } from '../../types.js';
 import { buildSummarizationUserPrompt } from '../../agents/summarizationAgent.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
@@ -192,6 +193,7 @@ export async function recoverFromContextLength(
     ['mrSourceBranch', reviewCtx.mrSourceBranch],
     ['mrTargetBranch', reviewCtx.mrTargetBranch],
     ['alreadyStoredSummary', alreadyStoredSummary],
+    ['openaiReasoningEffort', reviewCtx.openaiReasoningEffort],
   ]);
 
   // 5. 要約Agentで会話履歴を要約
@@ -200,6 +202,7 @@ export async function recoverFromContextLength(
     () =>
       summarizationAgent.generate(userPrompt, {
         requestContext: summarizationContext,
+        ...buildGenerateOptions(reviewCtx),
       }),
     rateLimitRetryConfig,
   );

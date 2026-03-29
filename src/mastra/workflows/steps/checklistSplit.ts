@@ -3,6 +3,7 @@ import type { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
+import { buildGenerateOptions, type WorkflowRequestContext } from '../../requestContext.js';
 
 /**
  * AI分割結果のスキーマ（ID番号のグループ）
@@ -85,6 +86,7 @@ async function callAgent(
         {
           structuredOutput: { schema: aiSplitOutputSchema },
           requestContext: agentContext.requestContext,
+          ...buildGenerateOptions(agentContext.requestContext.all as WorkflowRequestContext),
         },
       ),
     agentContext.rateLimitRetryConfig,

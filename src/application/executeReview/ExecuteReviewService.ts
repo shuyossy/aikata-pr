@@ -42,6 +42,7 @@ export interface ReviewWorkflowParams {
   resultFilePath: string;
   folderTree: string;
   commentLanguage: string;
+  openaiReasoningEffort: string | undefined;
 }
 
 /**
@@ -261,6 +262,7 @@ export class ExecuteReviewService {
       resultFilePath,
       folderTree,
       commentLanguage: command.commentLanguage,
+      openaiReasoningEffort: command.openaiReasoningEffort,
     };
   }
 
