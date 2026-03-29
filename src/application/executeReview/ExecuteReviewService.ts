@@ -8,6 +8,7 @@ import type { ExecuteReviewCommand } from './ExecuteReviewCommand.js';
 import type { ExecuteReviewDto } from './ExecuteReviewDto.js';
 import { ReviewResult } from '../../domain/reviewResult/index.js';
 import { Rating } from '../../domain/rating/index.js';
+import type { MrContext } from '../../domain/mrContext/index.js';
 
 /**
  * ワークフロー実行のパラメータ
@@ -65,6 +66,21 @@ export interface ReviewWorkflowRunner {
 }
 
 /**
+ * buildPriorContextの返り値型
+ */
+interface PriorContext {
+  priorCommitHash: string | null;
+  priorReviewResults: Array<{
+    checkItemContent: string;
+    ratingLabel: string;
+    ratingDefinition: string;
+    comment: string;
+  }> | null;
+  priorCommitMessages: string[] | null;
+  priorDiffSincePrior: string | null;
+}
+
+/**
  * レビュー実行のメインオーケストレーションサービス
  * 事前処理→Workflow実行→コメント投稿の全フローを制御する
  */
@@ -85,36 +101,35 @@ export class ExecuteReviewService {
 
     const priorContext = await this.buildPriorContext(command, comments, mrContext.commitHash);
 
+    // リトライ判定: 前回レビューのコミットハッシュと今回のコミットハッシュが一致する場合
+    const isRetry =
+      priorContext.priorCommitHash !== null &&
+      priorContext.priorCommitHash === mrContext.commitHash;
+
+    if (isRetry) {
+      return this.executeRetryReview(command, mrContext, priorContext, folderTree);
+    }
+    return this.executeFullReview(command, mrContext, priorContext, folderTree);
+  }
+
+  /**
+   * 通常のフルレビューを実行する
+   */
+  private async executeFullReview(
+    command: ExecuteReviewCommand,
+    mrContext: MrContext,
+    priorContext: PriorContext,
+    folderTree: string,
+  ): Promise<ExecuteReviewDto> {
     const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
 
     try {
       const workflowResult = await this.workflowRunner.run({
         checkItemContents: command.checklist.items.map((i) => i.content),
-        concurrentReviewCount: command.reviewSettings.concurrentReviewCount,
-        ratings: command.reviewSettings.ratings.map((r) => ({
-          label: r.label,
-          definition: r.definition,
-        })),
-        commentFormat: command.reviewSettings.commentFormat,
-        additionalInstructions: command.reviewSettings.additionalInstructions,
-        mrTitle: mrContext.title,
-        mrDescription: mrContext.description,
-        mrSourceBranch: mrContext.sourceBranch,
-        mrTargetBranch: mrContext.targetBranch,
-        mrDiff: mrContext.diff,
-        mrCommitHash: mrContext.commitHash,
+        ...this.buildCommonWorkflowParams(command, mrContext, folderTree, resultFilePath),
         priorReviewResults: priorContext.priorReviewResults,
         priorCommitMessages: priorContext.priorCommitMessages,
         priorDiffSincePrior: priorContext.priorDiffSincePrior,
-        userId: command.userId,
-        aiApiKey: command.aiApiKey,
-        aiApiEndpointUrl: command.aiApiEndpointUrl,
-        aiModelName: command.aiModelName,
-        projectDir: command.projectDir,
-        skillsPaths: command.skillsPaths,
-        resultFilePath,
-        folderTree,
-        commentLanguage: command.commentLanguage,
       });
 
       const results = this.convertToReviewResults(workflowResult, command);
@@ -132,18 +147,121 @@ export class ExecuteReviewService {
         commentPosted: true,
       };
     } finally {
-      // 一時ファイルとロックディレクトリのクリーンアップ
-      try {
-        fs.unlinkSync(resultFilePath);
-      } catch {
-        /* ignore */
-      }
-      try {
-        fs.rmdirSync(`${resultFilePath}.lock`);
-      } catch {
-        /* ignore */
-      }
+      this.cleanupTempFiles(resultFilePath);
     }
+  }
+
+  /**
+   * リトライ時のレビューを実行する
+   * 前回成功した項目はそのまま保持し、エラー項目と未レビュー項目のみ再レビューする
+   */
+  private async executeRetryReview(
+    command: ExecuteReviewCommand,
+    mrContext: MrContext,
+    priorContext: PriorContext,
+    folderTree: string,
+  ): Promise<ExecuteReviewDto> {
+    // 前回成功結果をReviewResult[]に変換（保持する）
+    const keptResults = (priorContext.priorReviewResults ?? []).map((r) => {
+      const checkItem = command.checklist.items.find((i) => i.content === r.checkItemContent);
+      if (!checkItem) {
+        throw new Error(`Check item not found: ${r.checkItemContent}`);
+      }
+      return ReviewResult.success(
+        checkItem,
+        new Rating(r.ratingLabel, r.ratingDefinition),
+        r.comment,
+      );
+    });
+
+    // 再レビュー対象を特定（保持されなかった項目 = エラー + 未レビュー）
+    const keptContents = new Set(keptResults.map((r) => r.checkItem.content));
+    const itemsToReview = command.checklist.items.filter((i) => !keptContents.has(i.content));
+
+    // 再レビュー対象なし → 前回結果をそのまま投稿
+    if (itemsToReview.length === 0) {
+      const commentBody = CommentFormatter.formatComment(
+        keptResults,
+        command.reviewSettings.ratings,
+        mrContext.commitHash,
+      );
+      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
+      return { results: keptResults, commitHash: mrContext.commitHash, commentPosted: true };
+    }
+
+    // 再レビュー対象あり → ワークフロー実行（対象項目のみ）
+    const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
+
+    try {
+      const workflowResult = await this.workflowRunner.run({
+        checkItemContents: itemsToReview.map((i) => i.content),
+        ...this.buildCommonWorkflowParams(command, mrContext, folderTree, resultFilePath),
+        // リトライ時はprior context不要（同じdiff）
+        priorReviewResults: null,
+        priorCommitMessages: null,
+        priorDiffSincePrior: null,
+      });
+
+      const newResults = this.convertToReviewResults(workflowResult, command);
+
+      // マージ（チェックリスト順）
+      const mergedResults = command.checklist.items.map((item) => {
+        const kept = keptResults.find((r) => r.checkItem.content === item.content);
+        if (kept) return kept;
+        const newResult = newResults.find((r) => r.checkItem.content === item.content);
+        if (newResult) return newResult;
+        throw new Error(`Result not found for item: ${item.content}`);
+      });
+
+      const commentBody = CommentFormatter.formatComment(
+        mergedResults,
+        command.reviewSettings.ratings,
+        mrContext.commitHash,
+      );
+      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
+
+      return { results: mergedResults, commitHash: mrContext.commitHash, commentPosted: true };
+    } finally {
+      this.cleanupTempFiles(resultFilePath);
+    }
+  }
+
+  /**
+   * ワークフロー共通パラメータを構築する
+   */
+  private buildCommonWorkflowParams(
+    command: ExecuteReviewCommand,
+    mrContext: MrContext,
+    folderTree: string,
+    resultFilePath: string,
+  ): Omit<
+    ReviewWorkflowParams,
+    'checkItemContents' | 'priorReviewResults' | 'priorCommitMessages' | 'priorDiffSincePrior'
+  > {
+    return {
+      concurrentReviewCount: command.reviewSettings.concurrentReviewCount,
+      ratings: command.reviewSettings.ratings.map((r) => ({
+        label: r.label,
+        definition: r.definition,
+      })),
+      commentFormat: command.reviewSettings.commentFormat,
+      additionalInstructions: command.reviewSettings.additionalInstructions,
+      mrTitle: mrContext.title,
+      mrDescription: mrContext.description,
+      mrSourceBranch: mrContext.sourceBranch,
+      mrTargetBranch: mrContext.targetBranch,
+      mrDiff: mrContext.diff,
+      mrCommitHash: mrContext.commitHash,
+      userId: command.userId,
+      aiApiKey: command.aiApiKey,
+      aiApiEndpointUrl: command.aiApiEndpointUrl,
+      aiModelName: command.aiModelName,
+      projectDir: command.projectDir,
+      skillsPaths: command.skillsPaths,
+      resultFilePath,
+      folderTree,
+      commentLanguage: command.commentLanguage,
+    };
   }
 
   /**
@@ -154,16 +272,7 @@ export class ExecuteReviewService {
     command: ExecuteReviewCommand,
     comments: Array<{ id: number; body: string; createdAt: string }>,
     currentCommitHash: string,
-  ): Promise<{
-    priorReviewResults: Array<{
-      checkItemContent: string;
-      ratingLabel: string;
-      ratingDefinition: string;
-      comment: string;
-    }> | null;
-    priorCommitMessages: string[] | null;
-    priorDiffSincePrior: string | null;
-  }> {
+  ): Promise<PriorContext> {
     // コメントを新しい順にソート（createdAtの降順）して最新のaikataコメントを見つける
     const sortedComments = [...comments].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
@@ -199,17 +308,24 @@ export class ExecuteReviewService {
         ]);
 
         return {
+          priorCommitHash: parsed.commitHash,
           priorReviewResults: filteredResults,
           priorCommitMessages,
           priorDiffSincePrior,
         };
       }
 
-      // 最新のaikataコメントのみ使用（フィルタ後に項目がなくても他のコメントは探さない）
-      break;
+      // 成功項目なし（全エラー等）でもcommitHashは返す（リトライ検知用）
+      return {
+        priorCommitHash: parsed.commitHash,
+        priorReviewResults: null,
+        priorCommitMessages: null,
+        priorDiffSincePrior: null,
+      };
     }
 
     return {
+      priorCommitHash: null,
       priorReviewResults: null,
       priorCommitMessages: null,
       priorDiffSincePrior: null,
@@ -239,5 +355,21 @@ export class ExecuteReviewService {
         r.comment,
       );
     });
+  }
+
+  /**
+   * 一時ファイルとロックディレクトリのクリーンアップ
+   */
+  private cleanupTempFiles(resultFilePath: string): void {
+    try {
+      fs.unlinkSync(resultFilePath);
+    } catch {
+      /* ignore */
+    }
+    try {
+      fs.rmdirSync(`${resultFilePath}.lock`);
+    } catch {
+      /* ignore */
+    }
   }
 }

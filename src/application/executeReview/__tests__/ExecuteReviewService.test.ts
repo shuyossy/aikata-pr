@@ -720,4 +720,432 @@ describe('ExecuteReviewService', () => {
     expect(mrGateway.getCommitsSince).not.toHaveBeenCalled();
     expect(mrGateway.getDiffSince).not.toHaveBeenCalled();
   });
+
+  describe('リトライ実行（同一コミットハッシュ）', () => {
+    const ratings = [
+      new Rating('A', '完全に満たしている'),
+      new Rating('B', '概ね満たしている'),
+      new Rating('C', '満たしていない'),
+    ];
+
+    it('全項目が前回成功の場合、workflowは実行されず前回結果がそのまま投稿される', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回のレビュー: 全項目成功、同じコミットハッシュ
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良いコードです',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'もう少し',
+          },
+        ],
+        'same-hash', // 同じコミットハッシュ
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      // workflowは実行されない
+      expect(workflowRunner.run).not.toHaveBeenCalled();
+
+      // コメントは投稿される
+      expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
+
+      // 結果が前回と同じ
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0].checkItem.content).toBe('コードの可読性');
+      expect(result.results[0].rating.label).toBe('A');
+      expect(result.results[0].comment).toBe('良いコードです');
+      expect(result.results[1].checkItem.content).toBe('テストカバレッジ');
+      expect(result.results[1].rating.label).toBe('B');
+      expect(result.results[1].comment).toBe('もう少し');
+      expect(result.commitHash).toBe('same-hash');
+      expect(result.commentPosted).toBe(true);
+    });
+
+    it('一部エラー・一部成功の場合、エラー項目のみworkflowで再レビューされマージされる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回: コードの可読性=成功、テストカバレッジ=エラー
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良いです',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: 'API error',
+            isError: true,
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      // 再レビュー結果: テストカバレッジのみ
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'テスト追加済み',
+            isError: false,
+          },
+        ],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      // workflowはエラー項目のみで実行
+      expect(workflowRunner.run).toHaveBeenCalledOnce();
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.checkItemContents).toEqual(['テストカバレッジ']);
+      // リトライ時はprior context不要
+      expect(runCall.priorReviewResults).toBeNull();
+      expect(runCall.priorCommitMessages).toBeNull();
+      expect(runCall.priorDiffSincePrior).toBeNull();
+
+      // マージ結果（チェックリスト順）
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0].checkItem.content).toBe('コードの可読性');
+      expect(result.results[0].rating.label).toBe('A');
+      expect(result.results[0].comment).toBe('良いです');
+      expect(result.results[1].checkItem.content).toBe('テストカバレッジ');
+      expect(result.results[1].rating.label).toBe('B');
+      expect(result.results[1].comment).toBe('テスト追加済み');
+    });
+
+    it('全項目エラーの場合、全項目がworkflowで再レビューされる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回: 全項目エラー
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: 'API error',
+            isError: true,
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: 'Timeout',
+            isError: true,
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      // 全項目でworkflow実行
+      expect(workflowRunner.run).toHaveBeenCalledOnce();
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.checkItemContents).toEqual(['コードの可読性', 'テストカバレッジ']);
+
+      expect(result.results).toHaveLength(2);
+    });
+
+    it('チェックリストに新項目が追加された場合、新項目のみworkflowで再レビューされる', async () => {
+      const command = createCommand({
+        checklist: new Checklist([
+          new CheckItem('コードの可読性'),
+          new CheckItem('テストカバレッジ'),
+          new CheckItem('セキュリティ'), // 新規追加
+        ]),
+      });
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回: 既存2項目は成功
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'OK',
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'セキュリティ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '問題なし',
+            isError: false,
+          },
+        ],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      // 新項目のみworkflow実行
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.checkItemContents).toEqual(['セキュリティ']);
+
+      // マージ結果（チェックリスト順）
+      expect(result.results).toHaveLength(3);
+      expect(result.results[0].checkItem.content).toBe('コードの可読性');
+      expect(result.results[1].checkItem.content).toBe('テストカバレッジ');
+      expect(result.results[2].checkItem.content).toBe('セキュリティ');
+    });
+
+    it('チェックリストから項目が削除された場合、残りの成功結果のみ投稿される', async () => {
+      // 今回のチェックリストはコードの可読性のみ
+      const command = createCommand({
+        checklist: new Checklist([new CheckItem('コードの可読性')]),
+      });
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回: 2項目とも成功
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'OK',
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      // workflowは実行されない
+      expect(workflowRunner.run).not.toHaveBeenCalled();
+
+      // コードの可読性のみ
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].checkItem.content).toBe('コードの可読性');
+    });
+
+    it('リトライ時にworkflowがエラー結果を返した場合、保持結果とエラー結果がマージされる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回: コードの可読性=成功、テストカバレッジ=エラー
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: 'API error',
+            isError: true,
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      // 再レビューもエラー
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: '',
+            isError: true,
+            errorMessage: 'Timeout again',
+          },
+        ],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0].isError).toBe(false);
+      expect(result.results[0].checkItem.content).toBe('コードの可読性');
+      expect(result.results[1].isError).toBe(true);
+      expect(result.results[1].checkItem.content).toBe('テストカバレッジ');
+      expect(result.results[1].errorMessage).toBe('Timeout again');
+    });
+
+    it('マージ結果がチェックリスト順で並ぶ', async () => {
+      const command = createCommand({
+        checklist: new Checklist([
+          new CheckItem('項目A'),
+          new CheckItem('項目B'),
+          new CheckItem('項目C'),
+        ]),
+      });
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回: 項目A=成功、項目B=エラー、項目C=成功
+      const priorComment = createAikataComment(
+        [
+          {
+            content: '項目A',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: 'OK-A',
+          },
+          {
+            content: '項目B',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: 'error',
+            isError: true,
+          },
+          {
+            content: '項目C',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'OK-C',
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      // 再レビュー: 項目Bのみ
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: '項目B',
+            ratingLabel: 'C',
+            ratingDefinition: '満たしていない',
+            comment: 'NEW-B',
+            isError: false,
+          },
+        ],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      // チェックリスト順: A→B→C
+      expect(result.results.map((r) => r.checkItem.content)).toEqual(['項目A', '項目B', '項目C']);
+      expect(result.results[0].comment).toBe('OK-A');
+      expect(result.results[1].comment).toBe('NEW-B');
+      expect(result.results[2].comment).toBe('OK-C');
+    });
+
+    it('コミットハッシュが異なる場合は通常のフルレビューが実行される（回帰テスト）', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext({ commitHash: 'current-commit-hash' });
+      const workflowResult = createWorkflowResult();
+
+      // 前回のコミットハッシュは異なる
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+          },
+        ],
+        'different-prior-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['new commit']);
+      vi.mocked(mrGateway.getDiffSince).mockResolvedValue('new diff');
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      // フルレビュー: 全項目でworkflow実行
+      expect(workflowRunner.run).toHaveBeenCalledOnce();
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.checkItemContents).toEqual(['コードの可読性', 'テストカバレッジ']);
+      // prior contextが渡される
+      expect(runCall.priorReviewResults).not.toBeNull();
+      expect(runCall.priorCommitMessages).toEqual(['new commit']);
+      expect(runCall.priorDiffSincePrior).toBe('new diff');
+    });
+  });
 });
