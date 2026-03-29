@@ -179,11 +179,10 @@ async function main(): Promise<void> {
     );
   } catch (error) {
     const userId = options.userId ?? 'unknown';
-    if (options.verboseError && error instanceof Error) {
+    if (error instanceof Error) {
       logger.error({ err: error, userId }, 'Review failed');
     } else {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error({ userId }, `Review failed: ${message}`);
+      logger.error({ userId }, `Review failed: ${String(error)}`);
     }
     process.exit(1);
   }

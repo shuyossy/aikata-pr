@@ -62,7 +62,6 @@ describe('parseCliOptions', () => {
       'openai/gpt-4',
       '--log-level',
       'debug',
-      '--verbose-error',
       '--comment-language',
       'English',
     ]);
@@ -75,14 +74,12 @@ describe('parseCliOptions', () => {
     expect(result.skills).toBe('/path/to/skills');
     expect(result.aiModelName).toBe('openai/gpt-4');
     expect(result.logLevel).toBe('debug');
-    expect(result.verboseError).toBe(true);
     expect(result.commentLanguage).toBe('English');
   });
 
   it('未指定の場合はデフォルト値が使用される', () => {
     const result = parseCliOptions([], {});
     expect(result.logLevel).toBe('info');
-    expect(result.verboseError).toBe(false);
   });
 
   it('環境変数からprojectId, mrIid, checklist, reviewSettings, skillsを取得できる', () => {
@@ -100,18 +97,11 @@ describe('parseCliOptions', () => {
     expect(result.skills).toBe('/env/skills');
   });
 
-  it('環境変数からlogLevelとverboseErrorを取得できる', () => {
+  it('環境変数からlogLevelを取得できる', () => {
     const result = parseCliOptions([], {
       LOG_LEVEL: 'warn',
-      VERBOSE_ERROR: 'true',
     });
     expect(result.logLevel).toBe('warn');
-    expect(result.verboseError).toBe(true);
-  });
-
-  it('VERBOSE_ERROR環境変数がtrue以外の場合はfalseになる', () => {
-    const result = parseCliOptions([], { VERBOSE_ERROR: 'false' });
-    expect(result.verboseError).toBe(false);
   });
 
   it('引数が空配列かつ環境変数が空の場合、オプション値はundefinedになる', () => {

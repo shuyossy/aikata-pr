@@ -31,4 +31,3 @@ ai-review:
       --review-settings "${REVIEW_SETTINGS_PATH}"
       --skills "${SKILLS_PATH}"
       --log-level "${LOG_LEVEL}"
-      --verbose-error "${VERBOSE_ERROR}"
