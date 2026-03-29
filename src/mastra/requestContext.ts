@@ -1,4 +1,3 @@
-import type { MastraLanguageModel } from '@mastra/core/agent';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { IndexedCheckItem } from './indexedCheckItem.js';
 
@@ -56,15 +55,11 @@ export interface SummarizationAgentRequestContext extends WorkflowRequestContext
 
 /**
  * RequestContextからAIモデルを動的に作成するヘルパー関数
- *
- * createOpenAICompatibleが返すLanguageModelV3をMastraLanguageModelとしてキャストする。
- * AgentコンストラクタはMastraModelConfig（LanguageModelV3を含む）を受け入れるが、
- * ファクトリ関数のシグネチャがMastraLanguageModelを要求するためキャストが必要。
  */
-export function createModelFromContext(ctx: WorkflowRequestContext): MastraLanguageModel {
+export function createModelFromContext(ctx: WorkflowRequestContext) {
   return createOpenAICompatible({
     name: ctx.userId,
     apiKey: ctx.aiApiKey,
     baseURL: ctx.aiApiEndpointUrl,
-  }).chatModel(ctx.aiModelName) as unknown as MastraLanguageModel;
+  }).chatModel(ctx.aiModelName);
 }
