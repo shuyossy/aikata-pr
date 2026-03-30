@@ -24,16 +24,17 @@ ai-review:
         echo "AIKATA_PR_DISABLED is set to true. Skipping AI review."
         exit 0
       fi
-    # チェックロジックをGeneric PackagesからDL（常に最新版を取得）
+    # チェックロジックをGeneric PackagesからDL（一時ディレクトリに保存し、既存ファイルとの衝突を回避）
+    # DLしたチェックロジック実行
     - |
+      AIKATA_WORK_DIR=$(mktemp -d)
       PACKAGE_URL="${CI_API_V4_URL}/projects/${AIKATA_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js"
-      curl --header "PRIVATE-TOKEN: ${AIKATA_DOWNLOAD_TOKEN}" -o index.js "${PACKAGE_URL}"
-    # チェックロジック実行
-    - node index.js
-      --user-id "${USER_ID}"
-      --project-id "${GITLAB_PROJECT_ID}"
-      --mr-iid "${GITLAB_MR_IID}"
-      --checklist "${CHECKLIST_PATH}"
-      --review-settings "${REVIEW_SETTINGS_PATH}"
-      --skills "${SKILLS_PATH}"
-      --log-level "${LOG_LEVEL}"
+      curl --header "PRIVATE-TOKEN: ${AIKATA_DOWNLOAD_TOKEN}" -o "${AIKATA_WORK_DIR}/index.js" "${PACKAGE_URL}"
+      node "${AIKATA_WORK_DIR}/index.js" \
+        --user-id "${USER_ID}" \
+        --project-id "${GITLAB_PROJECT_ID}" \
+        --mr-iid "${GITLAB_MR_IID}" \
+        --checklist "${CHECKLIST_PATH}" \
+        --review-settings "${REVIEW_SETTINGS_PATH}" \
+        --skills "${SKILLS_PATH}" \
+        --log-level "${LOG_LEVEL}"
