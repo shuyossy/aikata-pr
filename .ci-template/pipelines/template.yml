@@ -24,9 +24,9 @@ ai-review:
         echo "AIKATA_PR_DISABLED is set to true. Skipping AI review."
         exit 0
       fi
-    # チェックロジックをGeneric PackagesからDL
+    # チェックロジックをGeneric PackagesからDL（常に最新版を取得）
     - |
-      PACKAGE_URL="${CI_API_V4_URL}/projects/${AIKATA_PROJECT_ID}/packages/generic/aikata-pr/${AIKATA_VERSION}/index.js"
+      PACKAGE_URL="${CI_API_V4_URL}/projects/${AIKATA_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js"
       curl --header "PRIVATE-TOKEN: ${AIKATA_DOWNLOAD_TOKEN}" -o index.js "${PACKAGE_URL}"
     # チェックロジック実行
     - node index.js

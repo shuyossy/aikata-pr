@@ -91,5 +91,24 @@ publish:
         --upload-file dist/index.js.map \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/${RELEASE_VERSION}/index.js.map"
     - echo "Published index.js and index.js.map for version ${RELEASE_VERSION}"
+    # 既存の "latest" パッケージを削除してからアップロード
+    - |
+      EXISTING_ID=$(curl --silent --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages?package_name=aikata-pr&package_version=latest" | \
+        node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');const p=JSON.parse(d);if(p[0])console.log(p[0].id)")
+      if [ -n "$EXISTING_ID" ]; then
+        echo "Deleting existing latest package (ID: ${EXISTING_ID})..."
+        curl --fail --request DELETE --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/${EXISTING_ID}"
+      fi
+    - |
+      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file dist/index.js \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js"
+    - |
+      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file dist/index.js.map \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js.map"
+    - echo "Published latest package"
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
