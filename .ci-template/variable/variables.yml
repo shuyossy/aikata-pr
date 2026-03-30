@@ -14,6 +14,8 @@ variables:
   CHECKLIST_PATH: ""
   REVIEW_SETTINGS_PATH: ""
   SKILLS_PATH: ""
+  # Feature Toggle
+  AIKATA_PR_DISABLED: "false"
   # Settings
   USER_ID: "$GITLAB_USER_LOGIN"
   LOG_LEVEL: "info"

@@ -18,6 +18,12 @@ ai-review:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
+    # AIKATA_PR_DISABLED=trueの場合、AIレビューをスキップ
+    - |
+      if [ "$AIKATA_PR_DISABLED" = "true" ]; then
+        echo "AIKATA_PR_DISABLED is set to true. Skipping AI review."
+        exit 0
+      fi
     # チェックロジックをGeneric PackagesからDL
     - |
       PACKAGE_URL="${CI_API_V4_URL}/projects/${AIKATA_PROJECT_ID}/packages/generic/aikata-pr/${AIKATA_VERSION}/index.js"
