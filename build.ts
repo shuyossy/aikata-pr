@@ -22,7 +22,7 @@ await build({
     js: bannerLines,
   },
   external: [],
-  minify: true,
+  minify: false,
   sourcemap: true,
 });
 

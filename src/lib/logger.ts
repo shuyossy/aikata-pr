@@ -1,4 +1,5 @@
 import pino from 'pino';
+import pinoPretty from 'pino-pretty';
 import { errWithCause } from 'pino-std-serializers';
 
 /**
@@ -57,20 +58,15 @@ export function initializeLogger(config: LoggerConfig): AppLogger {
     // カスタムストリーム指定時（テスト用など）
     baseLogger = pino(pinoOptions, destination);
   } else if (prettyPrint) {
-    // pino-prettyトランスポートを利用した整形出力
-    baseLogger = pino({
-      ...pinoOptions,
-      transport: {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          levelFirst: true,
-          ignore: 'pid,hostname',
-          translateTime: 'SYS:standard',
-          singleLine: false,
-        },
-      },
+    // pino-prettyを同期ストリームとして利用（transportはthread-streamを使うためesbuildバンドルと非互換）
+    const prettyStream = pinoPretty({
+      colorize: true,
+      levelFirst: true,
+      ignore: 'pid,hostname',
+      translateTime: 'SYS:standard',
+      singleLine: false,
     });
+    baseLogger = pino(pinoOptions, prettyStream);
   } else {
     // JSON出力（整形なし）
     baseLogger = pino(pinoOptions);
@@ -94,6 +90,16 @@ export function getLogger(): AppLogger {
     throw new Error('Logger is not initialized. Call initializeLogger() first.');
   }
   return loggerInstance;
+}
+
+/**
+ * ロガーのバッファをフラッシュする
+ * process.exit()前に呼び出して全てのログが書き込まれることを保証する
+ */
+export function flushLogger(): void {
+  if (loggerInstance) {
+    loggerInstance.flush();
+  }
 }
 
 /**

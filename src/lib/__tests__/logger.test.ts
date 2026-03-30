@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { initializeLogger, getLogger, resetLogger } from '../logger.js';
+import { initializeLogger, getLogger, resetLogger, flushLogger } from '../logger.js';
 
 describe('Logger', () => {
   beforeEach(() => {
@@ -164,6 +164,17 @@ describe('Logger', () => {
       expect(logEntry.err).toBeDefined();
       expect(logEntry.err.message).toBe('simple error');
       expect(logEntry.err.type).toBe('Error');
+    });
+  });
+
+  describe('flushLogger', () => {
+    it('初期化済みのロガーに対して例外をスローしない', () => {
+      initializeLogger({ userId: 'user-001', prettyPrint: false });
+      expect(() => flushLogger()).not.toThrow();
+    });
+
+    it('未初期化の状態で呼び出しても例外をスローしない', () => {
+      expect(() => flushLogger()).not.toThrow();
     });
   });
 

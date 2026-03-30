@@ -1,5 +1,5 @@
 import { parseCliOptions, type CliOptions } from './lib/cli.js';
-import { initializeLogger, getLogger } from './lib/logger.js';
+import { initializeLogger, getLogger, flushLogger } from './lib/logger.js';
 import { ChecklistParser } from './application/shared/parser/index.js';
 import { ReviewSettingsParser } from './application/shared/parser/index.js';
 import type {
@@ -198,6 +198,7 @@ async function main(): Promise<void> {
     } else {
       logger.error({ userId }, `Review failed: ${String(error)}`);
     }
+    flushLogger();
     process.exit(1);
   }
 }
