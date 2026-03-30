@@ -80,8 +80,7 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "npm run build:cli && printf 'RELEASE_VERSION=${nextRelease.version}\nCHANNEL=${nextRelease.channel}\nLAST_RELEASE_VERSION=${lastRelease.version}\nLAST_CHANNEL=${lastRelease.channel}\n' > release.env",
-        "publishCmd": "curl --header \"JOB-TOKEN: ${CI_JOB_TOKEN}\" --upload-file dist/index.js \"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/${nextRelease.version}/index.js\" && echo \"NEED_DEPLOY=1\" >> release.env"
+        "prepareCmd": "printf 'RELEASE_VERSION=${nextRelease.version}\nCHANNEL=${nextRelease.channel}\nLAST_RELEASE_VERSION=${lastRelease.version}\nLAST_CHANNEL=${lastRelease.channel}\n' > release.env"
       }
     ],
     [

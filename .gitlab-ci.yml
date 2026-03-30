@@ -5,6 +5,7 @@ stages:
   - test
   - build
   - release
+  - publish
 
 # 共通設定
 default:
@@ -53,8 +54,42 @@ build:
 release:
   stage: release
   extends: .node_cache
+  needs:
+    - job: build
+      artifacts: true
   script:
     - npm ci
+    - touch release.env
     - npx semantic-release
+  artifacts:
+    reports:
+      dotenv: release.env
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# パッケージ公開ジョブ（GitLab Generic Packages Registry）
+publish:
+  stage: publish
+  needs:
+    - job: build
+      artifacts: true
+    - job: release
+      artifacts: true
+  script:
+    - |
+      if [ -z "$RELEASE_VERSION" ]; then
+        echo "No release was created. Skipping publish."
+        exit 0
+      fi
+    - echo "Publishing version ${RELEASE_VERSION} to GitLab Generic Packages Registry..."
+    - |
+      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file dist/index.js \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/${RELEASE_VERSION}/index.js"
+    - |
+      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file dist/index.js.map \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/${RELEASE_VERSION}/index.js.map"
+    - echo "Published index.js and index.js.map for version ${RELEASE_VERSION}"
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
