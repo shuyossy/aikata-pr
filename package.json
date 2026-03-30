@@ -14,7 +14,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
-    "prepare": "husky"
+    "prepare": "husky",
+    "postinstall": "synp --source-file package-lock.json --force"
   },
   "keywords": [],
   "author": "",
@@ -54,6 +55,7 @@
     "prettier": "^3.8.1",
     "semantic-release": "^24.2.9",
     "semantic-release-replace-plugin": "^1.2.7",
+    "synp": "^1.9.14",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.57.2",
