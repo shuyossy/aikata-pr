@@ -1,10 +1,10 @@
-# .ci-template/pipelines/template.yml
-# 提供先プロジェクトで include して利用するCIテンプレート（Docker方式）
+# .ci-template/pipelines/template-npx.yml
+# 提供先プロジェクトで include して利用するCIテンプレート（npx方式）
 #
 # 使い方:
 #   include:
 #     - project: '<本プロジェクトのパス>'
-#       file: '.ci-template/pipelines/template.yml'
+#       file: '.ci-template/pipelines/template-npx.yml'
 
 include:
   - local: '.ci-template/variable/variables.yml'
@@ -14,7 +14,13 @@ stages:
 
 ai-review:
   stage: review
-  image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
+  image: node:22-slim
+  variables:
+    NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+  cache:
+    key: "aikata-pr-v${AIKATA_VERSION}"
+    paths:
+      - .npm/
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
@@ -30,9 +36,12 @@ ai-review:
         echo "Error: GITLAB_TOKEN is not set. Please configure GITLAB_TOKEN." >&2
         exit 1
       fi
-    # コンテナイメージ内のaikata-prコマンドを実行
+    # GitLab npm Registryの認証設定
+    - echo "@aikata:registry=https://${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/" > .npmrc
+    - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${GITLAB_TOKEN}" >> .npmrc
+    # npx経由でaikata-prを実行（キャッシュによりバージョンが同じ場合は高速）
     - |
-      aikata-pr \
+      npx @aikata/aikata-pr@${AIKATA_VERSION} \
         --user-id "${USER_ID}" \
         --project-id "${GITLAB_PROJECT_ID}" \
         --mr-iid "${GITLAB_MR_IID}" \

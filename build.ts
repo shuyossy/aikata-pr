@@ -21,7 +21,7 @@ await build({
   banner: {
     js: bannerLines,
   },
-  external: [],
+  packages: 'external',
   minify: false,
   sourcemap: true,
 });

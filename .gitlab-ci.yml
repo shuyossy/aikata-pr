@@ -36,17 +36,19 @@ lint:
     - npm run lint
     - npm run format:check
 
-# ビルドジョブ
+# Dockerイメージビルドジョブ
 build:
   stage: build
-  extends: .node_cache
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    - npm ci
-    - npm run build:cli
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
@@ -54,9 +56,6 @@ build:
 release:
   stage: release
   extends: .node_cache
-  needs:
-    - job: build
-      artifacts: true
   script:
     - npm ci
     - touch release.env
@@ -67,48 +66,51 @@ release:
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
-# パッケージ公開ジョブ（GitLab Generic Packages Registry）
+# Container Registryへのタグ付け・push
 publish:
   stage: publish
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
   needs:
     - job: build
-      artifacts: true
     - job: release
       artifacts: true
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
     - |
       if [ -z "$RELEASE_VERSION" ]; then
         echo "No release was created. Skipping publish."
         exit 0
       fi
-    - echo "Publishing version ${RELEASE_VERSION} to GitLab Generic Packages Registry..."
+    - docker pull "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:${RELEASE_VERSION}"
+    - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
+    - docker push "$CI_REGISTRY_IMAGE:${RELEASE_VERSION}"
+    - docker push "$CI_REGISTRY_IMAGE:latest"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# npm Registry への公開
+publish-npm:
+  stage: publish
+  image: node:22
+  needs:
+    - job: release
+      artifacts: true
+  script:
     - |
-      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-        --upload-file dist/index.js \
-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/${RELEASE_VERSION}/index.js"
-    - |
-      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-        --upload-file dist/index.js.map \
-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/${RELEASE_VERSION}/index.js.map"
-    - echo "Published index.js and index.js.map for version ${RELEASE_VERSION}"
-    # 既存の "latest" パッケージを削除してからアップロード
-    - |
-      EXISTING_ID=$(curl --silent --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages?package_name=aikata-pr&package_version=latest" | \
-        node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');const p=JSON.parse(d);if(p[0])console.log(p[0].id)")
-      if [ -n "$EXISTING_ID" ]; then
-        echo "Deleting existing latest package (ID: ${EXISTING_ID})..."
-        curl --fail --request DELETE --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/${EXISTING_ID}"
+      if [ -z "$RELEASE_VERSION" ]; then
+        echo "No release was created. Skipping npm publish."
+        exit 0
       fi
-    - |
-      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-        --upload-file dist/index.js \
-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js"
-    - |
-      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-        --upload-file dist/index.js.map \
-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js.map"
-    - echo "Published latest package"
+    - npm ci
+    - npm run build:cli
+    - echo "@aikata:registry=https://${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/npm/" > .npmrc
+    - echo "//${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_JOB_TOKEN}" >> .npmrc
+    - npm publish
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
