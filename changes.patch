@@ -1,0 +1,457 @@
+diff --git a/.ci-template/pipelines/template-npx.yml b/.ci-template/pipelines/template-npx.yml
+new file mode 100644
+index 0000000..6ad73e6
+--- /dev/null
++++ b/.ci-template/pipelines/template-npx.yml
+@@ -0,0 +1,51 @@
++# .ci-template/pipelines/template-npx.yml
++# 提供先プロジェクトで include して利用するCIテンプレート（npx方式）
++#
++# 使い方:
++#   include:
++#     - project: '<本プロジェクトのパス>'
++#       file: '.ci-template/pipelines/template-npx.yml'
++
++include:
++  - local: '.ci-template/variable/variables.yml'
++
++stages:
++  - review
++
++ai-review:
++  stage: review
++  image: node:22-slim
++  variables:
++    NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
++  cache:
++    key: "aikata-pr-v${AIKATA_VERSION}"
++    paths:
++      - .npm/
++  rules:
++    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
++  script:
++    # AIKATA_PR_DISABLED=trueの場合、AIレビューをスキップ
++    - |
++      if [ "$AIKATA_PR_DISABLED" = "true" ]; then
++        echo "AIKATA_PR_DISABLED is set to true. Skipping AI review."
++        exit 0
++      fi
++    # GITLAB_TOKENが設定されているかチェック
++    - |
++      if [ -z "$GITLAB_TOKEN" ]; then
++        echo "Error: GITLAB_TOKEN is not set. Please configure GITLAB_TOKEN." >&2
++        exit 1
++      fi
++    # GitLab npm Registryの認証設定
++    - echo "@aikata:registry=https://${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/" > .npmrc
++    - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${GITLAB_TOKEN}" >> .npmrc
++    # npx経由でaikata-prを実行（キャッシュによりバージョンが同じ場合は高速）
++    - |
++      npx @aikata/aikata-pr@${AIKATA_VERSION} \
++        --user-id "${USER_ID}" \
++        --project-id "${GITLAB_PROJECT_ID}" \
++        --mr-iid "${GITLAB_MR_IID}" \
++        --checklist "${CHECKLIST_PATH}" \
++        --review-settings "${REVIEW_SETTINGS_PATH}" \
++        --skills "${SKILLS_PATH}" \
++        --log-level "${AIKATA_LOG_LEVEL}"
+diff --git a/.ci-template/pipelines/template.yml b/.ci-template/pipelines/template.yml
+index 803f3b6..d7f5b8b 100644
+--- a/.ci-template/pipelines/template.yml
++++ b/.ci-template/pipelines/template.yml
+@@ -1,5 +1,5 @@
+ # .ci-template/pipelines/template.yml
+-# 提供先プロジェクトで include して利用するCIテンプレート
++# 提供先プロジェクトで include して利用するCIテンプレート（Docker方式）
+ #
+ # 使い方:
+ #   include:
+@@ -14,7 +14,7 @@ stages:
+ 
+ ai-review:
+   stage: review
+-  image: node:22
++  image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
+   rules:
+     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+   script:
+@@ -30,13 +30,9 @@ ai-review:
+         echo "Error: GITLAB_TOKEN is not set. Please configure GITLAB_TOKEN." >&2
+         exit 1
+       fi
+-    # チェックロジックをGeneric PackagesからDL（一時ディレクトリに保存し、既存ファイルとの衝突を回避）
+-    # DLしたチェックロジック実行
++    # コンテナイメージ内のaikata-prコマンドを実行
+     - |
+-      AIKATA_WORK_DIR=$(mktemp -d)
+-      PACKAGE_URL="${CI_API_V4_URL}/projects/${AIKATA_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js"
+-      curl --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" -o "${AIKATA_WORK_DIR}/index.js" "${PACKAGE_URL}"
+-      node "${AIKATA_WORK_DIR}/index.js" \
++      aikata-pr \
+         --user-id "${USER_ID}" \
+         --project-id "${GITLAB_PROJECT_ID}" \
+         --mr-iid "${GITLAB_MR_IID}" \
+diff --git a/.ci-template/variable/variables.yml b/.ci-template/variable/variables.yml
+index 06d8f42..cf4ee90 100644
+--- a/.ci-template/variable/variables.yml
++++ b/.ci-template/variable/variables.yml
+@@ -22,3 +22,9 @@ variables:
+   COMMENT_LANGUAGE: "Japanese"
+   # Tree
+   TREE_MAX_DEPTH: ""
++  # Container Image（Docker方式用）
++  AIKATA_IMAGE: ""
++  AIKATA_IMAGE_TAG: "latest"
++  # npm（npx方式用）
++  AIKATA_PROJECT_ID: ""
++  AIKATA_VERSION: "latest"
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..68b03a3
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,9 @@
++node_modules
++dist
++.git
++.mastra
++*.md
++docs
++.env*
++.husky
++coverage
+diff --git a/.gitlab-ci.yml b/.gitlab-ci.yml
+index aad4a33..a0f1a40 100644
+--- a/.gitlab-ci.yml
++++ b/.gitlab-ci.yml
+@@ -36,17 +36,19 @@ lint:
+     - npm run lint
+     - npm run format:check
+ 
+-# ビルドジョブ
++# Dockerイメージビルドジョブ
+ build:
+   stage: build
+-  extends: .node_cache
++  image: docker:latest
++  services:
++    - docker:dind
++  variables:
++    DOCKER_TLS_CERTDIR: "/certs"
++  before_script:
++    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+   script:
+-    - npm ci
+-    - npm run build:cli
+-  artifacts:
+-    paths:
+-      - dist/
+-    expire_in: 1 week
++    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
++    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+   rules:
+     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+ 
+@@ -54,9 +56,6 @@ build:
+ release:
+   stage: release
+   extends: .node_cache
+-  needs:
+-    - job: build
+-      artifacts: true
+   script:
+     - npm ci
+     - touch release.env
+@@ -67,48 +66,51 @@ release:
+   rules:
+     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+ 
+-# パッケージ公開ジョブ（GitLab Generic Packages Registry）
++# Container Registryへのタグ付け・push
+ publish:
+   stage: publish
++  image: docker:latest
++  services:
++    - docker:dind
++  variables:
++    DOCKER_TLS_CERTDIR: "/certs"
+   needs:
+     - job: build
+-      artifacts: true
+     - job: release
+       artifacts: true
++  before_script:
++    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+   script:
+     - |
+       if [ -z "$RELEASE_VERSION" ]; then
+         echo "No release was created. Skipping publish."
+         exit 0
+       fi
+-    - echo "Publishing version ${RELEASE_VERSION} to GitLab Generic Packages Registry..."
+-    - |
+-      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+-        --upload-file dist/index.js \
+-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/${RELEASE_VERSION}/index.js"
+-    - |
+-      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+-        --upload-file dist/index.js.map \
+-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/${RELEASE_VERSION}/index.js.map"
+-    - echo "Published index.js and index.js.map for version ${RELEASE_VERSION}"
+-    # 既存の "latest" パッケージを削除してからアップロード
++    - docker pull "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
++    - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:${RELEASE_VERSION}"
++    - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
++    - docker push "$CI_REGISTRY_IMAGE:${RELEASE_VERSION}"
++    - docker push "$CI_REGISTRY_IMAGE:latest"
++  rules:
++    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
++
++# npm Registry への公開
++publish-npm:
++  stage: publish
++  image: node:22
++  needs:
++    - job: release
++      artifacts: true
++  script:
+     - |
+-      EXISTING_ID=$(curl --silent --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages?package_name=aikata-pr&package_version=latest" | \
+-        node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');const p=JSON.parse(d);if(p[0])console.log(p[0].id)")
+-      if [ -n "$EXISTING_ID" ]; then
+-        echo "Deleting existing latest package (ID: ${EXISTING_ID})..."
+-        curl --fail --request DELETE --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+-          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/${EXISTING_ID}"
++      if [ -z "$RELEASE_VERSION" ]; then
++        echo "No release was created. Skipping npm publish."
++        exit 0
+       fi
+-    - |
+-      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+-        --upload-file dist/index.js \
+-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js"
+-    - |
+-      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+-        --upload-file dist/index.js.map \
+-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js.map"
+-    - echo "Published latest package"
++    - npm ci
++    - npm run build:cli
++    - echo "@aikata:registry=https://${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/npm/" > .npmrc
++    - echo "//${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=${CI_JOB_TOKEN}" >> .npmrc
++    - npm publish
+   rules:
+     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..63b0865
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,19 @@
++# ---- Build stage ----
++FROM node:22-slim AS builder
++WORKDIR /opt/aikata-pr
++COPY package.json package-lock.json ./
++RUN npm ci
++COPY . .
++RUN npm run build:cli
++
++# ---- Runtime stage ----
++FROM node:22-slim
++WORKDIR /opt/aikata-pr
++COPY package.json package-lock.json ./
++RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
++COPY --from=builder /opt/aikata-pr/dist ./dist
++# aikata-pr コマンドとしてグローバルにリンク
++RUN chmod +x dist/index.js && ln -s /opt/aikata-pr/dist/index.js /usr/local/bin/aikata-pr
++# CMD を使用（独自 ENTRYPOINT を持つベースイメージに切り替えた際、
++# /entrypoint.sh が exec "$@" で CMD を実行するパターンに対応）
++CMD ["aikata-pr"]
+diff --git a/build.ts b/build.ts
+index 90b5078..a876946 100644
+--- a/build.ts
++++ b/build.ts
+@@ -21,7 +21,7 @@ await build({
+   banner: {
+     js: bannerLines,
+   },
+-  external: [],
++  packages: 'external',
+   minify: false,
+   sourcemap: true,
+ });
+diff --git a/changes.patch b/changes.patch
+index 6b0f5b8..e69de29 100644
+--- a/changes.patch
++++ b/changes.patch
+@@ -1,150 +0,0 @@
+-diff --git a/PBI.md b/PBI.md
+-index b6d296c..e0afdf5 100644
+---- a/PBI.md
+-+++ b/PBI.md
+-@@ -8,3 +8,4 @@
+- - 注意事項
+- - 指摘事項（in progressの場合のみ）
+- ```
+-+
+-diff --git a/build.ts b/build.ts
+-index e220ee2..90b5078 100644
+---- a/build.ts
+-+++ b/build.ts
+-@@ -22,7 +22,7 @@ await build({
+-     js: bannerLines,
+-   },
+-   external: [],
+--  minify: true,
+-+  minify: false,
+-   sourcemap: true,
+- });
+- 
+-diff --git a/package-lock.json b/package-lock.json
+-index a66742e..0fe56d6 100644
+---- a/package-lock.json
+-+++ b/package-lock.json
+-@@ -16,6 +16,7 @@
+-         "@mastra/memory": "^1.10.0",
+-         "ai": "^6.0.141",
+-         "pino": "^10.3.1",
+-+        "pino-pretty": "^13.1.3",
+-         "pino-std-serializers": "^7.1.0",
+-         "zod": "^4.3.6"
+-       },
+-diff --git a/package.json b/package.json
+-index 9e924ab..5c37bc4 100644
+---- a/package.json
+-+++ b/package.json
+-@@ -32,6 +32,7 @@
+-     "@mastra/memory": "^1.10.0",
+-     "ai": "^6.0.141",
+-     "pino": "^10.3.1",
+-+    "pino-pretty": "^13.1.3",
+-     "pino-std-serializers": "^7.1.0",
+-     "zod": "^4.3.6"
+-   },
+-diff --git a/src/index.ts b/src/index.ts
+-index dc36c1c..c5636ff 100644
+---- a/src/index.ts
+-+++ b/src/index.ts
+-@@ -1,5 +1,5 @@
+- import { parseCliOptions, type CliOptions } from './lib/cli.js';
+--import { initializeLogger, getLogger } from './lib/logger.js';
+-+import { initializeLogger, getLogger, flushLogger } from './lib/logger.js';
+- import { ChecklistParser } from './application/shared/parser/index.js';
+- import { ReviewSettingsParser } from './application/shared/parser/index.js';
+- import type {
+-@@ -198,6 +198,7 @@ async function main(): Promise<void> {
+-     } else {
+-       logger.error({ userId }, `Review failed: ${String(error)}`);
+-     }
+-+    flushLogger();
+-     process.exit(1);
+-   }
+- }
+-diff --git a/src/lib/__tests__/logger.test.ts b/src/lib/__tests__/logger.test.ts
+-index 9ac5ae0..3cfa9cc 100644
+---- a/src/lib/__tests__/logger.test.ts
+-+++ b/src/lib/__tests__/logger.test.ts
+-@@ -1,5 +1,5 @@
+- import { describe, it, expect, beforeEach } from 'vitest';
+--import { initializeLogger, getLogger, resetLogger } from '../logger.js';
+-+import { initializeLogger, getLogger, resetLogger, flushLogger } from '../logger.js';
+- 
+- describe('Logger', () => {
+-   beforeEach(() => {
+-@@ -167,6 +167,17 @@ describe('Logger', () => {
+-     });
+-   });
+- 
+-+  describe('flushLogger', () => {
+-+    it('初期化済みのロガーに対して例外をスローしない', () => {
+-+      initializeLogger({ userId: 'user-001', prettyPrint: false });
+-+      expect(() => flushLogger()).not.toThrow();
+-+    });
+-+
+-+    it('未初期化の状態で呼び出しても例外をスローしない', () => {
+-+      expect(() => flushLogger()).not.toThrow();
+-+    });
+-+  });
+-+
+-   describe('resetLogger', () => {
+-     it('resetLogger後にgetLoggerを呼ぶとエラーをスローする', () => {
+-       initializeLogger({ userId: 'user-001', prettyPrint: false });
+-diff --git a/src/lib/logger.ts b/src/lib/logger.ts
+-index ea76e59..5c5aa7a 100644
+---- a/src/lib/logger.ts
+-+++ b/src/lib/logger.ts
+-@@ -1,4 +1,5 @@
+- import pino from 'pino';
+-+import pinoPretty from 'pino-pretty';
+- import { errWithCause } from 'pino-std-serializers';
+- 
+- /**
+-@@ -57,20 +58,15 @@ export function initializeLogger(config: LoggerConfig): AppLogger {
+-     // カスタムストリーム指定時（テスト用など）
+-     baseLogger = pino(pinoOptions, destination);
+-   } else if (prettyPrint) {
+--    // pino-prettyトランスポートを利用した整形出力
+--    baseLogger = pino({
+--      ...pinoOptions,
+--      transport: {
+--        target: 'pino-pretty',
+--        options: {
+--          colorize: true,
+--          levelFirst: true,
+--          ignore: 'pid,hostname',
+--          translateTime: 'SYS:standard',
+--          singleLine: false,
+--        },
+--      },
+-+    // pino-prettyを同期ストリームとして利用（transportはthread-streamを使うためesbuildバンドルと非互換）
+-+    const prettyStream = pinoPretty({
+-+      colorize: true,
+-+      levelFirst: true,
+-+      ignore: 'pid,hostname',
+-+      translateTime: 'SYS:standard',
+-+      singleLine: false,
+-     });
+-+    baseLogger = pino(pinoOptions, prettyStream);
+-   } else {
+-     // JSON出力（整形なし）
+-     baseLogger = pino(pinoOptions);
+-@@ -96,6 +92,16 @@ export function getLogger(): AppLogger {
+-   return loggerInstance;
+- }
+- 
+-+/**
+-+ * ロガーのバッファをフラッシュする
+-+ * process.exit()前に呼び出して全てのログが書き込まれることを保証する
+-+ */
+-+export function flushLogger(): void {
+-+  if (loggerInstance) {
+-+    loggerInstance.flush();
+-+  }
+-+}
+-+
+- /**
+-  * ロガーをリセットする（テスト用）
+-  * シングルトンインスタンスを破棄する
+diff --git a/package.json b/package.json
+index 5c37bc4..92cdc65 100644
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,13 @@
+ {
+-  "name": "aikata-pr",
++  "name": "@aikata/aikata-pr",
+   "version": "1.0.0",
+   "main": "index.js",
++  "bin": {
++    "aikata-pr": "dist/index.js"
++  },
++  "files": [
++    "dist/"
++  ],
+   "scripts": {
+     "test": "vitest run",
+     "test:watch": "vitest",
