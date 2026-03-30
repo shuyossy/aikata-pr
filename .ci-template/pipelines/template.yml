@@ -24,12 +24,18 @@ ai-review:
         echo "AIKATA_PR_DISABLED is set to true. Skipping AI review."
         exit 0
       fi
+    # GITLAB_TOKENが設定されているかチェック
+    - |
+      if [ -z "$GITLAB_TOKEN" ]; then
+        echo "Error: GITLAB_TOKEN is not set. Please configure GITLAB_TOKEN." >&2
+        exit 1
+      fi
     # チェックロジックをGeneric PackagesからDL（一時ディレクトリに保存し、既存ファイルとの衝突を回避）
     # DLしたチェックロジック実行
     - |
       AIKATA_WORK_DIR=$(mktemp -d)
       PACKAGE_URL="${CI_API_V4_URL}/projects/${AIKATA_PROJECT_ID}/packages/generic/aikata-pr/latest/index.js"
-      curl --header "PRIVATE-TOKEN: ${AIKATA_DOWNLOAD_TOKEN}" -o "${AIKATA_WORK_DIR}/index.js" "${PACKAGE_URL}"
+      curl --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" -o "${AIKATA_WORK_DIR}/index.js" "${PACKAGE_URL}"
       node "${AIKATA_WORK_DIR}/index.js" \
         --user-id "${USER_ID}" \
         --project-id "${GITLAB_PROJECT_ID}" \
