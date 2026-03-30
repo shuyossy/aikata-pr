@@ -37,11 +37,6 @@ describe('parseCliOptions', () => {
     expect(result.aiModelName).toBe('anthropic/claude-3');
   });
 
-  it('aiModelNameのデフォルト値はopenai/o4-miniである', () => {
-    const result = parseCliOptions([], {});
-    expect(result.aiModelName).toBe('openai/o4-mini');
-  });
-
   it('全てのサポートされたオプションをパースできる', () => {
     const result = parseCliOptions([
       '--user-id',
@@ -101,7 +96,7 @@ describe('parseCliOptions', () => {
 
   it('環境変数からlogLevelを取得できる', () => {
     const result = parseCliOptions([], {
-      LOG_LEVEL: 'warn',
+      AIKATA_LOG_LEVEL: 'warn',
     });
     expect(result.logLevel).toBe('warn');
   });
@@ -115,6 +110,7 @@ describe('parseCliOptions', () => {
     expect(result.checklist).toBeUndefined();
     expect(result.reviewSettings).toBeUndefined();
     expect(result.skills).toBeUndefined();
+    expect(result.aiModelName).toBeUndefined();
   });
 
   it('不明なオプションは無視される', () => {

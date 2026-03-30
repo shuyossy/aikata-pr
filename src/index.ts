@@ -73,6 +73,7 @@ interface ValidatedParams {
   checklistPath: string;
   aiApiKey: string;
   aiApiEndpointUrl: string;
+  aiModelName: string;
 }
 
 /**
@@ -88,6 +89,7 @@ function validateRequiredParams(
   if (!options.mrIid) missing.push('--mr-iid or GITLAB_MR_IID');
   if (!options.gitlabToken) missing.push('--gitlab-token or GITLAB_TOKEN');
   if (!options.checklist) missing.push('--checklist or CHECKLIST_PATH');
+  if (!options.aiModelName) missing.push('--ai-model-name or AI_MODEL_NAME');
   if (!env['AI_API_KEY']) missing.push('AI_API_KEY');
   if (!env['AI_API_ENDPOINT_URL']) missing.push('AI_API_ENDPOINT_URL');
 
@@ -101,6 +103,7 @@ function validateRequiredParams(
     mrIid: options.mrIid!,
     gitlabToken: options.gitlabToken!,
     checklistPath: options.checklist!,
+    aiModelName: options.aiModelName!,
     aiApiKey: env['AI_API_KEY']!,
     aiApiEndpointUrl: env['AI_API_ENDPOINT_URL']!,
   };
@@ -177,7 +180,7 @@ async function main(): Promise<void> {
       projectDir,
       aiApiKey: validated.aiApiKey,
       aiApiEndpointUrl: validated.aiApiEndpointUrl,
-      aiModelName: options.aiModelName,
+      aiModelName: validated.aiModelName,
       gitlabToken: validated.gitlabToken,
       treeMaxDepth,
       commentLanguage: options.commentLanguage,

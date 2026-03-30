@@ -39,7 +39,7 @@
     - `--skills` / `SKILLS_PATH`: skillsパス
     - `--gitlab-token` / `GITLAB_TOKEN`: GitLab APIトークン
     - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
-    - `--log-level` / `LOG_LEVEL`: ログレベル
+    - `--log-level` / `AIKATA_LOG_LEVEL`: ログレベル
     - `--comment-language` / `COMMENT_LANGUAGE`: レビューコメントの言語（デフォルト: `Japanese`）
   - 環境変数のみ（秘密情報・環境固有）
     - `AI_API_KEY`: AI APIキー

@@ -12,6 +12,6 @@ export const mastra = new Mastra({
   workflows: { reviewWorkflow },
   logger: new PinoLogger({
     name: 'Mastra',
-    level: (process.env['LOG_LEVEL'] as 'debug' | 'info' | 'warn' | 'error') ?? 'info',
+    level: (process.env['AIKATA_LOG_LEVEL'] as 'debug' | 'info' | 'warn' | 'error') ?? 'info',
   }),
 });

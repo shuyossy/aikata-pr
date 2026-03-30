@@ -10,7 +10,7 @@ export interface CliOptions {
   reviewSettings?: string;
   skills?: string;
   logLevel: string;
-  aiModelName: string;
+  aiModelName?: string;
   commentLanguage: string;
   prettyPrint: boolean;
 }
@@ -81,8 +81,8 @@ export function parseCliOptions(
     checklist: (parsed['checklist'] as string) ?? env['CHECKLIST_PATH'],
     reviewSettings: (parsed['reviewSettings'] as string) ?? env['REVIEW_SETTINGS_PATH'],
     skills: (parsed['skills'] as string) ?? env['SKILLS_PATH'],
-    logLevel: (parsed['logLevel'] as string) ?? env['LOG_LEVEL'] ?? 'info',
-    aiModelName: (parsed['aiModelName'] as string) ?? env['AI_MODEL_NAME'] ?? 'openai/o4-mini',
+    logLevel: (parsed['logLevel'] as string) ?? env['AIKATA_LOG_LEVEL'] ?? 'info',
+    aiModelName: (parsed['aiModelName'] as string) ?? env['AI_MODEL_NAME'],
     commentLanguage: (parsed['commentLanguage'] as string) ?? env['COMMENT_LANGUAGE'] ?? 'Japanese',
     prettyPrint:
       parsed['prettyPrint'] !== undefined

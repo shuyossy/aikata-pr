@@ -37,4 +37,4 @@ ai-review:
         --checklist "${CHECKLIST_PATH}" \
         --review-settings "${REVIEW_SETTINGS_PATH}" \
         --skills "${SKILLS_PATH}" \
-        --log-level "${LOG_LEVEL}"
+        --log-level "${AIKATA_LOG_LEVEL}"
