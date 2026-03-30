@@ -1,218 +1,150 @@
-diff --git a/.ci-template/pipelines/template.yml b/.ci-template/pipelines/template.yml
-index 6f9729d..4d575bf 100644
---- a/.ci-template/pipelines/template.yml
-+++ b/.ci-template/pipelines/template.yml
-@@ -37,4 +37,4 @@ ai-review:
-         --checklist "${CHECKLIST_PATH}" \
-         --review-settings "${REVIEW_SETTINGS_PATH}" \
-         --skills "${SKILLS_PATH}" \
--        --log-level "${LOG_LEVEL}"
-+        --log-level "${AIKATA_LOG_LEVEL}"
-diff --git a/.ci-template/variable/variables.yml b/.ci-template/variable/variables.yml
-index 42d98ac..06d8f42 100644
---- a/.ci-template/variable/variables.yml
-+++ b/.ci-template/variable/variables.yml
-@@ -3,7 +3,7 @@ variables:
-   # AI
-   AI_API_KEY: ""
-   AI_API_ENDPOINT_URL: ""
--  AI_MODEL_NAME: "openai/o4-mini"
-+  AI_MODEL_NAME: ""
-   OPENAI_REASONING_EFFORT: ""
-   # GitLab
-   GITLAB_API_URL: ""
-@@ -18,7 +18,7 @@ variables:
-   AIKATA_PR_DISABLED: "false"
-   # Settings
-   USER_ID: "$GITLAB_USER_LOGIN"
--  LOG_LEVEL: "info"
-+  AIKATA_LOG_LEVEL: "info"
-   COMMENT_LANGUAGE: "Japanese"
-   # Tree
-   TREE_MAX_DEPTH: ""
-diff --git a/.env.example b/.env.example
-index e537b36..3ba56f0 100644
---- a/.env.example
-+++ b/.env.example
-@@ -1,7 +1,7 @@
- # AI
- AI_API_KEY=your-api-key
- AI_API_ENDPOINT_URL=https://api.example.com/v1
--AI_MODEL_NAME=openai/o4-mini
-+AI_MODEL_NAME=
- OPENAI_REASONING_EFFORT=
+diff --git a/PBI.md b/PBI.md
+index b6d296c..e0afdf5 100644
+--- a/PBI.md
++++ b/PBI.md
+@@ -8,3 +8,4 @@
+ - 注意事項
+ - 指摘事項（in progressの場合のみ）
+ ```
++
+diff --git a/build.ts b/build.ts
+index e220ee2..90b5078 100644
+--- a/build.ts
++++ b/build.ts
+@@ -22,7 +22,7 @@ await build({
+     js: bannerLines,
+   },
+   external: [],
+-  minify: true,
++  minify: false,
+   sourcemap: true,
+ });
  
- # GitLab
-@@ -20,7 +20,7 @@ AIKATA_PR_DISABLED=false
- 
- # Settings
- USER_ID=
--LOG_LEVEL=info
-+AIKATA_LOG_LEVEL=info
- PRETTY_PRINT=true
- COMMENT_LANGUAGE=Japanese
- 
-diff --git a/docs/archtecture/tech.md b/docs/archtecture/tech.md
-index 5ca643b..004a702 100644
---- a/docs/archtecture/tech.md
-+++ b/docs/archtecture/tech.md
-@@ -39,7 +39,7 @@
-     - `--skills` / `SKILLS_PATH`: skillsパス
-     - `--gitlab-token` / `GITLAB_TOKEN`: GitLab APIトークン
-     - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
--    - `--log-level` / `LOG_LEVEL`: ログレベル
-+    - `--log-level` / `AIKATA_LOG_LEVEL`: ログレベル
-     - `--comment-language` / `COMMENT_LANGUAGE`: レビューコメントの言語（デフォルト: `Japanese`）
-   - 環境変数のみ（秘密情報・環境固有）
-     - `AI_API_KEY`: AI APIキー
-diff --git a/docs/config/env_val.md b/docs/config/env_val.md
-index ab9503a..5dd541f 100644
---- a/docs/config/env_val.md
-+++ b/docs/config/env_val.md
-@@ -6,7 +6,7 @@
- | --- | --- | --- | --- | --- | --- | --- |
- | AI | AI_API_KEY | Yes | - | AI APIキー（秘密情報） | なし（環境変数のみ） | - |
- | AI | AI_API_ENDPOINT_URL | Yes | - | AI APIエンドポイントURL | なし（環境変数のみ） | - |
--| AI | AI_MODEL_NAME | No | openai/o4-mini | AIモデル名 | --ai-model-name | - |
-+| AI | AI_MODEL_NAME | Yes | - | AIモデル名 | --ai-model-name | - |
- | AI | OPENAI_REASONING_EFFORT | No | - | OpenAI reasoningモデルのreasoning effort（low/medium/high）。設定時はtemperature=1も自動適用 | なし（環境変数のみ） | - |
- | GitLab | GITLAB_API_URL | No | CI_API_V4_URLまたはhttps://gitlab.com/api/v4 | GitLab APIベースURL。CI_API_V4_URLが設定されている場合はそちらを優先 | なし（環境変数のみ） | - |
- | GitLab | GITLAB_TOKEN | Yes | - | GitLab APIトークン（秘密情報） | --gitlab-token | - |
-@@ -16,7 +16,7 @@
- | 入力 | REVIEW_SETTINGS_PATH | No | - | レビュー設定ファイルパス | --review-settings | - |
- | 入力 | SKILLS_PATH | No | - | skillsパス | --skills | - |
- | 動作設定 | USER_ID | Yes | - | 実行ユーザID | --user-id | - |
--| 動作設定 | LOG_LEVEL | No | info | ログレベル | --log-level | - |
-+| 動作設定 | AIKATA_LOG_LEVEL | No | info | ログレベル | --log-level | - |
- | 動作設定 | PRETTY_PRINT | No | true | pino-prettyによるログ整形出力の有効/無効 | --pretty-print / --no-pretty-print | - |
- | 動作設定 | COMMENT_LANGUAGE | No | Japanese | レビューコメントの言語 | --comment-language | - |
- | 動作設定 | TREE_MAX_DEPTH | No | 無制限 | フォルダツリー走査の最大深度。正の整数を指定。未指定時は深さ制限なし（エントリ数制限のみ適用） | なし（環境変数のみ） | - |
+diff --git a/package-lock.json b/package-lock.json
+index a66742e..0fe56d6 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -16,6 +16,7 @@
+         "@mastra/memory": "^1.10.0",
+         "ai": "^6.0.141",
+         "pino": "^10.3.1",
++        "pino-pretty": "^13.1.3",
+         "pino-std-serializers": "^7.1.0",
+         "zod": "^4.3.6"
+       },
+diff --git a/package.json b/package.json
+index 9e924ab..5c37bc4 100644
+--- a/package.json
++++ b/package.json
+@@ -32,6 +32,7 @@
+     "@mastra/memory": "^1.10.0",
+     "ai": "^6.0.141",
+     "pino": "^10.3.1",
++    "pino-pretty": "^13.1.3",
+     "pino-std-serializers": "^7.1.0",
+     "zod": "^4.3.6"
+   },
 diff --git a/src/index.ts b/src/index.ts
-index f07b7f7..dc36c1c 100644
+index dc36c1c..c5636ff 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -73,6 +73,7 @@ interface ValidatedParams {
-   checklistPath: string;
-   aiApiKey: string;
-   aiApiEndpointUrl: string;
-+  aiModelName: string;
+@@ -1,5 +1,5 @@
+ import { parseCliOptions, type CliOptions } from './lib/cli.js';
+-import { initializeLogger, getLogger } from './lib/logger.js';
++import { initializeLogger, getLogger, flushLogger } from './lib/logger.js';
+ import { ChecklistParser } from './application/shared/parser/index.js';
+ import { ReviewSettingsParser } from './application/shared/parser/index.js';
+ import type {
+@@ -198,6 +198,7 @@ async function main(): Promise<void> {
+     } else {
+       logger.error({ userId }, `Review failed: ${String(error)}`);
+     }
++    flushLogger();
+     process.exit(1);
+   }
  }
+diff --git a/src/lib/__tests__/logger.test.ts b/src/lib/__tests__/logger.test.ts
+index 9ac5ae0..3cfa9cc 100644
+--- a/src/lib/__tests__/logger.test.ts
++++ b/src/lib/__tests__/logger.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, it, expect, beforeEach } from 'vitest';
+-import { initializeLogger, getLogger, resetLogger } from '../logger.js';
++import { initializeLogger, getLogger, resetLogger, flushLogger } from '../logger.js';
+ 
+ describe('Logger', () => {
+   beforeEach(() => {
+@@ -167,6 +167,17 @@ describe('Logger', () => {
+     });
+   });
+ 
++  describe('flushLogger', () => {
++    it('初期化済みのロガーに対して例外をスローしない', () => {
++      initializeLogger({ userId: 'user-001', prettyPrint: false });
++      expect(() => flushLogger()).not.toThrow();
++    });
++
++    it('未初期化の状態で呼び出しても例外をスローしない', () => {
++      expect(() => flushLogger()).not.toThrow();
++    });
++  });
++
+   describe('resetLogger', () => {
+     it('resetLogger後にgetLoggerを呼ぶとエラーをスローする', () => {
+       initializeLogger({ userId: 'user-001', prettyPrint: false });
+diff --git a/src/lib/logger.ts b/src/lib/logger.ts
+index ea76e59..5c5aa7a 100644
+--- a/src/lib/logger.ts
++++ b/src/lib/logger.ts
+@@ -1,4 +1,5 @@
+ import pino from 'pino';
++import pinoPretty from 'pino-pretty';
+ import { errWithCause } from 'pino-std-serializers';
  
  /**
-@@ -88,6 +89,7 @@ function validateRequiredParams(
-   if (!options.mrIid) missing.push('--mr-iid or GITLAB_MR_IID');
-   if (!options.gitlabToken) missing.push('--gitlab-token or GITLAB_TOKEN');
-   if (!options.checklist) missing.push('--checklist or CHECKLIST_PATH');
-+  if (!options.aiModelName) missing.push('--ai-model-name or AI_MODEL_NAME');
-   if (!env['AI_API_KEY']) missing.push('AI_API_KEY');
-   if (!env['AI_API_ENDPOINT_URL']) missing.push('AI_API_ENDPOINT_URL');
- 
-@@ -101,6 +103,7 @@ function validateRequiredParams(
-     mrIid: options.mrIid!,
-     gitlabToken: options.gitlabToken!,
-     checklistPath: options.checklist!,
-+    aiModelName: options.aiModelName!,
-     aiApiKey: env['AI_API_KEY']!,
-     aiApiEndpointUrl: env['AI_API_ENDPOINT_URL']!,
-   };
-@@ -177,7 +180,7 @@ async function main(): Promise<void> {
-       projectDir,
-       aiApiKey: validated.aiApiKey,
-       aiApiEndpointUrl: validated.aiApiEndpointUrl,
--      aiModelName: options.aiModelName,
-+      aiModelName: validated.aiModelName,
-       gitlabToken: validated.gitlabToken,
-       treeMaxDepth,
-       commentLanguage: options.commentLanguage,
-diff --git a/src/lib/__tests__/cli.test.ts b/src/lib/__tests__/cli.test.ts
-index cd473e1..c9543d8 100644
---- a/src/lib/__tests__/cli.test.ts
-+++ b/src/lib/__tests__/cli.test.ts
-@@ -37,11 +37,6 @@ describe('parseCliOptions', () => {
-     expect(result.aiModelName).toBe('anthropic/claude-3');
-   });
- 
--  it('aiModelNameのデフォルト値はopenai/o4-miniである', () => {
--    const result = parseCliOptions([], {});
--    expect(result.aiModelName).toBe('openai/o4-mini');
--  });
--
-   it('全てのサポートされたオプションをパースできる', () => {
-     const result = parseCliOptions([
-       '--user-id',
-@@ -101,7 +96,7 @@ describe('parseCliOptions', () => {
- 
-   it('環境変数からlogLevelを取得できる', () => {
-     const result = parseCliOptions([], {
--      LOG_LEVEL: 'warn',
-+      AIKATA_LOG_LEVEL: 'warn',
+@@ -57,20 +58,15 @@ export function initializeLogger(config: LoggerConfig): AppLogger {
+     // カスタムストリーム指定時（テスト用など）
+     baseLogger = pino(pinoOptions, destination);
+   } else if (prettyPrint) {
+-    // pino-prettyトランスポートを利用した整形出力
+-    baseLogger = pino({
+-      ...pinoOptions,
+-      transport: {
+-        target: 'pino-pretty',
+-        options: {
+-          colorize: true,
+-          levelFirst: true,
+-          ignore: 'pid,hostname',
+-          translateTime: 'SYS:standard',
+-          singleLine: false,
+-        },
+-      },
++    // pino-prettyを同期ストリームとして利用（transportはthread-streamを使うためesbuildバンドルと非互換）
++    const prettyStream = pinoPretty({
++      colorize: true,
++      levelFirst: true,
++      ignore: 'pid,hostname',
++      translateTime: 'SYS:standard',
++      singleLine: false,
      });
-     expect(result.logLevel).toBe('warn');
-   });
-@@ -115,6 +110,7 @@ describe('parseCliOptions', () => {
-     expect(result.checklist).toBeUndefined();
-     expect(result.reviewSettings).toBeUndefined();
-     expect(result.skills).toBeUndefined();
-+    expect(result.aiModelName).toBeUndefined();
-   });
- 
-   it('不明なオプションは無視される', () => {
-diff --git a/src/lib/cli.ts b/src/lib/cli.ts
-index c0240fa..bdff5a5 100644
---- a/src/lib/cli.ts
-+++ b/src/lib/cli.ts
-@@ -10,7 +10,7 @@ export interface CliOptions {
-   reviewSettings?: string;
-   skills?: string;
-   logLevel: string;
--  aiModelName: string;
-+  aiModelName?: string;
-   commentLanguage: string;
-   prettyPrint: boolean;
++    baseLogger = pino(pinoOptions, prettyStream);
+   } else {
+     // JSON出力（整形なし）
+     baseLogger = pino(pinoOptions);
+@@ -96,6 +92,16 @@ export function getLogger(): AppLogger {
+   return loggerInstance;
  }
-@@ -81,8 +81,8 @@ export function parseCliOptions(
-     checklist: (parsed['checklist'] as string) ?? env['CHECKLIST_PATH'],
-     reviewSettings: (parsed['reviewSettings'] as string) ?? env['REVIEW_SETTINGS_PATH'],
-     skills: (parsed['skills'] as string) ?? env['SKILLS_PATH'],
--    logLevel: (parsed['logLevel'] as string) ?? env['LOG_LEVEL'] ?? 'info',
--    aiModelName: (parsed['aiModelName'] as string) ?? env['AI_MODEL_NAME'] ?? 'openai/o4-mini',
-+    logLevel: (parsed['logLevel'] as string) ?? env['AIKATA_LOG_LEVEL'] ?? 'info',
-+    aiModelName: (parsed['aiModelName'] as string) ?? env['AI_MODEL_NAME'],
-     commentLanguage: (parsed['commentLanguage'] as string) ?? env['COMMENT_LANGUAGE'] ?? 'Japanese',
-     prettyPrint:
-       parsed['prettyPrint'] !== undefined
-diff --git a/src/mastra/agents/reviewAgent.ts b/src/mastra/agents/reviewAgent.ts
-index f272937..c03a2ed 100644
---- a/src/mastra/agents/reviewAgent.ts
-+++ b/src/mastra/agents/reviewAgent.ts
-@@ -223,11 +223,11 @@ export const reviewAgent = new Agent<
-     return buildInstructions(requestContext);
-   },
-   tools: reviewAgentTools,
--  workspace: ({ requestContext }) => {
--    const ctx = requestContext?.all as ReviewAgentRequestContext | undefined;
--    if (!ctx?.projectDir) {
--      return undefined;
--    }
--    return createWorkspaceFromContext(ctx);
--  },
-+  // workspace: ({ requestContext }) => {
-+  //   const ctx = requestContext?.all as ReviewAgentRequestContext | undefined;
-+  //   if (!ctx?.projectDir) {
-+  //     return undefined;
-+  //   }
-+  //   return createWorkspaceFromContext(ctx);
-+  // },
- });
-diff --git a/src/mastra/index.ts b/src/mastra/index.ts
-index 8973b06..8ab9167 100644
---- a/src/mastra/index.ts
-+++ b/src/mastra/index.ts
-@@ -12,6 +12,6 @@ export const mastra = new Mastra({
-   workflows: { reviewWorkflow },
-   logger: new PinoLogger({
-     name: 'Mastra',
--    level: (process.env['LOG_LEVEL'] as 'debug' | 'info' | 'warn' | 'error') ?? 'info',
-+    level: (process.env['AIKATA_LOG_LEVEL'] as 'debug' | 'info' | 'warn' | 'error') ?? 'info',
-   }),
- });
+ 
++/**
++ * ロガーのバッファをフラッシュする
++ * process.exit()前に呼び出して全てのログが書き込まれることを保証する
++ */
++export function flushLogger(): void {
++  if (loggerInstance) {
++    loggerInstance.flush();
++  }
++}
++
+ /**
+  * ロガーをリセットする（テスト用）
+  * シングルトンインスタンスを破棄する
