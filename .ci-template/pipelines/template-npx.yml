@@ -30,15 +30,15 @@ ai-review:
         echo "AIKATA_PR_DISABLED is set to true. Skipping AI review."
         exit 0
       fi
-    # GITLAB_TOKENが設定されているかチェック
+    # AIKATA_PR_GITLAB_TOKENが設定されているかチェック
     - |
-      if [ -z "$GITLAB_TOKEN" ]; then
-        echo "Error: GITLAB_TOKEN is not set. Please configure GITLAB_TOKEN." >&2
+      if [ -z "$AIKATA_PR_GITLAB_TOKEN" ]; then
+        echo "Error: AIKATA_PR_GITLAB_TOKEN is not set. Please configure AIKATA_PR_GITLAB_TOKEN." >&2
         exit 1
       fi
     # GitLab npm Registryの認証設定
     - echo "@aikata:registry=https://${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/" > .npmrc
-    - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${GITLAB_TOKEN}" >> .npmrc
+    - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${AIKATA_PR_GITLAB_TOKEN}" >> .npmrc
     # npx経由でaikata-prを実行（キャッシュによりバージョンが同じ場合は高速）
     - |
       npx @aikata/aikata-pr@${AIKATA_VERSION} \

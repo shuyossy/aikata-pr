@@ -17,13 +17,13 @@ describe('parseCliOptions', () => {
     expect(result.userId).toBe('cli-user');
   });
 
-  it('--gitlab-tokenオプションをパースできる', () => {
-    const result = parseCliOptions(['--gitlab-token', 'test-token']);
+  it('--aikata-pr-gitlab-tokenオプションをパースできる', () => {
+    const result = parseCliOptions(['--aikata-pr-gitlab-token', 'test-token']);
     expect(result.gitlabToken).toBe('test-token');
   });
 
-  it('GITLAB_TOKEN環境変数からgitlabTokenを取得できる', () => {
-    const result = parseCliOptions([], { GITLAB_TOKEN: 'env-token' });
+  it('AIKATA_PR_GITLAB_TOKEN環境変数からgitlabTokenを取得できる', () => {
+    const result = parseCliOptions([], { AIKATA_PR_GITLAB_TOKEN: 'env-token' });
     expect(result.gitlabToken).toBe('env-token');
   });
 
@@ -45,7 +45,7 @@ describe('parseCliOptions', () => {
       'p1',
       '--mr-iid',
       '42',
-      '--gitlab-token',
+      '--aikata-pr-gitlab-token',
       'my-token',
       '--checklist',
       '/path/to/checklist.csv',

@@ -87,7 +87,7 @@ function validateRequiredParams(
   if (!options.userId) missing.push('--user-id or USER_ID');
   if (!options.projectId) missing.push('--project-id or GITLAB_PROJECT_ID');
   if (!options.mrIid) missing.push('--mr-iid or GITLAB_MR_IID');
-  if (!options.gitlabToken) missing.push('--gitlab-token or GITLAB_TOKEN');
+  if (!options.gitlabToken) missing.push('--aikata-pr-gitlab-token or AIKATA_PR_GITLAB_TOKEN');
   if (!options.checklist) missing.push('--checklist or CHECKLIST_PATH');
   if (!options.aiModelName) missing.push('--ai-model-name or AI_MODEL_NAME');
   if (!env['AI_API_KEY']) missing.push('AI_API_KEY');

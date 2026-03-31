@@ -49,7 +49,7 @@ export function parseCliOptions(
       case '--review-settings':
         parsed['reviewSettings'] = args[++i]!;
         break;
-      case '--gitlab-token':
+      case '--aikata-pr-gitlab-token':
         parsed['gitlabToken'] = args[++i]!;
         break;
       case '--skills':
@@ -77,7 +77,7 @@ export function parseCliOptions(
     userId: (parsed['userId'] as string) ?? env['USER_ID'],
     projectId: (parsed['projectId'] as string) ?? env['GITLAB_PROJECT_ID'],
     mrIid: (parsed['mrIid'] as string) ?? env['GITLAB_MR_IID'],
-    gitlabToken: (parsed['gitlabToken'] as string) ?? env['GITLAB_TOKEN'],
+    gitlabToken: (parsed['gitlabToken'] as string) ?? env['AIKATA_PR_GITLAB_TOKEN'],
     checklist: (parsed['checklist'] as string) ?? env['CHECKLIST_PATH'],
     reviewSettings: (parsed['reviewSettings'] as string) ?? env['REVIEW_SETTINGS_PATH'],
     skills: (parsed['skills'] as string) ?? env['SKILLS_PATH'],

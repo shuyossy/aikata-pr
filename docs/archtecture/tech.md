@@ -37,7 +37,7 @@
     - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス
     - `--review-settings` / `REVIEW_SETTINGS_PATH`: レビュー設定ファイルパス
     - `--skills` / `SKILLS_PATH`: skillsパス
-    - `--gitlab-token` / `GITLAB_TOKEN`: GitLab APIトークン
+    - `--aikata-pr-gitlab-token` / `AIKATA_PR_GITLAB_TOKEN`: GitLab APIトークン
     - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
     - `--log-level` / `AIKATA_LOG_LEVEL`: ログレベル
     - `--comment-language` / `COMMENT_LANGUAGE`: レビューコメントの言語（デフォルト: `Japanese`）
