@@ -147,6 +147,7 @@ export class ExecuteReviewService {
         results,
         commitHash: mrContext.commitHash,
         commentPosted: true,
+        allResultsAreErrors: ReviewResult.allAreErrors(results),
       };
     } finally {
       this.cleanupTempFiles(resultFilePath);
@@ -189,7 +190,12 @@ export class ExecuteReviewService {
         mrContext.commitMessage,
       );
       await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
-      return { results: keptResults, commitHash: mrContext.commitHash, commentPosted: true };
+      return {
+        results: keptResults,
+        commitHash: mrContext.commitHash,
+        commentPosted: true,
+        allResultsAreErrors: ReviewResult.allAreErrors(keptResults),
+      };
     }
 
     // 再レビュー対象あり → ワークフロー実行（対象項目のみ）
@@ -224,7 +230,12 @@ export class ExecuteReviewService {
       );
       await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
 
-      return { results: mergedResults, commitHash: mrContext.commitHash, commentPosted: true };
+      return {
+        results: mergedResults,
+        commitHash: mrContext.commitHash,
+        commentPosted: true,
+        allResultsAreErrors: ReviewResult.allAreErrors(mergedResults),
+      };
     } finally {
       this.cleanupTempFiles(resultFilePath);
     }

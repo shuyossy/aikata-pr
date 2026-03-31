@@ -40,6 +40,14 @@ export class ReviewResult {
   }
 
   /**
+   * 全てのレビュー結果がエラーかどうかを判定する
+   * 結果が空の場合はfalseを返す
+   */
+  static allAreErrors(results: ReviewResult[]): boolean {
+    return results.length > 0 && results.every((r) => r.isError);
+  }
+
+  /**
    * エラーのレビュー結果を生成する
    */
   static error(checkItem: CheckItem, errorMessage: string): ReviewResult {

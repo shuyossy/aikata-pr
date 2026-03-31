@@ -172,6 +172,7 @@ describe('ExecuteReviewService', () => {
     expect(result.results[0].rating.label).toBe('A');
     expect(result.results[1].checkItem.content).toBe('テストカバレッジ');
     expect(result.results[1].rating.label).toBe('B');
+    expect(result.allResultsAreErrors).toBe(false);
   });
 
   it('過去のチェック結果が存在する場合、PriorReviewContextが生成される', async () => {
@@ -389,6 +390,46 @@ describe('ExecuteReviewService', () => {
     expect(result.results[0].isError).toBe(false);
     expect(result.results[1].isError).toBe(true);
     expect(result.results[1].errorMessage).toBe('AI processing timeout');
+    expect(result.allResultsAreErrors).toBe(false);
+  });
+
+  it('フルレビューで全てのレビュー結果がエラーの場合、allResultsAreErrorsがtrueになる', async () => {
+    const command = createCommand();
+    const mrContext = createMrContext();
+    const workflowResult: ReviewWorkflowResult = {
+      results: [
+        {
+          checkItemContent: 'コードの可読性',
+          ratingLabel: '',
+          ratingDefinition: '',
+          comment: '',
+          isError: true,
+          errorMessage: 'API error',
+        },
+        {
+          checkItemContent: 'テストカバレッジ',
+          ratingLabel: '',
+          ratingDefinition: '',
+          comment: '',
+          isError: true,
+          errorMessage: 'Timeout',
+        },
+      ],
+    };
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+    const result = await service.execute(command);
+
+    expect(result.results).toHaveLength(2);
+    expect(result.results.every((r) => r.isError)).toBe(true);
+    expect(result.allResultsAreErrors).toBe(true);
+    // コメントは投稿されている
+    expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
+    expect(result.commentPosted).toBe(true);
   });
 
   it('複数のaikataコメントがある場合、最新のコメントのみ使用される', async () => {
@@ -886,6 +927,68 @@ describe('ExecuteReviewService', () => {
       expect(runCall.checkItemContents).toEqual(['コードの可読性', 'テストカバレッジ']);
 
       expect(result.results).toHaveLength(2);
+    });
+
+    it('リトライ時にワークフロー再実行後も全てエラーの場合、allResultsAreErrorsがtrueになる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回: 全項目エラー
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: 'API error',
+            isError: true,
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: 'Timeout',
+            isError: true,
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      // 再レビューも全エラー
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'コードの可読性',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: '',
+            isError: true,
+            errorMessage: 'API error again',
+          },
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: '',
+            isError: true,
+            errorMessage: 'Timeout again',
+          },
+        ],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results.every((r) => r.isError)).toBe(true);
+      expect(result.allResultsAreErrors).toBe(true);
+      expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
     });
 
     it('チェックリストに新項目が追加された場合、新項目のみworkflowで再レビューされる', async () => {

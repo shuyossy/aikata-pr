@@ -191,6 +191,13 @@ async function main(): Promise<void> {
       { resultCount: result.results.length, commentPosted: result.commentPosted },
       'Review completed',
     );
+
+    // 全てのレビュー結果がエラーの場合、ジョブを失敗として終了する
+    if (result.allResultsAreErrors) {
+      logger.error('All review results are errors. Exiting with failure.');
+      flushLogger();
+      process.exit(1);
+    }
   } catch (error) {
     const userId = options.userId ?? 'unknown';
     if (error instanceof Error) {

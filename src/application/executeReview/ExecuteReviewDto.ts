@@ -7,4 +7,6 @@ export interface ExecuteReviewDto {
   results: ReviewResult[];
   commitHash: string;
   commentPosted: boolean;
+  /** 全てのレビュー結果がエラーかどうか */
+  allResultsAreErrors: boolean;
 }

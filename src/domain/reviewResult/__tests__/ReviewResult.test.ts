@@ -22,4 +22,42 @@ describe('ReviewResult', () => {
     expect(result.isError).toBe(true);
     expect(result.errorMessage).toBe('Timeout occurred');
   });
+
+  describe('allAreErrors', () => {
+    const checkItem2 = new CheckItem('テストカバレッジ');
+    const rating2 = new Rating('B', '概ね満たしている');
+
+    it('全てのレビュー結果がエラーの場合、trueを返す', () => {
+      const results = [
+        ReviewResult.error(checkItem, 'Error 1'),
+        ReviewResult.error(checkItem2, 'Error 2'),
+      ];
+      expect(ReviewResult.allAreErrors(results)).toBe(true);
+    });
+
+    it('一部が成功の場合、falseを返す', () => {
+      const results = [
+        ReviewResult.success(checkItem, rating, 'Good'),
+        ReviewResult.error(checkItem2, 'Error'),
+      ];
+      expect(ReviewResult.allAreErrors(results)).toBe(false);
+    });
+
+    it('全て成功の場合、falseを返す', () => {
+      const results = [
+        ReviewResult.success(checkItem, rating, 'Good'),
+        ReviewResult.success(checkItem2, rating2, 'Also good'),
+      ];
+      expect(ReviewResult.allAreErrors(results)).toBe(false);
+    });
+
+    it('空配列の場合、falseを返す', () => {
+      expect(ReviewResult.allAreErrors([])).toBe(false);
+    });
+
+    it('単一のエラー結果の場合、trueを返す', () => {
+      const results = [ReviewResult.error(checkItem, 'Error')];
+      expect(ReviewResult.allAreErrors(results)).toBe(true);
+    });
+  });
 });
