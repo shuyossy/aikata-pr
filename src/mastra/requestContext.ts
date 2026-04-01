@@ -43,6 +43,14 @@ export interface ReviewAgentRequestContext extends WorkflowRequestContext {
   skillsPaths: string[];
   folderTree: string;
   pendingImages: PendingImageData[];
+  /** 各ファイルの省略された中間部分のみ（getDiffDetailツール用） */
+  omittedFileDiffs: Map<string, string> | null;
+  /** diff内の全ファイルパス一覧（圧縮有無判定用） */
+  allDiffFilePaths: Set<string> | null;
+  /** diff圧縮が実行されたかどうか（ツール登録判定用） */
+  diffCompressed: boolean;
+  /** フォルダツリーのファイルが除去されたかどうか（systemプロンプトへの指示追加用） */
+  folderTreeRemovedByCompression: boolean;
 }
 
 /**
@@ -72,6 +80,7 @@ export function createModelFromContext(ctx: WorkflowRequestContext) {
  * requestContext.allをログ出力用にサニタイズする
  * - aiApiKey: マスク
  * - mrDiff: 文字数のみ表示（長大なため）
+ * - omittedFileDiffs: エントリ数のみ表示（長大なため）
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function sanitizeForLog(ctx: Record<string, any>): Record<string, unknown> {
@@ -81,6 +90,9 @@ export function sanitizeForLog(ctx: Record<string, any>): Record<string, unknown
   }
   if ('mrDiff' in sanitized && typeof sanitized.mrDiff === 'string') {
     sanitized.mrDiff = `[${(sanitized.mrDiff as string).length} chars]`;
+  }
+  if ('omittedFileDiffs' in sanitized && sanitized.omittedFileDiffs instanceof Map) {
+    sanitized.omittedFileDiffs = `[Map with ${(sanitized.omittedFileDiffs as Map<string, string>).size} entries]`;
   }
   return sanitized;
 }

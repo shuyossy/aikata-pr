@@ -170,6 +170,18 @@ async function main(): Promise<void> {
       }
     }
 
+    // MAX_CONTEXT_LENGTHバリデーション
+    const maxContextLengthEnv = process.env['MAX_CONTEXT_LENGTH'];
+    let maxContextLength: number | undefined;
+    if (maxContextLengthEnv) {
+      maxContextLength = Number(maxContextLengthEnv);
+      if (!Number.isInteger(maxContextLength) || maxContextLength < 1) {
+        throw new Error(
+          `Invalid MAX_CONTEXT_LENGTH: ${maxContextLengthEnv}. Must be a positive integer.`,
+        );
+      }
+    }
+
     const result = await service.execute({
       userId: validated.userId,
       projectId: validated.projectId,
@@ -185,6 +197,7 @@ async function main(): Promise<void> {
       treeMaxDepth,
       commentLanguage: options.commentLanguage,
       openaiReasoningEffort: process.env['OPENAI_REASONING_EFFORT'],
+      maxContextLength,
     });
 
     logger.info(

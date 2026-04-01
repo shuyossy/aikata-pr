@@ -9,6 +9,9 @@ import type { ExecuteReviewDto } from './ExecuteReviewDto.js';
 import { ReviewResult } from '../../domain/reviewResult/index.js';
 import { Rating } from '../../domain/rating/index.js';
 import type { MrContext } from '../../domain/mrContext/index.js';
+import { compressDiffIfNeeded } from '../shared/diffCompression/index.js';
+import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
+import { buildUserPromptTemplate } from '../shared/prompt/index.js';
 
 /**
  * ワークフロー実行のパラメータ
@@ -43,6 +46,10 @@ export interface ReviewWorkflowParams {
   folderTree: string;
   commentLanguage: string;
   openaiReasoningEffort: string | undefined;
+  omittedFileDiffs: Record<string, string> | null;
+  allDiffFilePaths: string[] | null;
+  diffCompressed: boolean;
+  folderTreeRemovedByCompression: boolean;
 }
 
 /**
@@ -124,13 +131,26 @@ export class ExecuteReviewService {
   ): Promise<ExecuteReviewDto> {
     const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
 
+    // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
+    const compression = this.compressDiff(command, mrContext, folderTree, priorContext);
+
     try {
       const workflowResult = await this.workflowRunner.run({
         checkItemContents: command.checklist.items.map((i) => i.content),
-        ...this.buildCommonWorkflowParams(command, mrContext, folderTree, resultFilePath),
+        ...this.buildCommonWorkflowParams(
+          command,
+          mrContext,
+          compression.effectiveFolderTree,
+          resultFilePath,
+        ),
+        mrDiff: compression.effectiveDiff,
         priorReviewResults: priorContext.priorReviewResults,
         priorCommitMessages: priorContext.priorCommitMessages,
         priorDiffSincePrior: priorContext.priorDiffSincePrior,
+        omittedFileDiffs: compression.omittedFileDiffs,
+        allDiffFilePaths: compression.allDiffFilePaths,
+        diffCompressed: compression.diffCompressed,
+        folderTreeRemovedByCompression: compression.folderTreeRemovedByCompression,
       });
 
       const results = this.convertToReviewResults(workflowResult, command);
@@ -201,14 +221,27 @@ export class ExecuteReviewService {
     // 再レビュー対象あり → ワークフロー実行（対象項目のみ）
     const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
 
+    // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
+    const compression = this.compressDiff(command, mrContext, folderTree, null);
+
     try {
       const workflowResult = await this.workflowRunner.run({
         checkItemContents: itemsToReview.map((i) => i.content),
-        ...this.buildCommonWorkflowParams(command, mrContext, folderTree, resultFilePath),
+        ...this.buildCommonWorkflowParams(
+          command,
+          mrContext,
+          compression.effectiveFolderTree,
+          resultFilePath,
+        ),
+        mrDiff: compression.effectiveDiff,
         // リトライ時はprior context不要（同じdiff）
         priorReviewResults: null,
         priorCommitMessages: null,
         priorDiffSincePrior: null,
+        omittedFileDiffs: compression.omittedFileDiffs,
+        allDiffFilePaths: compression.allDiffFilePaths,
+        diffCompressed: compression.diffCompressed,
+        folderTreeRemovedByCompression: compression.folderTreeRemovedByCompression,
       });
 
       const newResults = this.convertToReviewResults(workflowResult, command);
@@ -243,6 +276,8 @@ export class ExecuteReviewService {
 
   /**
    * ワークフロー共通パラメータを構築する
+   * mrDiff, omittedFileDiffs, diffCompressed, folderTreeRemovedByCompressionは
+   * 圧縮処理の結果に応じて呼び出し元で個別に設定する
    */
   private buildCommonWorkflowParams(
     command: ExecuteReviewCommand,
@@ -251,7 +286,15 @@ export class ExecuteReviewService {
     resultFilePath: string,
   ): Omit<
     ReviewWorkflowParams,
-    'checkItemContents' | 'priorReviewResults' | 'priorCommitMessages' | 'priorDiffSincePrior'
+    | 'checkItemContents'
+    | 'priorReviewResults'
+    | 'priorCommitMessages'
+    | 'priorDiffSincePrior'
+    | 'mrDiff'
+    | 'omittedFileDiffs'
+    | 'allDiffFilePaths'
+    | 'diffCompressed'
+    | 'folderTreeRemovedByCompression'
   > {
     return {
       concurrentReviewCount: command.reviewSettings.concurrentReviewCount,
@@ -265,7 +308,6 @@ export class ExecuteReviewService {
       mrDescription: mrContext.description,
       mrSourceBranch: mrContext.sourceBranch,
       mrTargetBranch: mrContext.targetBranch,
-      mrDiff: mrContext.diff,
       mrCommitHash: mrContext.commitHash,
       userId: command.userId,
       aiApiKey: command.aiApiKey,
@@ -278,6 +320,107 @@ export class ExecuteReviewService {
       commentLanguage: command.commentLanguage,
       openaiReasoningEffort: command.openaiReasoningEffort,
     };
+  }
+
+  /**
+   * diff圧縮を実行する（MAX_CONTEXT_LENGTH指定時のみ）
+   */
+  private compressDiff(
+    command: ExecuteReviewCommand,
+    mrContext: MrContext,
+    folderTree: string,
+    priorContext: PriorContext | null,
+  ): {
+    effectiveDiff: string;
+    effectiveFolderTree: string;
+    omittedFileDiffs: Record<string, string> | null;
+    allDiffFilePaths: string[] | null;
+    diffCompressed: boolean;
+    folderTreeRemovedByCompression: boolean;
+  } {
+    if (!command.maxContextLength) {
+      return {
+        effectiveDiff: mrContext.diff,
+        effectiveFolderTree: folderTree,
+        omittedFileDiffs: null,
+        allDiffFilePaths: null,
+        diffCompressed: false,
+        folderTreeRemovedByCompression: false,
+      };
+    }
+
+    const tokenCounter = new GptTokenCounter();
+    const compressionResult = compressDiffIfNeeded(
+      (diff, ft) => this.buildEstimatedUserPrompt(command, mrContext, diff, ft, priorContext),
+      mrContext.diff,
+      folderTree,
+      tokenCounter,
+      {
+        maxContextLength: command.maxContextLength,
+        thresholdRatio: 0.7,
+        initialKeepPercent: 30,
+        keepPercentStep: 5,
+        minKeepPercent: 5,
+      },
+    );
+
+    if (!compressionResult.compressed) {
+      return {
+        effectiveDiff: mrContext.diff,
+        effectiveFolderTree: folderTree,
+        omittedFileDiffs: null,
+        allDiffFilePaths: null,
+        diffCompressed: false,
+        folderTreeRemovedByCompression: false,
+      };
+    }
+
+    return {
+      effectiveDiff: compressionResult.compressedDiff,
+      effectiveFolderTree: compressionResult.folderTreeStripped
+        ? compressionResult.strippedFolderTree
+        : folderTree,
+      omittedFileDiffs: Object.fromEntries(compressionResult.omittedFileDiffs),
+      allDiffFilePaths: Array.from(compressionResult.allDiffFilePaths),
+      diffCompressed: true,
+      folderTreeRemovedByCompression: compressionResult.folderTreeStripped,
+    };
+  }
+
+  /**
+   * トークン数推定用のuserプロンプトを構築する
+   * buildUserPromptTemplateを利用して実際のuserプロンプトと同一のロジックで構築する
+   */
+  private buildEstimatedUserPrompt(
+    command: ExecuteReviewCommand,
+    mrContext: MrContext,
+    diff: string,
+    folderTree: string,
+    priorContext: PriorContext | null,
+  ): string {
+    return buildUserPromptTemplate({
+      mrTitle: mrContext.title,
+      mrDescription: mrContext.description,
+      mrSourceBranch: mrContext.sourceBranch,
+      mrTargetBranch: mrContext.targetBranch,
+      mrDiff: diff,
+      folderTree,
+      priorReviewContext:
+        priorContext?.priorReviewResults &&
+        priorContext.priorCommitMessages &&
+        priorContext.priorDiffSincePrior
+          ? {
+              results: priorContext.priorReviewResults.map((r) => ({
+                checkItemContent: r.checkItemContent,
+                ratingLabel: r.ratingLabel,
+                comment: r.comment,
+              })),
+              commitMessages: priorContext.priorCommitMessages,
+              diffSincePrior: priorContext.priorDiffSincePrior,
+            }
+          : null,
+      checkItemCount: command.checklist.items.length,
+    });
   }
 
   /**

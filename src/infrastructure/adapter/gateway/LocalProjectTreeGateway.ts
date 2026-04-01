@@ -5,6 +5,7 @@ import type {
   ProjectTreeGateway,
   ProjectTreeOptions,
 } from '../../../application/shared/port/gateway/index.js';
+import { stripFilesFromFolderTree } from '../../../application/shared/diffCompression/FolderTreeStripper.js';
 
 /**
  * デフォルトのエントリ数上限
@@ -124,10 +125,8 @@ export class LocalProjectTreeGateway implements ProjectTreeGateway {
     // ツリーを整形して出力
     const lines: string[] = [];
     let entryCount = 0;
-    let truncated = false;
 
     const format = (node: TreeNode, indent: string, depth: number): void => {
-      if (truncated) return;
       if (options.maxDepth !== undefined && depth > options.maxDepth) return;
 
       const entries = [...node.children.entries()];
@@ -141,10 +140,6 @@ export class LocalProjectTreeGateway implements ProjectTreeGateway {
 
       // ディレクトリを先に出力
       for (const [name, child] of dirs) {
-        if (entryCount >= this.maxEntries) {
-          truncated = true;
-          return;
-        }
         lines.push(`${indent}${name}/`);
         entryCount++;
         format(child, indent + '  ', depth + 1);
@@ -152,10 +147,6 @@ export class LocalProjectTreeGateway implements ProjectTreeGateway {
 
       // ファイルを出力
       for (const [name] of files) {
-        if (entryCount >= this.maxEntries) {
-          truncated = true;
-          return;
-        }
         lines.push(`${indent}${name}`);
         entryCount++;
       }
@@ -163,10 +154,13 @@ export class LocalProjectTreeGateway implements ProjectTreeGateway {
 
     format(root, '', 1);
 
-    if (truncated) {
-      lines.push(`... (truncated, showing ${this.maxEntries} of more entries)`);
+    const fullTree = lines.join('\n');
+
+    // エントリ数上限を超えた場合、ファイルを除去しディレクトリ構造のみ返す
+    if (entryCount > this.maxEntries) {
+      return stripFilesFromFolderTree(fullTree);
     }
 
-    return lines.join('\n');
+    return fullTree;
   }
 }

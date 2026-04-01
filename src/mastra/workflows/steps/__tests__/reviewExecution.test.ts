@@ -77,6 +77,10 @@ function createTestRequestContext(
     ['skillsPaths', []],
     ['folderTree', 'src/\n  index.ts'],
     ['openaiReasoningEffort', undefined],
+    ['omittedFileDiffs', null],
+    ['allDiffFilePaths', null],
+    ['diffCompressed', false],
+    ['folderTreeRemovedByCompression', false],
   ]);
 }
 

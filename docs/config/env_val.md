@@ -20,4 +20,5 @@
 | 動作設定 | PRETTY_PRINT | No | true | pino-prettyによるログ整形出力の有効/無効 | --pretty-print / --no-pretty-print | - |
 | 動作設定 | COMMENT_LANGUAGE | No | Japanese | レビューコメントの言語 | --comment-language | - |
 | 動作設定 | TREE_MAX_DEPTH | No | 無制限 | フォルダツリー走査の最大深度。正の整数を指定。未指定時は深さ制限なし（エントリ数制限のみ適用） | なし（環境変数のみ） | - |
+| 動作設定 | MAX_CONTEXT_LENGTH | No | - | AIモデルのコンテキスト長（トークン数）。設定時、userプロンプトのトークン数がMAX_CONTEXT_LENGTH*0.6を超える場合にdiffを自動圧縮する。未設定時は圧縮しない | なし（環境変数のみ） | - |
 | 環境 | CI_PROJECT_DIR | No | process.cwd() | プロジェクトルートディレクトリ。Workspace（ファイルシステム・サンドボックス）のベースパスとして利用。CI環境では自動設定 | なし（環境変数のみ） | - |

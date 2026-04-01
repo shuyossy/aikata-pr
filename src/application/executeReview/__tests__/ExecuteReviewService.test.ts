@@ -55,6 +55,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
     treeMaxDepth: undefined,
     commentLanguage: 'Japanese',
     openaiReasoningEffort: undefined,
+    maxContextLength: undefined,
     ...overrides,
   };
 }

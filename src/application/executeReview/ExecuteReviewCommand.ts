@@ -19,4 +19,5 @@ export interface ExecuteReviewCommand {
   treeMaxDepth: number | undefined;
   commentLanguage: string;
   openaiReasoningEffort: string | undefined;
+  maxContextLength: number | undefined;
 }

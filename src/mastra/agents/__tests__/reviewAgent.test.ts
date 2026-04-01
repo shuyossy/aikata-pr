@@ -40,6 +40,10 @@ function createTestContext(
     folderTree: '',
     pendingImages: [],
     openaiReasoningEffort: undefined,
+    omittedFileDiffs: null,
+    allDiffFilePaths: null,
+    diffCompressed: false,
+    folderTreeRemovedByCompression: false,
     ...overrides,
   };
 }
@@ -73,6 +77,10 @@ function createTestRequestContext(
     ['folderTree', ctx.folderTree],
     ['pendingImages', ctx.pendingImages],
     ['openaiReasoningEffort', ctx.openaiReasoningEffort],
+    ['omittedFileDiffs', ctx.omittedFileDiffs],
+    ['allDiffFilePaths', ctx.allDiffFilePaths],
+    ['diffCompressed', ctx.diffCompressed],
+    ['folderTreeRemovedByCompression', ctx.folderTreeRemovedByCompression],
   ]);
 }
 
@@ -251,33 +259,76 @@ describe('buildInstructions', () => {
     expect(result).not.toContain('readImage');
     expect(result).not.toContain('Image Reading Tool');
   });
+
+  it('folderTreeRemovedByCompression=trueの場合、Folder Tree Noticeが含まれる', () => {
+    const requestContext = createTestRequestContext({
+      folderTreeRemovedByCompression: true,
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('Folder Tree Notice');
+    expect(result).toContain('mastra_workspace_list_files');
+  });
+
+  it('folderTreeRemovedByCompression=falseの場合、Folder Tree Noticeが含まれない', () => {
+    const requestContext = createTestRequestContext({
+      folderTreeRemovedByCompression: false,
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).not.toContain('Folder Tree Notice');
+  });
+
+  it('diffCompressed=trueの場合、Diff Compression Noticeが含まれる', () => {
+    const requestContext = createTestRequestContext({
+      diffCompressed: true,
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('Diff Compression Notice');
+    expect(result).toContain('getDiffDetail');
+  });
+
+  it('diffCompressed=falseの場合、Diff Compression Noticeが含まれない', () => {
+    const requestContext = createTestRequestContext({
+      diffCompressed: false,
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).not.toContain('Diff Compression Notice');
+  });
 });
 
 describe('buildUserPrompt', () => {
-  it('MR情報（title, description, branches）がuserプロンプトに含まれる', () => {
+  it('RequestContextからbuildUserPromptTemplateへ正しく委譲される', () => {
     const requestContext = createTestRequestContext({
       mrTitle: 'Add login feature',
       mrDescription: 'Implements OAuth2 login',
       mrSourceBranch: 'feature/login',
       mrTargetBranch: 'main',
+      mrDiff: '+ added new line',
+      folderTree: 'src/\n  index.ts',
+      checkItems: [
+        { id: 1, content: 'item1' },
+        { id: 2, content: 'item2' },
+      ],
     });
 
     const result = buildUserPrompt(requestContext);
 
+    // MR情報が含まれる
     expect(result).toContain('Add login feature');
     expect(result).toContain('Implements OAuth2 login');
-    expect(result).toContain('feature/login');
-    expect(result).toContain('main');
-  });
-
-  it('MRのdiffがuserプロンプトに含まれる', () => {
-    const requestContext = createTestRequestContext({
-      mrDiff: '+ added new line\n- removed old line',
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    expect(result).toContain('+ added new line\n- removed old line');
+    // diffが含まれる
+    expect(result).toContain('+ added new line');
+    // フォルダツリーが含まれる
+    expect(result).toContain('Project Folder Tree');
+    // チェック項目数が含まれる
+    expect(result).toContain('Review all 2 check items');
   });
 
   it('resultFilePathがuserプロンプトに含まれない', () => {
@@ -288,83 +339,6 @@ describe('buildUserPrompt', () => {
     const result = buildUserPrompt(requestContext);
 
     expect(result).not.toContain('/tmp/test-results.json');
-  });
-
-  it('priorReviewContextがnullの場合、Prior Reviewセクションが含まれない', () => {
-    const requestContext = createTestRequestContext({
-      priorReviewContext: null,
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    expect(result).not.toContain('Prior Review');
-    expect(result).not.toContain('Commits Since');
-    expect(result).not.toContain('Previous Results');
-  });
-
-  it('priorReviewContextがある場合、コミットメッセージ・差分diff・前回結果が含まれる', () => {
-    const requestContext = createTestRequestContext({
-      priorReviewContext: {
-        results: [
-          { checkItemContent: 'security check', ratingLabel: 'B', comment: 'Needs improvement' },
-          { checkItemContent: 'perf check', ratingLabel: 'A', comment: 'Good performance' },
-        ],
-        commitMessages: ['fix: update auth logic', 'feat: add caching'],
-        diffSincePrior: '+ new cached response\n- old direct call',
-      },
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    expect(result).toContain('Prior Review');
-    expect(result).toContain('fix: update auth logic');
-    expect(result).toContain('feat: add caching');
-    expect(result).toContain('+ new cached response');
-    expect(result).toContain('security check');
-    expect(result).toContain('Needs improvement');
-    expect(result).toContain('perf check');
-    expect(result).toContain('Good performance');
-  });
-
-  it('フォルダツリーがuserプロンプトに含まれる', () => {
-    const requestContext = createTestRequestContext({
-      folderTree: 'src/\n  domain/\n    CheckItem.ts\nREADME.md',
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    expect(result).toContain('Project Folder Tree');
-    expect(result).toContain('src/\n  domain/\n    CheckItem.ts\nREADME.md');
-  });
-
-  it('フォルダツリーセクションがMR Diffセクションの前に配置される', () => {
-    const requestContext = createTestRequestContext({
-      folderTree: 'src/\n  index.ts',
-      mrDiff: '+ added line',
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    const treeIndex = result.indexOf('Project Folder Tree');
-    const diffIndex = result.indexOf('Merge Request Diff');
-    expect(treeIndex).toBeGreaterThan(-1);
-    expect(diffIndex).toBeGreaterThan(-1);
-    expect(treeIndex).toBeLessThan(diffIndex);
-  });
-
-  it('チェック項目数がuserプロンプトに含まれる', () => {
-    const requestContext = createTestRequestContext({
-      checkItems: [
-        { id: 1, content: 'item1' },
-        { id: 2, content: 'item2' },
-        { id: 3, content: 'item3' },
-      ],
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    expect(result).toContain('3');
-    expect(result).toContain('storeReviewResult');
   });
 });
 

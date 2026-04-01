@@ -54,6 +54,10 @@ function createWorkflowInput(overrides: Record<string, unknown> = {}) {
     resultFilePath: '',
     folderTree: 'src/\n  index.ts',
     commentLanguage: 'Japanese',
+    omittedFileDiffs: null,
+    allDiffFilePaths: null,
+    diffCompressed: false,
+    folderTreeRemovedByCompression: false,
     ...overrides,
   };
 }

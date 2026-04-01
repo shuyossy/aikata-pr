@@ -10,13 +10,16 @@ import { createModelFromContext } from '../requestContext.js';
 import { storeReviewResultTool } from '../tools/storeReviewResult.js';
 import { getReviewResultsTool } from '../tools/getReviewResults.js';
 import { readImageTool, PENDING_IMAGES_KEY, IMAGE_MESSAGE_PREFIX } from '../tools/readImage.js';
+import { getDiffDetailTool } from '../tools/getDiffDetail.js';
 import { containsImageFiles } from '../../lib/imageFormat.js';
+import { buildUserPromptTemplate } from '../../application/shared/prompt/index.js';
 
-// レビューエージェントのツールセット型（readImageは画像ファイルがある場合のみ登録）
+// レビューエージェントのツールセット型（readImage, getDiffDetailは条件付き登録）
 type ReviewAgentToolSet = {
   storeReviewResult: typeof storeReviewResultTool;
   getReviewResults: typeof getReviewResultsTool;
   readImage?: typeof readImageTool;
+  getDiffDetail?: typeof getDiffDetailTool;
 };
 
 // 基本ツール（常に登録）
@@ -29,6 +32,19 @@ const baseReviewAgentTools: ReviewAgentToolSet = {
 const reviewAgentToolsWithImage: ReviewAgentToolSet = {
   ...baseReviewAgentTools,
   readImage: readImageTool,
+};
+
+// diff圧縮対応ツール（diff圧縮が有効な場合のみ登録）
+const reviewAgentToolsWithDiffDetail: ReviewAgentToolSet = {
+  ...baseReviewAgentTools,
+  getDiffDetail: getDiffDetailTool,
+};
+
+// 画像 + diff圧縮対応ツール
+const reviewAgentToolsWithImageAndDiffDetail: ReviewAgentToolSet = {
+  ...baseReviewAgentTools,
+  readImage: readImageTool,
+  getDiffDetail: getDiffDetailTool,
 };
 
 /**
@@ -110,7 +126,23 @@ ${
 `
     : ''
 }
-### Workspace Tools
+${
+  ctx.folderTreeRemovedByCompression
+    ? `### Folder Tree Notice
+File entries have been removed from the project folder tree to conserve context space. Only directory structure is shown. Use the mastra_workspace_list_files tool to view files in specific directories.
+
+`
+    : ''
+}${
+    ctx.diffCompressed
+      ? `### Diff Compression Notice
+Some file diffs have been compressed to fit within context limits. Compressed sections are marked with "[aikata: N lines omitted from middle]". Use the getDiffDetail tool to retrieve the omitted portion:
+- getDiffDetail(filePath): Get the entire omitted middle portion of a compressed file diff
+- getDiffDetail(filePath, keywords, contextLines): Search for specific patterns within the omitted portion
+
+`
+      : ''
+  }### Workspace Tools
 You have access to workspace tools for investigating the project codebase:
 - File reading: Examine source files beyond what the diff shows
 - Directory listing: Understand project structure
@@ -133,61 +165,16 @@ The workspace root is the project repository root directory.
  */
 export function buildUserPrompt(requestContext: RequestContext<ReviewAgentRequestContext>): string {
   const ctx = requestContext.all;
-
-  let priorReviewSection = '';
-  if (ctx.priorReviewContext) {
-    const commitsText = ctx.priorReviewContext.commitMessages.map((m) => `- ${m}`).join('\n');
-    const previousResultsText = ctx.priorReviewContext.results
-      .map((r) => `- ${r.checkItemContent}: ${r.ratingLabel} - ${r.comment}`)
-      .join('\n');
-
-    priorReviewSection = `
-## Prior Review Context
-
-The following items were reviewed previously. Focus your analysis on changes since the prior review.
-
-### Commits Since Prior Review
-${commitsText}
-
-### Changes Since Prior Review
-\`\`\`
-${ctx.priorReviewContext.diffSincePrior}
-\`\`\`
-
-### Previous Results
-${previousResultsText}
-
-`;
-  }
-
-  const folderTreeSection = ctx.folderTree
-    ? `
-## Project Folder Tree
-
-The following is the folder/file tree of the project being reviewed:
-
-\`\`\`
-${ctx.folderTree}
-\`\`\`
-`
-    : '';
-
-  return `## Merge Request Information
-
-- Title: ${ctx.mrTitle}
-- Description: ${ctx.mrDescription}
-- Source Branch: ${ctx.mrSourceBranch}
-- Target Branch: ${ctx.mrTargetBranch}
-${folderTreeSection}
-## Merge Request Diff
-
-\`\`\`
-${ctx.mrDiff}
-\`\`\`
-${priorReviewSection}
----
-
-Review all ${ctx.checkItems.length} check items following the reasoning framework in your instructions. Store each result using the storeReviewResult tool.`;
+  return buildUserPromptTemplate({
+    mrTitle: ctx.mrTitle,
+    mrDescription: ctx.mrDescription,
+    mrSourceBranch: ctx.mrSourceBranch,
+    mrTargetBranch: ctx.mrTargetBranch,
+    mrDiff: ctx.mrDiff,
+    folderTree: ctx.folderTree,
+    priorReviewContext: ctx.priorReviewContext,
+    checkItemCount: ctx.checkItems.length,
+  });
 }
 
 /**
@@ -252,7 +239,13 @@ export const reviewAgent = new Agent<
   },
   tools: ({ requestContext }) => {
     const ctx = requestContext.all as ReviewAgentRequestContext;
-    return containsImageFiles(ctx.folderTree) ? reviewAgentToolsWithImage : baseReviewAgentTools;
+    const hasImages = containsImageFiles(ctx.folderTree);
+    const hasDiffCompression = ctx.diffCompressed;
+
+    if (hasImages && hasDiffCompression) return reviewAgentToolsWithImageAndDiffDetail;
+    if (hasImages) return reviewAgentToolsWithImage;
+    if (hasDiffCompression) return reviewAgentToolsWithDiffDetail;
+    return baseReviewAgentTools;
   },
   // workspace: ({ requestContext }) => {
   //   const ctx = requestContext?.all as ReviewAgentRequestContext | undefined;

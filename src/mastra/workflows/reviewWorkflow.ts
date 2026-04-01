@@ -66,6 +66,10 @@ const workflowInputSchema = z.object({
   resultFilePath: z.string(),
   folderTree: z.string(),
   commentLanguage: z.string(),
+  omittedFileDiffs: z.record(z.string(), z.string()).nullable(),
+  allDiffFilePaths: z.array(z.string()).nullable(),
+  diffCompressed: z.boolean(),
+  folderTreeRemovedByCompression: z.boolean(),
 });
 
 /**
@@ -184,6 +188,13 @@ const reviewExecutionStep = createStep({
       ['skillsPaths', initData.skillsPaths],
       ['folderTree', initData.folderTree],
       ['openaiReasoningEffort', workflowCtx.openaiReasoningEffort],
+      [
+        'omittedFileDiffs',
+        initData.omittedFileDiffs ? new Map(Object.entries(initData.omittedFileDiffs)) : null,
+      ],
+      ['allDiffFilePaths', initData.allDiffFilePaths ? new Set(initData.allDiffFilePaths) : null],
+      ['diffCompressed', initData.diffCompressed],
+      ['folderTreeRemovedByCompression', initData.folderTreeRemovedByCompression],
     ]);
 
     const reviewAgent = mastra.getAgent('reviewAgent');
