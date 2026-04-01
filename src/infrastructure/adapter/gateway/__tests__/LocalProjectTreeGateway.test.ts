@@ -201,6 +201,37 @@ describe('LocalProjectTreeGateway', () => {
     expect(tree).toContain('node_modules');
   });
 
+  it('非ASCII文字（日本語）を含むファイル名が正しくツリーに表示される', async () => {
+    const tmpDir = createTempDir();
+    tempDirs.push(tmpDir);
+    initGitRepo(tmpDir);
+    createStructure(tmpDir, ['images/受験票_1-048_combined.png', 'src/index.ts']);
+
+    const gateway = new LocalProjectTreeGateway();
+    const tree = await gateway.getTree(tmpDir, defaultOptions);
+
+    // 非ASCIIファイル名がクリーンなUTF-8で表示されること
+    expect(tree).toContain('受験票_1-048_combined.png');
+    expect(tree).toContain('images/');
+    expect(tree).toContain('index.ts');
+    // gitのoctalエスケープやダブルクォートが含まれないこと
+    expect(tree).not.toContain('\\345');
+    expect(tree).not.toContain('"images');
+  });
+
+  it('非ASCII文字を含む画像ファイル名がcontainsImageFilesで検出される', async () => {
+    const tmpDir = createTempDir();
+    tempDirs.push(tmpDir);
+    initGitRepo(tmpDir);
+    createStructure(tmpDir, ['images/受験票_1-048_combined.png', 'src/index.ts']);
+
+    const gateway = new LocalProjectTreeGateway();
+    const tree = await gateway.getTree(tmpDir, defaultOptions);
+
+    const { containsImageFiles } = await import('../../../../lib/imageFormat.js');
+    expect(containsImageFiles(tree)).toBe(true);
+  });
+
   it('存在しないディレクトリでエラーがスローされる', async () => {
     const gateway = new LocalProjectTreeGateway();
 

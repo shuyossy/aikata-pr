@@ -51,7 +51,13 @@ The summary will be used by a follow-up agent session to CONTINUE the review of 
 
 3. **Cross-cutting observations**: Any broader patterns, concerns, or discoveries that may be relevant to the remaining items.
 
-## Format Guidelines
+${
+  ctx.hasImages
+    ? `4. **Image references**: The conversation contained image file reads. Image placeholders in the serialized text (e.g., [Image: path/to/file.png]) correspond to actual image data provided as separate image content parts. Use these images to understand what the review agent was analyzing and include relevant visual observations in your summary.
+
+`
+    : ''
+}## Format Guidelines
 - Be concise — the summary must not be so large that it causes another context length error.
 - Do NOT include raw code diffs or full tool output — summarize conclusions only.
 - Do NOT re-state the final ratings of already-stored items.

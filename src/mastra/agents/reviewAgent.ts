@@ -1,15 +1,34 @@
+import { randomUUID } from 'node:crypto';
 import { Agent } from '@mastra/core/agent';
+import type { MastraDBMessage } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
+import type { ProcessInputStepArgs, ProcessInputStepResult } from '@mastra/core/processors';
 import { Workspace, LocalFilesystem, LocalSandbox } from '@mastra/core/workspace';
 import { Memory } from '@mastra/memory';
 import type { ReviewAgentRequestContext } from '../requestContext.js';
 import { createModelFromContext } from '../requestContext.js';
 import { storeReviewResultTool } from '../tools/storeReviewResult.js';
 import { getReviewResultsTool } from '../tools/getReviewResults.js';
+import { readImageTool, PENDING_IMAGES_KEY, IMAGE_MESSAGE_PREFIX } from '../tools/readImage.js';
+import { containsImageFiles } from '../../lib/imageFormat.js';
 
-const reviewAgentTools = {
+// レビューエージェントのツールセット型（readImageは画像ファイルがある場合のみ登録）
+type ReviewAgentToolSet = {
+  storeReviewResult: typeof storeReviewResultTool;
+  getReviewResults: typeof getReviewResultsTool;
+  readImage?: typeof readImageTool;
+};
+
+// 基本ツール（常に登録）
+const baseReviewAgentTools: ReviewAgentToolSet = {
   storeReviewResult: storeReviewResultTool,
   getReviewResults: getReviewResultsTool,
+};
+
+// 画像対応ツール（画像ファイルがある場合のみ登録）
+const reviewAgentToolsWithImage: ReviewAgentToolSet = {
+  ...baseReviewAgentTools,
+  readImage: readImageTool,
 };
 
 /**
@@ -81,7 +100,16 @@ ${additionalInstructionsSection}## Tool Reference
 ### Review Result Tools
 - storeReviewResult: Store a review result for a single check item. Parameters: checkItemId (the number shown in [ID: N]), ratingLabel (one of the rating labels above), comment (MUST be written in ${ctx.commentLanguage}). You MUST call this for EVERY check item listed above.
 - getReviewResults: Retrieve stored results to verify completeness. No arguments needed.
-
+${
+  containsImageFiles(ctx.folderTree)
+    ? `
+### Image Reading Tool
+- readImage: Read an image file from the project directory and view its contents. You MUST use this tool whenever you need to view or analyze an image file referenced in the diff or project. Supported formats: PNG, JPEG, GIF, WebP.
+  - Always use this tool instead of trying to infer image contents from filenames or context.
+  - Pass the file path relative to the project root directory.
+`
+    : ''
+}
 ### Workspace Tools
 You have access to workspace tools for investigating the project codebase:
 - File reading: Examine source files beyond what the diff shows
@@ -208,7 +236,7 @@ export function createWorkspaceFromContext(ctx: ReviewAgentRequestContext): Work
  */
 export const reviewAgent = new Agent<
   'review-agent',
-  typeof reviewAgentTools,
+  ReviewAgentToolSet,
   undefined,
   ReviewAgentRequestContext
 >({
@@ -222,7 +250,10 @@ export const reviewAgent = new Agent<
   instructions: ({ requestContext }) => {
     return buildInstructions(requestContext);
   },
-  tools: reviewAgentTools,
+  tools: ({ requestContext }) => {
+    const ctx = requestContext.all as ReviewAgentRequestContext;
+    return containsImageFiles(ctx.folderTree) ? reviewAgentToolsWithImage : baseReviewAgentTools;
+  },
   // workspace: ({ requestContext }) => {
   //   const ctx = requestContext?.all as ReviewAgentRequestContext | undefined;
   //   if (!ctx?.projectDir) {
@@ -231,3 +262,58 @@ export const reviewAgent = new Agent<
   //   return createWorkspaceFromContext(ctx);
   // },
 });
+
+/**
+ * prepareStep関数を構築する: readImageツールで取得した画像をuserメッセージとして注入する
+ *
+ * Chat Completions APIではtoolロールのメッセージにマルチモーダルコンテンツを含められないため、
+ * prepareStepフックを利用してuserメッセージとして画像を注入する。
+ *
+ * @param requestContext - ReviewAgent用のRequestContext（pendingImagesの共有に使用）
+ * @returns prepareStep関数。pendingImagesがあればuserメッセージとして画像を注入し、なければ変更なし。
+ */
+export function buildPrepareStepForImageInjection(
+  requestContext: RequestContext<ReviewAgentRequestContext>,
+): (args: ProcessInputStepArgs) => ProcessInputStepResult | undefined {
+  return ({ messages }) => {
+    const pendingImages = requestContext.get(PENDING_IMAGES_KEY) ?? [];
+
+    if (pendingImages.length === 0) {
+      return undefined;
+    }
+
+    // pendingImagesをクリア
+    requestContext.set(PENDING_IMAGES_KEY, []);
+
+    // ファイルパスの番号付きリストを構築
+    const fileList = pendingImages.map((img, i) => `${i + 1}. ${img.filePath}`).join('\n');
+
+    // MastraDBMessage形式で画像付きuserメッセージを構築
+    // 画像はv4 FileUIPart形式（type: 'file', mimeType, data）で格納する
+    const imageUserMessage: MastraDBMessage = {
+      id: randomUUID(),
+      role: 'user',
+      createdAt: new Date(),
+      content: {
+        format: 2,
+        parts: [
+          {
+            type: 'text' as const,
+            text:
+              `${IMAGE_MESSAGE_PREFIX} the following ${pendingImages.length} image(s). ` +
+              `Each image is displayed in the order listed below. ` +
+              `Please continue your review using these images.\n\n` +
+              fileList,
+          },
+          ...pendingImages.map((img) => ({
+            type: 'file' as const,
+            mimeType: img.mediaType,
+            data: img.base64Data,
+          })),
+        ],
+      },
+    };
+
+    return { messages: [...messages, imageUserMessage] };
+  };
+}

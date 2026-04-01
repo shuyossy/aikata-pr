@@ -1,5 +1,6 @@
+import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Agent, MastraDBMessage } from '@mastra/core/agent';
+import type { Agent, MastraDBMessage, MastraMessagePart } from '@mastra/core/agent';
 import { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import type {
@@ -11,6 +12,8 @@ import { readStoredResults } from '../../types.js';
 import { buildSummarizationUserPrompt } from '../../agents/summarizationAgent.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
 import { getLogger } from '../../../lib/logger.js';
+import { isImageCountExceededError } from '../../../lib/aiApiError.js';
+import { IMAGE_MESSAGE_PREFIX } from '../../tools/readImage.js';
 
 /**
  * シリアライズ後の文字数上限
@@ -31,6 +34,7 @@ export interface ContextLengthRecoveryConfig {
   requestContext: RequestContext<ReviewAgentRequestContext>;
   checkItems: IndexedCheckItem[];
   rateLimitRetryConfig: RateLimitRetryConfig;
+  originalError?: unknown;
 }
 
 /**
@@ -42,26 +46,38 @@ export interface ContextLengthRecoveryResult {
 }
 
 /**
+ * シリアライズ時に抽出された画像データ
+ */
+export interface ExtractedImageData {
+  filePath: string;
+  base64Data: string;
+  mediaType: string;
+}
+
+/**
  * メッセージ配列をテキスト形式にシリアライズする
  *
  * 全メッセージをシリアライズし、文字数上限を超える場合は
  * メッセージ数ベースの中間カット（先頭10%＋末尾50%）を実行する。
+ * readImageツールの呼び出し結果から画像データを抽出し、プレースホルダーに置換する。
  */
 export function serializeMessages(
   messages: MastraDBMessage[],
   maxChars: number = MAX_SERIALIZED_CHARS,
-): { text: string; wasTrimmed: boolean } {
+): { text: string; wasTrimmed: boolean; imageData: ExtractedImageData[] } {
+  const imageData: ExtractedImageData[] = [];
+
   if (messages.length === 0) {
-    return { text: '', wasTrimmed: false };
+    return { text: '', wasTrimmed: false, imageData };
   }
 
   // 全メッセージをシリアライズ
-  const serialized = messages.map(serializeSingleMessage);
+  const serialized = messages.map((msg) => serializeSingleMessage(msg, imageData));
   const fullText = serialized.join('\n\n');
 
   // 上限以内ならそのまま返す
   if (fullText.length <= maxChars) {
-    return { text: fullText, wasTrimmed: false };
+    return { text: fullText, wasTrimmed: false, imageData };
   }
 
   // メッセージ数ベースの中間カット
@@ -71,7 +87,7 @@ export function serializeMessages(
 
   // 重複を避ける（headとtailが重なる場合は全メッセージを保持）
   if (headCount + tailCount >= totalCount) {
-    return { text: fullText, wasTrimmed: false };
+    return { text: fullText, wasTrimmed: false, imageData };
   }
 
   const headMessages = serialized.slice(0, headCount);
@@ -84,24 +100,111 @@ export function serializeMessages(
     ...tailMessages,
   ].join('\n\n');
 
-  return { text: trimmedText, wasTrimmed: true };
+  return { text: trimmedText, wasTrimmed: true, imageData };
+}
+
+/**
+ * prepareStepで注入されたuserメッセージ内の画像パートからファイルパスと画像データを抽出する
+ * userメッセージのcontent配列内のimageパートとtextパートからファイルパスリストを照合する
+ *
+ * prepareStepが注入するuserメッセージの構造:
+ * - content[0]: text（IMAGE_MESSAGE_PREFIXで始まるテキスト + ファイルパスリスト）
+ * - content[1..N]: image（base64画像データ）
+ */
+/**
+ * 画像/ファイルパートからbase64データを抽出するヘルパー
+ * MastraMessagePartはimageやdataプロパティを型定義上持たないため、
+ * ランタイムで存在するプロパティをRecord型経由で安全にアクセスする
+ */
+function extractBase64FromPart(part: MastraMessagePart): string {
+  const raw = part as Record<string, unknown>;
+  if (typeof raw.image === 'string') return raw.image;
+  if (raw.image instanceof Buffer) return raw.image.toString('base64');
+  if (typeof raw.data === 'string') return raw.data;
+  return '';
+}
+
+/**
+ * 画像/ファイルパートからmediaTypeを抽出するヘルパー
+ */
+function extractMediaType(part: MastraMessagePart): string {
+  const raw = part as Record<string, unknown>;
+  if (typeof raw.mimeType === 'string') return raw.mimeType;
+  if (typeof raw.mediaType === 'string') return raw.mediaType;
+  return 'image/png';
+}
+
+function extractImagesFromUserMessage(
+  parts: MastraMessagePart[],
+  imageData: ExtractedImageData[],
+): boolean {
+  // textパートからファイルパスリストを抽出
+  const textPart = parts.find((p) => p.type === 'text' && typeof p.text === 'string');
+  if (!textPart || textPart.type !== 'text' || !textPart.text?.includes(IMAGE_MESSAGE_PREFIX)) {
+    return false;
+  }
+
+  // テキストからファイルパスを抽出（"1. path/to/file.png" 形式）
+  const filePathPattern = /^\d+\.\s+(.+)$/gm;
+  const filePaths: string[] = [];
+  let match;
+  while ((match = filePathPattern.exec(textPart.text)) !== null) {
+    filePaths.push(match[1]);
+  }
+
+  // fileパート（画像データ）を抽出
+  const imageParts = parts.filter((p) => p.type === 'file');
+
+  // ファイルパスと画像パートを対応付けて抽出
+  for (let i = 0; i < imageParts.length; i++) {
+    const imgPart = imageParts[i];
+    const filePath = filePaths[i] ?? `image-${i}`;
+    const base64Data = extractBase64FromPart(imgPart);
+    const mediaType = extractMediaType(imgPart);
+
+    if (base64Data) {
+      imageData.push({ filePath, base64Data, mediaType });
+    }
+  }
+
+  return imageParts.length > 0;
 }
 
 /**
  * 単一メッセージをテキストにシリアライズする
+ * prepareStepで注入された画像付きuserメッセージは画像データを抽出してプレースホルダーに置換する
  */
-function serializeSingleMessage(message: MastraDBMessage): string {
+function serializeSingleMessage(message: MastraDBMessage, imageData: ExtractedImageData[]): string {
   const parts: string[] = [];
   parts.push(`[${message.role}]`);
 
   if (message.content.parts.length > 0) {
+    // prepareStepで注入された画像付きuserメッセージを検出
+    if (message.role === 'user' && extractImagesFromUserMessage(message.content.parts, imageData)) {
+      // 画像付きuserメッセージ: テキストパートのみ保持し、画像パートはプレースホルダーに置換
+      for (const part of message.content.parts) {
+        if (part.type === 'text' && part.text) {
+          parts.push(part.text);
+        }
+      }
+      // 抽出された各画像のプレースホルダーを追加
+      const newImages = imageData.slice(
+        -message.content.parts.filter((p) => p.type === 'file').length,
+      );
+      for (const img of newImages) {
+        parts.push(`  [Image: ${img.filePath}]`);
+      }
+      return parts.join('\n');
+    }
+
     for (const part of message.content.parts) {
       if (part.type === 'text' && part.text) {
         parts.push(part.text);
       } else if (part.type === 'tool-invocation') {
         const inv = part.toolInvocation;
         const argsStr = inv.args ? JSON.stringify(inv.args) : '';
-        // ツール結果はstate='result'の場合のみ存在する（tool-invocationパートに統合されている）
+
+        // 通常のツール結果シリアライズ
         const resultStr =
           inv.state === 'result' && inv.result
             ? String(typeof inv.result === 'object' ? JSON.stringify(inv.result) : inv.result)
@@ -139,14 +242,32 @@ function buildAlreadyStoredSummary(checkItems: IndexedCheckItem[], resultFilePat
 }
 
 /**
+ * 画像数超過時にシリアライズテキスト内の画像プレースホルダーをファイル名のみに置換する
+ */
+function replaceImagePlaceholdersWithFilenames(
+  text: string,
+  imageData: ExtractedImageData[],
+): string {
+  let result = text;
+  for (const img of imageData) {
+    const filename = path.basename(img.filePath);
+    result = result.replace(
+      `[Image: ${img.filePath}]`,
+      `[Image: ${filename} - image data excluded due to image count limit]`,
+    );
+  }
+  return result;
+}
+
+/**
  * コンテキスト長エラーからリカバリーする
  *
  * 処理フロー:
  * 1. レビュー済み結果を取得
  * 2. メモリからスレッドメッセージを取得
- * 3. メッセージをシリアライズ
+ * 3. メッセージをシリアライズ（画像データを抽出）
  * 4. 要約Agent用のRequestContextを構築
- * 5. 要約Agentで会話履歴を要約
+ * 5. 要約Agentで会話履歴を要約（画像対応）
  * 6. 旧スレッドを削除
  * 7. 新しいthreadIdと要約テキストを返す
  */
@@ -161,6 +282,7 @@ export async function recoverFromContextLength(
     requestContext,
     checkItems,
     rateLimitRetryConfig,
+    originalError,
   } = config;
   const resultFilePath = String(requestContext.get('resultFilePath'));
 
@@ -177,8 +299,12 @@ export async function recoverFromContextLength(
     messages = recalled.messages;
   }
 
-  // 3. メッセージをシリアライズ
-  const { text: serializedText, wasTrimmed } = serializeMessages(messages);
+  // 3. メッセージをシリアライズ（画像データを抽出）
+  const { text: serializedText, wasTrimmed, imageData } = serializeMessages(messages);
+
+  // 画像数超過エラーかどうかを判定
+  const imageCountExceeded = originalError ? isImageCountExceededError(originalError) : false;
+  const hasImages = imageData.length > 0 && !imageCountExceeded;
 
   // 4. 要約Agent用のRequestContextを構築
   const reviewCtx = requestContext.all;
@@ -194,22 +320,64 @@ export async function recoverFromContextLength(
     ['mrTargetBranch', reviewCtx.mrTargetBranch],
     ['alreadyStoredSummary', alreadyStoredSummary],
     ['openaiReasoningEffort', reviewCtx.openaiReasoningEffort],
+    ['hasImages', hasImages],
   ]);
 
   // 5. 要約Agentで会話履歴を要約
-  const userPrompt = buildSummarizationUserPrompt(serializedText, wasTrimmed);
+  const generateOptions = {
+    requestContext: summarizationContext,
+    ...buildGenerateOptions(reviewCtx),
+  };
+
   logger.debug(
     { requestContext: sanitizeForLog(summarizationContext.all) },
     'Calling summarizationAgent.generate',
   );
-  const result = await withRateLimitRetry(
-    () =>
-      summarizationAgent.generate(userPrompt, {
-        requestContext: summarizationContext,
-        ...buildGenerateOptions(reviewCtx),
-      }),
-    rateLimitRetryConfig,
-  );
+
+  let result;
+
+  if (hasImages) {
+    // 画像ありかつ通常のコンテキスト長エラー: マルチモーダルプロンプトで要約Agentを呼び出す
+    const userPromptText = buildSummarizationUserPrompt(serializedText, wasTrimmed);
+    const imageNotice =
+      '\n\n## Image Data\nThe conversation contained image file reads. Image placeholders in the text above (e.g., [Image: path/to/file.png]) correspond to the actual image data provided as separate image content parts below. Use these images to understand what the review agent was analyzing.';
+
+    const userMessage = {
+      role: 'user' as const,
+      content: [
+        { type: 'text' as const, text: userPromptText + imageNotice },
+        ...imageData.map((img) => ({
+          type: 'image' as const,
+          image: Buffer.from(img.base64Data, 'base64'),
+          mediaType: img.mediaType,
+        })),
+      ],
+    };
+
+    result = await withRateLimitRetry(
+      () => summarizationAgent.generate(userMessage, generateOptions),
+      rateLimitRetryConfig,
+    );
+  } else if (imageData.length > 0 && imageCountExceeded) {
+    // 画像数超過ケース: 画像データを除外し、ファイル名のみ使用
+    const adjustedText = replaceImagePlaceholdersWithFilenames(serializedText, imageData);
+    const imageExclusionNotice =
+      '\n\n## Image Data Notice\nThe original conversation contained image file reads. However, the context length error was caused by too many images. Image data has been excluded from this summary request. Only filenames are shown. Summarize based on text information only.';
+    const userPrompt =
+      buildSummarizationUserPrompt(adjustedText, wasTrimmed) + imageExclusionNotice;
+
+    result = await withRateLimitRetry(
+      () => summarizationAgent.generate(userPrompt, generateOptions),
+      rateLimitRetryConfig,
+    );
+  } else {
+    // 画像なしケース: 既存動作と同じ
+    const userPrompt = buildSummarizationUserPrompt(serializedText, wasTrimmed);
+    result = await withRateLimitRetry(
+      () => summarizationAgent.generate(userPrompt, generateOptions),
+      rateLimitRetryConfig,
+    );
+  }
 
   const summary = typeof result.text === 'string' ? result.text : String(result.text);
 

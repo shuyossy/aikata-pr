@@ -59,6 +59,39 @@ function createToolMessage(toolName: string, result: string): MastraDBMessage {
   };
 }
 
+/**
+ * prepareStepで注入される画像付きuserメッセージを生成するヘルパー
+ * 画像データはv4 FileUIPart形式（type: 'file', mimeType, data）で格納する
+ */
+function createImageUserMessage(
+  images: Array<{ filePath: string; base64Data: string; mediaType: string }>,
+): MastraDBMessage {
+  const fileList = images.map((img, i) => `${i + 1}. ${img.filePath}`).join('\n');
+  return {
+    id: `msg-${Math.random().toString(36).slice(2)}`,
+    role: 'user' as const,
+    createdAt: new Date(),
+    content: {
+      format: 2 as const,
+      parts: [
+        {
+          type: 'text' as const,
+          text:
+            `The readImage tool was used to retrieve the following ${images.length} image(s). ` +
+            `Each image is displayed in the order listed below. ` +
+            `Please continue your review using these images.\n\n` +
+            fileList,
+        },
+        ...images.map((img) => ({
+          type: 'file' as const,
+          mimeType: img.mediaType,
+          data: img.base64Data,
+        })),
+      ],
+    },
+  };
+}
+
 function createTestRequestContext(
   checkItems: IndexedCheckItem[] = new IndexedChecklist(['check1', 'check2']).items.slice(),
   resultFilePath: string = '',
@@ -259,6 +292,69 @@ describe('serializeMessages', () => {
     expect(result.text).toContain(longResult);
   });
 
+  it('画像付きuserメッセージから画像データを抽出し、プレースホルダーに置換する', () => {
+    const messages = [
+      createImageUserMessage([
+        { filePath: 'assets/logo.png', base64Data: 'iVBORw0KGgo=', mediaType: 'image/png' },
+      ]),
+    ];
+
+    const result = serializeMessages(messages);
+
+    expect(result.text).toContain('[Image: assets/logo.png]');
+    expect(result.text).not.toContain('iVBORw0KGgo=');
+    expect(result.text).toContain('The readImage tool was used to retrieve');
+    expect(result.imageData).toHaveLength(1);
+    expect(result.imageData[0]).toEqual({
+      filePath: 'assets/logo.png',
+      base64Data: 'iVBORw0KGgo=',
+      mediaType: 'image/png',
+    });
+  });
+
+  it('通常のuserメッセージは画像抽出されない', () => {
+    const messages = [createMessage('user', 'Please review the code')];
+
+    const result = serializeMessages(messages);
+
+    expect(result.text).toContain('Please review the code');
+    expect(result.text).not.toContain('[Image:');
+    expect(result.imageData).toHaveLength(0);
+  });
+
+  it('readImage以外のツール呼び出しは既存動作と同じ', () => {
+    const messages = [createToolMessage('storeReviewResult', 'stored')];
+
+    const result = serializeMessages(messages);
+
+    expect(result.text).toContain('storeReviewResult');
+    expect(result.text).toContain('stored');
+    expect(result.imageData).toHaveLength(0);
+  });
+
+  it('画像なしメッセージではimageDataが空配列', () => {
+    const messages = [createMessage('user', 'Hello'), createMessage('assistant', 'World')];
+
+    const result = serializeMessages(messages);
+
+    expect(result.imageData).toHaveLength(0);
+  });
+
+  it('複数画像を含むuserメッセージから全ての画像データを抽出する', () => {
+    const messages = [
+      createImageUserMessage([
+        { filePath: 'a.png', base64Data: 'data1', mediaType: 'image/png' },
+        { filePath: 'b.jpg', base64Data: 'data2', mediaType: 'image/jpeg' },
+      ]),
+    ];
+
+    const result = serializeMessages(messages);
+
+    expect(result.imageData).toHaveLength(2);
+    expect(result.text).toContain('[Image: a.png]');
+    expect(result.text).toContain('[Image: b.jpg]');
+  });
+
   it('text・tool-invocation以外のパートタイプは無視される', () => {
     const message: MastraDBMessage = {
       id: 'msg-1',
@@ -447,5 +543,145 @@ describe('recoverFromContextLength', () => {
     const ctx = callOptions.requestContext.all;
     expect(ctx.alreadyStoredSummary).toContain('[ID: 1]');
     expect(ctx.alreadyStoredSummary).toContain('check1');
+  });
+
+  it('画像なしの場合、要約agentに文字列プロンプトが渡される（既存動作互換）', async () => {
+    const mockMemory = {
+      recall: vi.fn().mockResolvedValue({
+        messages: [createMessage('user', 'Review the code')],
+      }),
+      deleteThread: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const reviewAgent = createMockAgent(vi.fn(), mockMemory);
+    const generateFn = vi.fn().mockResolvedValue({ text: 'Summary' });
+    const summarizationAgent = createMockAgent(generateFn);
+
+    const config: ContextLengthRecoveryConfig = {
+      reviewAgent,
+      summarizationAgent,
+      threadId: 'old-thread-id',
+      resourceId: 'test-user',
+      requestContext: createTestRequestContext(
+        new IndexedChecklist(['check1']).items.slice(),
+        resultFilePath,
+      ),
+      checkItems: new IndexedChecklist(['check1']).items.slice(),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      originalError: new Error('context_length_exceeded'),
+    };
+
+    await recoverFromContextLength(config);
+
+    // 文字列プロンプトが渡される
+    const prompt = generateFn.mock.calls[0][0];
+    expect(typeof prompt).toBe('string');
+  });
+
+  it('画像ありかつ通常のコンテキスト長エラーの場合、マルチモーダルプロンプトが渡される', async () => {
+    const mockMemory = {
+      recall: vi.fn().mockResolvedValue({
+        messages: [
+          createMessage('user', 'Review'),
+          createImageUserMessage([
+            { filePath: 'logo.png', base64Data: 'iVBORw0KGgo=', mediaType: 'image/png' },
+          ]),
+        ],
+      }),
+      deleteThread: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const reviewAgent = createMockAgent(vi.fn(), mockMemory);
+    const generateFn = vi.fn().mockResolvedValue({ text: 'Summary with images' });
+    const summarizationAgent = createMockAgent(generateFn);
+
+    // 通常のコンテキスト長エラー（'images'を含まない）
+    const config: ContextLengthRecoveryConfig = {
+      reviewAgent,
+      summarizationAgent,
+      threadId: 'old-thread-id',
+      resourceId: 'test-user',
+      requestContext: createTestRequestContext(
+        new IndexedChecklist(['check1']).items.slice(),
+        resultFilePath,
+      ),
+      checkItems: new IndexedChecklist(['check1']).items.slice(),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      originalError: new Error('context_length_exceeded'),
+    };
+
+    await recoverFromContextLength(config);
+
+    // CoreMessage形式（マルチモーダル）で渡される
+    const prompt = generateFn.mock.calls[0][0];
+    expect(typeof prompt).toBe('object');
+    expect(prompt.role).toBe('user');
+    expect(Array.isArray(prompt.content)).toBe(true);
+    // テキストパートと画像パートが含まれる
+    const textParts = prompt.content.filter((p: { type: string }) => p.type === 'text');
+    const imageParts = prompt.content.filter((p: { type: string }) => p.type === 'image');
+    expect(textParts.length).toBeGreaterThan(0);
+    expect(imageParts).toHaveLength(1);
+    // hasImages=trueがRequestContextに設定される
+    const callOptions = generateFn.mock.calls[0][1];
+    expect(callOptions.requestContext.all.hasImages).toBe(true);
+  });
+
+  it('画像ありかつ画像数超過エラーの場合、画像データを除外しファイル名のみ使用', async () => {
+    // APICallErrorを模擬（isImageCountExceededError用）
+    const { APICallError } = await import('ai');
+    const apiError = new APICallError({
+      message: 'too many images',
+      url: 'http://test',
+      requestBodyValues: {},
+      statusCode: 400,
+      responseBody: 'many images exceeded the context limit',
+      isRetryable: false,
+    });
+
+    const mockMemory = {
+      recall: vi.fn().mockResolvedValue({
+        messages: [
+          createImageUserMessage([
+            {
+              filePath: 'screenshots/test.png',
+              base64Data: 'iVBORw0KGgo=',
+              mediaType: 'image/png',
+            },
+          ]),
+        ],
+      }),
+      deleteThread: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const reviewAgent = createMockAgent(vi.fn(), mockMemory);
+    const generateFn = vi.fn().mockResolvedValue({ text: 'Summary without images' });
+    const summarizationAgent = createMockAgent(generateFn);
+
+    const config: ContextLengthRecoveryConfig = {
+      reviewAgent,
+      summarizationAgent,
+      threadId: 'old-thread-id',
+      resourceId: 'test-user',
+      requestContext: createTestRequestContext(
+        new IndexedChecklist(['check1']).items.slice(),
+        resultFilePath,
+      ),
+      checkItems: new IndexedChecklist(['check1']).items.slice(),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+      originalError: apiError,
+    };
+
+    await recoverFromContextLength(config);
+
+    // 文字列プロンプトが渡される（画像データなし）
+    const prompt = generateFn.mock.calls[0][0];
+    expect(typeof prompt).toBe('string');
+    // ファイル名のみ表示され、除外理由が含まれる
+    expect(prompt).toContain('test.png');
+    expect(prompt).toContain('image data excluded');
+    // hasImages=falseがRequestContextに設定される
+    const callOptions = generateFn.mock.calls[0][1];
+    expect(callOptions.requestContext.all.hasImages).toBe(false);
   });
 });

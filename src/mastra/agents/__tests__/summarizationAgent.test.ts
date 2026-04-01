@@ -32,6 +32,7 @@ function createTestContext(
     ['mrTargetBranch', overrides.mrTargetBranch ?? 'main'],
     ['alreadyStoredSummary', overrides.alreadyStoredSummary ?? 'None yet'],
     ['openaiReasoningEffort', undefined],
+    ['hasImages', overrides.hasImages ?? false],
   ]);
 }
 
@@ -100,6 +101,23 @@ describe('buildSummarizationInstructions', () => {
 
     expect(instructions).toContain('summarization specialist');
     expect(instructions).toContain('context length');
+  });
+
+  it('hasImages=trueの場合、画像参照の取り扱い指示が含まれる', () => {
+    const ctx = createTestContext({ hasImages: true });
+
+    const instructions = buildSummarizationInstructions(ctx);
+
+    expect(instructions).toContain('Image references');
+    expect(instructions).toContain('[Image:');
+  });
+
+  it('hasImages=falseの場合、画像参照の取り扱い指示が含まれない', () => {
+    const ctx = createTestContext({ hasImages: false });
+
+    const instructions = buildSummarizationInstructions(ctx);
+
+    expect(instructions).not.toContain('Image references');
   });
 });
 

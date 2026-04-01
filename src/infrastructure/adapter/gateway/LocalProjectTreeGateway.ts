@@ -56,7 +56,7 @@ export class LocalProjectTreeGateway implements ProjectTreeGateway {
     try {
       const output = execFileSync(
         'git',
-        ['ls-files', '--cached', '--others', '--exclude-standard'],
+        ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
         {
           cwd: projectDir,
           encoding: 'utf-8',
@@ -64,7 +64,7 @@ export class LocalProjectTreeGateway implements ProjectTreeGateway {
           stdio: ['pipe', 'pipe', 'pipe'],
         },
       );
-      return output.trim().split('\n').filter(Boolean);
+      return output.split('\0').filter(Boolean);
     } catch {
       // gitが利用できないまたはgitリポジトリでない場合のフォールバック
       return this.walkFilesystem(projectDir);

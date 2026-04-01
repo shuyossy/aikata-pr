@@ -48,6 +48,8 @@
         - 例えばsandbox toolsを利用すれば生のgitコマンドやGitLab API実行により意義ある分析ができるはず
           - ユーザに指定されたskillsを利用しながら作業を実施する
         - チェック項目には1始まりの連番IDが付与されており、レビュー結果格納時はIDで項目を特定する（コンテキスト効率化・内容不一致防止のため）
+        - プロジェクト内に画像ファイル（PNG, JPEG, GIF, WebP）が含まれる場合は、readImageツールが登録され、Agentは画像ファイルをマルチモーダルに読み取って分析できる
+          - readImageツールは画像データをbase64エンコードしてRequestContextに蓄積し、prepareStepフックでMastraDBMessage（FileUIPart形式）としてメッセージ列に注入する
         - レビュー結果はjsonファイルで管理する
           - Agentにはレビュー結果を格納できるtool（+実行済みのレビュー結果一覧を確認できるtool）を与える
             - 複数Agentが同時にレビュー結果格納toolを利用する場合もあるので、排他制御できる様にする

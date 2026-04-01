@@ -89,3 +89,15 @@ export function isContextLengthError(error: unknown): boolean {
 export function isApiCallError(error: unknown): boolean {
   return extractAPICallError(error) !== null;
 }
+
+/**
+ * 許容画像数超過エラーかどうかを判定する
+ *
+ * コンテキスト長エラーかつresponseBodyに'images'が含まれる場合にtrueを返す。
+ */
+export function isImageCountExceededError(error: unknown): boolean {
+  const apiError = extractAPICallError(error);
+  if (!apiError) return false;
+  const body = typeof apiError.responseBody === 'string' ? apiError.responseBody : '';
+  return isContextLengthError(error) && body.includes('images');
+}

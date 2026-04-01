@@ -5,6 +5,7 @@ import {
   findStatusCodeInChain,
   isContextLengthError,
   isApiCallError,
+  isImageCountExceededError,
 } from '../aiApiError.js';
 
 /**
@@ -202,5 +203,57 @@ describe('isApiCallError', () => {
 
   it('nullの場合falseを返す', () => {
     expect(isApiCallError(null)).toBe(false);
+  });
+});
+
+describe('isImageCountExceededError', () => {
+  it('responseBodyに "many images" を含む場合trueを返す', () => {
+    const error = createAPICallError({
+      statusCode: 400,
+      responseBody: 'Too many images in the request',
+    });
+
+    expect(isImageCountExceededError(error)).toBe(true);
+  });
+
+  it('responseBodyに "context_length_exceeded" と "images" を含む場合trueを返す', () => {
+    const error = createAPICallError({
+      statusCode: 400,
+      responseBody: 'context_length_exceeded: too many images provided',
+    });
+
+    expect(isImageCountExceededError(error)).toBe(true);
+  });
+
+  it('responseBodyに "context_length_exceeded" のみで "images" がない場合falseを返す', () => {
+    const error = createAPICallError({
+      statusCode: 400,
+      responseBody: 'context_length_exceeded',
+    });
+
+    expect(isImageCountExceededError(error)).toBe(false);
+  });
+
+  it('コンテキスト長エラーでないが "images" を含む場合falseを返す', () => {
+    const error = createAPICallError({
+      statusCode: 400,
+      responseBody: 'invalid images format',
+    });
+
+    expect(isImageCountExceededError(error)).toBe(false);
+  });
+
+  it('APICallErrorでない場合falseを返す', () => {
+    expect(isImageCountExceededError(new Error('generic'))).toBe(false);
+  });
+
+  it('causeチェーン経由でも検出できる', () => {
+    const apiError = createAPICallError({
+      statusCode: 400,
+      responseBody: 'many images exceeded the limit',
+    });
+    const wrapper = new Error('Wrapped', { cause: apiError });
+
+    expect(isImageCountExceededError(wrapper)).toBe(true);
   });
 });

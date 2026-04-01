@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import type { MastraDBMessage } from '@mastra/core/agent';
 import { Workspace } from '@mastra/core/workspace';
 import { RequestContext } from '@mastra/core/request-context';
-import { createWorkspaceFromContext, buildInstructions, buildUserPrompt } from '../reviewAgent.js';
+import type { ProcessInputStepArgs } from '@mastra/core/processors';
+import {
+  createWorkspaceFromContext,
+  buildInstructions,
+  buildUserPrompt,
+  buildPrepareStepForImageInjection,
+} from '../reviewAgent.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
+import { PENDING_IMAGES_KEY } from '../../tools/readImage.js';
 
 /**
  * テスト用のReviewAgentRequestContextを生成するヘルパー
@@ -30,6 +38,7 @@ function createTestContext(
     priorReviewContext: null,
     skillsPaths: [],
     folderTree: '',
+    pendingImages: [],
     openaiReasoningEffort: undefined,
     ...overrides,
   };
@@ -62,6 +71,7 @@ function createTestRequestContext(
     ['priorReviewContext', ctx.priorReviewContext],
     ['skillsPaths', ctx.skillsPaths],
     ['folderTree', ctx.folderTree],
+    ['pendingImages', ctx.pendingImages],
     ['openaiReasoningEffort', ctx.openaiReasoningEffort],
   ]);
 }
@@ -218,6 +228,29 @@ describe('buildInstructions', () => {
 
     expect(result).not.toContain('User-Specified Review Instructions (HIGHEST PRIORITY)');
   });
+
+  it('folderTreeに画像ファイルが含まれる場合、readImageツールの説明が含まれる', () => {
+    const requestContext = createTestRequestContext({
+      folderTree: 'src/\n  assets/\n    logo.png\n  index.ts',
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('readImage');
+    expect(result).toContain('PNG, JPEG, GIF, WebP');
+    expect(result).toContain('MUST use this tool');
+  });
+
+  it('folderTreeに画像ファイルが含まれない場合、readImageツールの説明が含まれない', () => {
+    const requestContext = createTestRequestContext({
+      folderTree: 'src/\n  index.ts\n  utils/\n    helper.ts',
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).not.toContain('readImage');
+    expect(result).not.toContain('Image Reading Tool');
+  });
 });
 
 describe('buildUserPrompt', () => {
@@ -332,6 +365,137 @@ describe('buildUserPrompt', () => {
 
     expect(result).toContain('3');
     expect(result).toContain('storeReviewResult');
+  });
+});
+
+describe('buildPrepareStepForImageInjection', () => {
+  /**
+   * テスト用にProcessInputStepArgsの最小限のモックを作成するヘルパー
+   * buildPrepareStepForImageInjectionはmessagesのみ使用する
+   */
+  function createMockArgs(messages: MastraDBMessage[] = []): ProcessInputStepArgs {
+    return { messages } as ProcessInputStepArgs;
+  }
+
+  it('pendingImagesが空の場合、undefinedを返す（メッセージ変更なし）', () => {
+    const requestContext = createTestRequestContext();
+    const prepareStep = buildPrepareStepForImageInjection(requestContext);
+
+    const result = prepareStep(createMockArgs());
+
+    expect(result).toBeUndefined();
+  });
+
+  it('pendingImagesがある場合、画像付きuserメッセージが末尾に追加される', () => {
+    const requestContext = createTestRequestContext();
+    requestContext.set(PENDING_IMAGES_KEY, [
+      { filePath: 'assets/logo.png', base64Data: 'iVBORw0KGgo=', mediaType: 'image/png' },
+    ]);
+
+    const prepareStep = buildPrepareStepForImageInjection(requestContext);
+    const existingMessage = {
+      id: 'msg-1',
+      role: 'user',
+      createdAt: new Date(),
+      content: { format: 2, parts: [{ type: 'text', text: 'original' }] },
+    } as MastraDBMessage;
+    const result = prepareStep(createMockArgs([existingMessage]));
+
+    // messagesが返される
+    expect(result).toHaveProperty('messages');
+    const messages = result!.messages!;
+    // 元のメッセージ + 新しいuserメッセージ
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toEqual(existingMessage);
+
+    // 新しいuserメッセージの構造を検証（MastraDBMessage形式）
+    const imageMessage = messages[1];
+    expect(imageMessage.role).toBe('user');
+    expect(imageMessage.id).toBeDefined();
+    expect(imageMessage.createdAt).toBeInstanceOf(Date);
+    expect(imageMessage.content.format).toBe(2);
+
+    // テキストパート
+    const textPart = imageMessage.content.parts[0];
+    expect(textPart.type).toBe('text');
+    expect((textPart as { text: string }).text).toContain(
+      'The readImage tool was used to retrieve',
+    );
+    expect((textPart as { text: string }).text).toContain('1 image(s)');
+    expect((textPart as { text: string }).text).toContain('assets/logo.png');
+    expect((textPart as { text: string }).text).toContain('Please continue your review');
+
+    // ファイルパート（v4 FileUIPart形式）
+    const filePart = imageMessage.content.parts[1] as {
+      type: string;
+      mimeType: string;
+      data: string;
+    };
+    expect(filePart.type).toBe('file');
+    expect(filePart.data).toBe('iVBORw0KGgo=');
+    expect(filePart.mimeType).toBe('image/png');
+  });
+
+  it('複数のpendingImagesがある場合、全画像が1つのuserメッセージに含まれる', () => {
+    const requestContext = createTestRequestContext();
+    requestContext.set(PENDING_IMAGES_KEY, [
+      { filePath: 'a.png', base64Data: 'data1', mediaType: 'image/png' },
+      { filePath: 'b.jpg', base64Data: 'data2', mediaType: 'image/jpeg' },
+    ]);
+
+    const prepareStep = buildPrepareStepForImageInjection(requestContext);
+    const result = prepareStep(createMockArgs());
+
+    const messages = result!.messages!;
+    expect(messages).toHaveLength(1);
+
+    const imageMessage = messages[0];
+    expect(imageMessage.content.parts).toHaveLength(3); // 1 text + 2 files
+
+    // テキストにファイルパスリストが含まれる
+    const textPart = imageMessage.content.parts[0] as { text: string };
+    expect(textPart.text).toContain('2 image(s)');
+    expect(textPart.text).toContain('1. a.png');
+    expect(textPart.text).toContain('2. b.jpg');
+
+    // ファイルパート
+    const filePart1 = imageMessage.content.parts[1] as { type: string; mimeType: string };
+    const filePart2 = imageMessage.content.parts[2] as { type: string; mimeType: string };
+    expect(filePart1.type).toBe('file');
+    expect(filePart1.mimeType).toBe('image/png');
+    expect(filePart2.type).toBe('file');
+    expect(filePart2.mimeType).toBe('image/jpeg');
+  });
+
+  it('注入後にpendingImagesがクリアされる', () => {
+    const requestContext = createTestRequestContext();
+    requestContext.set(PENDING_IMAGES_KEY, [
+      { filePath: 'a.png', base64Data: 'data1', mediaType: 'image/png' },
+    ]);
+
+    const prepareStep = buildPrepareStepForImageInjection(requestContext);
+    prepareStep(createMockArgs());
+
+    // pendingImagesがクリアされている
+    const pendingImages = requestContext.get(PENDING_IMAGES_KEY);
+    expect(pendingImages).toHaveLength(0);
+  });
+
+  it('2回目の呼び出しではpendingImagesが空のためundefinedを返す', () => {
+    const requestContext = createTestRequestContext();
+    requestContext.set(PENDING_IMAGES_KEY, [
+      { filePath: 'a.png', base64Data: 'data1', mediaType: 'image/png' },
+    ]);
+
+    const prepareStep = buildPrepareStepForImageInjection(requestContext);
+
+    // 1回目: 画像注入
+    const result1 = prepareStep(createMockArgs());
+    expect(result1).toHaveProperty('messages');
+
+    // 2回目: pendingImagesが空のため変更なし
+    const result2 = prepareStep(createMockArgs());
+    expect(result2).toBeUndefined();
   });
 });
 

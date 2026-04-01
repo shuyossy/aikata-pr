@@ -12,7 +12,7 @@ import {
   sanitizeForLog,
 } from '../../requestContext.js';
 import { readStoredResults, type StoredReviewResult } from '../../types.js';
-import { buildUserPrompt } from '../../agents/reviewAgent.js';
+import { buildUserPrompt, buildPrepareStepForImageInjection } from '../../agents/reviewAgent.js';
 import { type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
 import { classifyError, REVIEW_MISSED_MESSAGE } from '../../../lib/errorClassifier.js';
 import { recoverFromContextLength } from './contextLengthRecovery.js';
@@ -199,6 +199,7 @@ async function executeWithErrorRecovery(params: {
       await agent.generate(prompt, {
         requestContext,
         memory: memoryOption,
+        prepareStep: buildPrepareStepForImageInjection(requestContext),
         ...buildGenerateOptions(requestContext.all as WorkflowRequestContext),
       });
       coordinator.reportSuccess();
@@ -256,6 +257,7 @@ async function executeWithErrorRecovery(params: {
             requestContext,
             checkItems,
             rateLimitRetryConfig,
+            originalError: error,
           });
         } catch (recoveryError) {
           logger.error(

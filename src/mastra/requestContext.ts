@@ -1,5 +1,6 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { IndexedCheckItem } from './indexedCheckItem.js';
+import type { PendingImageData } from './tools/readImage.js';
 
 /**
  * ワークフローレベルのRequestContext型（モデル設定 + プロジェクト情報）
@@ -41,6 +42,7 @@ export interface ReviewAgentRequestContext extends WorkflowRequestContext {
   } | null;
   skillsPaths: string[];
   folderTree: string;
+  pendingImages: PendingImageData[];
 }
 
 /**
@@ -52,6 +54,7 @@ export interface SummarizationAgentRequestContext extends WorkflowRequestContext
   mrSourceBranch: string;
   mrTargetBranch: string;
   alreadyStoredSummary: string;
+  hasImages: boolean;
 }
 
 /**
