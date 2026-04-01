@@ -357,7 +357,7 @@ export class ExecuteReviewService {
       tokenCounter,
       {
         maxContextLength: command.maxContextLength,
-        thresholdRatio: 0.7,
+        thresholdRatio: 0.6,
         initialKeepPercent: 30,
         keepPercentStep: 5,
         minKeepPercent: 5,
