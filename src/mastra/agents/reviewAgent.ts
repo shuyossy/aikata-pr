@@ -90,6 +90,8 @@ Repeat the following until you can confidently rate the check item:
 - If you used a workspace tool: did it answer your question? Does it raise new questions that affect your rating? If insufficient, return to REASON with updated understanding.
 - If you stored a review result: move on to the next check item and start a new cycle.
 
+Before using any tool(s), explain to users the reasoning behind why you are using that tool(s).
+
 ## Efficiency Guidelines
 
 - If prior review results are provided, focus your analysis on what changed since the prior review. Reuse prior conclusions for unchanged aspects.
