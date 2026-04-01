@@ -46,9 +46,15 @@ describe('GitLabMrGateway', () => {
       const mrChangesResponse = {
         changes: [
           {
-            diff: '--- a/file1.ts\n+++ b/file1.ts\n@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n',
+            old_path: 'file1.ts',
+            new_path: 'file1.ts',
+            diff: '@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n',
           },
-          { diff: '--- a/file2.ts\n+++ b/file2.ts\n@@ -10,3 +10,5 @@\n+export const baz = 1;\n' },
+          {
+            old_path: 'file2.ts',
+            new_path: 'file2.ts',
+            diff: '@@ -10,3 +10,5 @@\n+export const baz = 1;\n',
+          },
         ],
       };
 
@@ -84,11 +90,11 @@ describe('GitLabMrGateway', () => {
       expect(result.commitHash).toBe('abc123def456');
       // コミットメッセージは1行目のみ
       expect(result.commitMessage).toBe('feat: add new feature');
-      // 複数のdiffが結合されること
+      // 複数のdiffがファイルパスヘッダー付きで結合されること
       expect(result.diff).toBe(
-        '--- a/file1.ts\n+++ b/file1.ts\n@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n' +
+        'diff --git a/file1.ts b/file1.ts\n--- a/file1.ts\n+++ b/file1.ts\n@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n' +
           '\n' +
-          '--- a/file2.ts\n+++ b/file2.ts\n@@ -10,3 +10,5 @@\n+export const baz = 1;\n',
+          'diff --git a/file2.ts b/file2.ts\n--- a/file2.ts\n+++ b/file2.ts\n@@ -10,3 +10,5 @@\n+export const baz = 1;\n',
       );
     });
 
@@ -175,8 +181,16 @@ describe('GitLabMrGateway', () => {
     it('指定コミット以降のdiffを返す', async () => {
       const compareResponse = {
         diffs: [
-          { diff: '--- a/changed.ts\n+++ b/changed.ts\n@@ -1 +1 @@\n-old\n+new\n' },
-          { diff: '--- a/added.ts\n+++ b/added.ts\n@@ -0,0 +1 @@\n+content\n' },
+          {
+            old_path: 'changed.ts',
+            new_path: 'changed.ts',
+            diff: '@@ -1 +1 @@\n-old\n+new\n',
+          },
+          {
+            old_path: 'added.ts',
+            new_path: 'added.ts',
+            diff: '@@ -0,0 +1 @@\n+content\n',
+          },
         ],
       };
 
@@ -189,9 +203,9 @@ describe('GitLabMrGateway', () => {
       );
 
       expect(result).toBe(
-        '--- a/changed.ts\n+++ b/changed.ts\n@@ -1 +1 @@\n-old\n+new\n' +
+        'diff --git a/changed.ts b/changed.ts\n--- a/changed.ts\n+++ b/changed.ts\n@@ -1 +1 @@\n-old\n+new\n' +
           '\n' +
-          '--- a/added.ts\n+++ b/added.ts\n@@ -0,0 +1 @@\n+content\n',
+          'diff --git a/added.ts b/added.ts\n--- a/added.ts\n+++ b/added.ts\n@@ -0,0 +1 @@\n+content\n',
       );
     });
 
@@ -205,6 +219,47 @@ describe('GitLabMrGateway', () => {
       const result = await gateway.getDiffSince('123', '42', 'sinceCommitHash', 'currentSha456');
 
       expect(result).toBe('');
+    });
+
+    it('既にヘッダーが含まれるdiffに対して重複ヘッダーを追加しない', async () => {
+      const compareResponse = {
+        diffs: [
+          {
+            old_path: 'file.ts',
+            new_path: 'file.ts',
+            diff: '--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n',
+          },
+        ],
+      };
+
+      mockClient.get.mockResolvedValueOnce(compareResponse);
+
+      const result = await gateway.getDiffSince('123', '42', 'fromSha', 'toSha');
+
+      // diff --git ヘッダーは追加されるが --- a/ と +++ b/ は重複しない
+      expect(result).toBe(
+        'diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n',
+      );
+    });
+
+    it('リネームされたファイルのdiffにold_pathとnew_pathが反映される', async () => {
+      const compareResponse = {
+        diffs: [
+          {
+            old_path: 'old/file.ts',
+            new_path: 'new/file.ts',
+            diff: '@@ -1 +1 @@\n-old\n+new\n',
+          },
+        ],
+      };
+
+      mockClient.get.mockResolvedValueOnce(compareResponse);
+
+      const result = await gateway.getDiffSince('123', '42', 'fromSha', 'toSha');
+
+      expect(result).toBe(
+        'diff --git a/old/file.ts b/new/file.ts\n--- a/old/file.ts\n+++ b/new/file.ts\n@@ -1 +1 @@\n-old\n+new\n',
+      );
     });
   });
 });

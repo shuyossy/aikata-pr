@@ -166,22 +166,39 @@ describe('LocalProjectTreeGateway', () => {
     expect(tree).toContain('deep.txt');
   });
 
-  it('エントリ数制限で切り捨てられる', async () => {
+  it('エントリ数上限を超えた場合はディレクトリのみのツリーが返る', async () => {
     const tmpDir = createTempDir();
     tempDirs.push(tmpDir);
     initGitRepo(tmpDir);
-    // 10個のファイルを作成
-    const files = Array.from({ length: 10 }, (_, i) => `file${String(i).padStart(2, '0')}.txt`);
-    createStructure(tmpDir, files);
+    // ディレクトリ+ファイルを含む構造（合計8エントリ以上）
+    createStructure(tmpDir, [
+      'src/index.ts',
+      'src/lib/utils.ts',
+      'src/lib/helpers.ts',
+      'tests/test1.ts',
+      'tests/test2.ts',
+      'docs/readme.md',
+      'config.json',
+      'package.json',
+    ]);
 
     const gateway = new LocalProjectTreeGateway({ maxEntries: 5 });
     const tree = await gateway.getTree(tmpDir, defaultOptions);
 
-    // 5件で切り捨てられ、truncatedメッセージがある
-    expect(tree).toContain('... (truncated');
-    // 全ファイルは含まれない
-    const lineCount = tree.split('\n').filter((l) => l.trim() && !l.includes('truncated')).length;
-    expect(lineCount).toBe(5);
+    // ディレクトリのみが含まれる
+    const lines = tree.split('\n').filter((l) => l.trim());
+    for (const line of lines) {
+      expect(line.trimStart()).toMatch(/\/$/);
+    }
+    expect(tree).toContain('src/');
+    expect(tree).toContain('lib/');
+    expect(tree).toContain('tests/');
+    expect(tree).toContain('docs/');
+    // ファイルは含まれない
+    expect(tree).not.toContain('index.ts');
+    expect(tree).not.toContain('config.json');
+    // truncatedメッセージも含まれない
+    expect(tree).not.toContain('truncated');
   });
 
   it('gitリポジトリでない場合は.gitのみ除外してフォールバックする', async () => {

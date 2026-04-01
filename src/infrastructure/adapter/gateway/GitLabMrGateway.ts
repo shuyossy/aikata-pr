@@ -23,6 +23,8 @@ interface GitLabMrInfo {
  */
 interface GitLabMrChanges {
   changes: Array<{
+    old_path: string;
+    new_path: string;
     diff: string;
   }>;
 }
@@ -41,6 +43,8 @@ interface GitLabCommit {
  */
 interface GitLabCompareResult {
   diffs: Array<{
+    old_path: string;
+    new_path: string;
     diff: string;
   }>;
 }
@@ -68,7 +72,9 @@ export class GitLabMrGateway implements MrGateway {
       ),
     ]);
 
-    const diff = this.combineDiffs(mrChanges.changes.map((c) => c.diff));
+    const diff = this.combineDiffs(
+      mrChanges.changes.map((c) => ({ oldPath: c.old_path, newPath: c.new_path, diff: c.diff })),
+    );
     const commitMessage = commitsPage.length > 0 ? commitsPage[0].message.split('\n')[0] : '';
 
     return new MrContext({
@@ -122,16 +128,28 @@ export class GitLabMrGateway implements MrGateway {
       `/projects/${projectId}/repository/compare?from=${sinceCommitHash}&to=${currentCommitHash}`,
     );
 
-    return this.combineDiffs(compareResult.diffs.map((d) => d.diff));
+    return this.combineDiffs(
+      compareResult.diffs.map((d) => ({ oldPath: d.old_path, newPath: d.new_path, diff: d.diff })),
+    );
   }
 
   /**
-   * 複数のdiff文字列を改行で結合する
+   * 複数のdiff文字列をファイルパス付きのgit diff形式で結合する
    */
-  private combineDiffs(diffs: string[]): string {
+  private combineDiffs(diffs: Array<{ oldPath: string; newPath: string; diff: string }>): string {
     if (diffs.length === 0) {
       return '';
     }
-    return diffs.join('\n');
+    return diffs
+      .map(({ oldPath, newPath, diff }) => {
+        const header = `diff --git a/${oldPath} b/${newPath}`;
+        // diff内容が既に --- a/ ヘッダーを含む場合はそのまま結合
+        if (diff.startsWith('--- a/')) {
+          return `${header}\n${diff}`;
+        }
+        // --- a/ ヘッダーがない場合は追加
+        return `${header}\n--- a/${oldPath}\n+++ b/${newPath}\n${diff}`;
+      })
+      .join('\n');
   }
 }
