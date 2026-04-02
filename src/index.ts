@@ -9,7 +9,7 @@ import type {
 } from './application/executeReview/ExecuteReviewService.js';
 import { ExecuteReviewService } from './application/executeReview/ExecuteReviewService.js';
 import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
-import { GitLabMrGateway } from './infrastructure/adapter/gateway/index.js';
+import { GitLabMrGateway, LocalGitDiffMrGateway } from './infrastructure/adapter/gateway/index.js';
 import { GitLabMrCommentGateway } from './infrastructure/adapter/gateway/index.js';
 import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/index.js';
 import { mastra } from './mastra/index.js';
@@ -143,9 +143,13 @@ async function main(): Promise<void> {
     const gitlabApiBaseUrl =
       process.env['GITLAB_API_URL'] ?? process.env['CI_API_V4_URL'] ?? 'https://gitlab.com/api/v4';
 
+    // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
+    const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
+
     // DI組み立て
     const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
-    const mrGateway = new GitLabMrGateway(gitlabClient);
+    const apiMrGateway = new GitLabMrGateway(gitlabClient);
+    const mrGateway = new LocalGitDiffMrGateway(projectDir, apiMrGateway, gitlabClient);
     const mrCommentGateway = new GitLabMrCommentGateway(gitlabClient);
     const workflowRunner = new MastraReviewWorkflowRunner();
     const treeGateway = new LocalProjectTreeGateway();
@@ -156,9 +160,6 @@ async function main(): Promise<void> {
       workflowRunner,
       treeGateway,
     );
-
-    // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
-    const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
 
     // TREE_MAX_DEPTHバリデーション
     const treeMaxDepthEnv = process.env['TREE_MAX_DEPTH'];

@@ -8,6 +8,8 @@ RUN npm run build:cli
 
 # ---- Runtime stage ----
 FROM node:22-slim
+# ローカルgit diff取得に必要
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/aikata-pr
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force

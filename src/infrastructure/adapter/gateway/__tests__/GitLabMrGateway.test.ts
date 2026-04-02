@@ -76,7 +76,9 @@ describe('GitLabMrGateway', () => {
 
       // API呼び出しの検証
       expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42');
-      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42/changes');
+      expect(mockClient.get).toHaveBeenCalledWith(
+        '/projects/123/merge_requests/42/changes?access_raw_diffs=true',
+      );
       expect(mockClient.get).toHaveBeenCalledWith(
         '/projects/123/merge_requests/42/commits?per_page=1',
       );

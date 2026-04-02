@@ -1,6 +1,7 @@
 import { MrContext } from '../../../domain/mrContext/index.js';
 import type { MrGateway } from '../../../application/shared/port/gateway/index.js';
 import type { GitLabApiClient } from '../httpClient/index.js';
+import { combineDiffs } from './combineDiffs.js';
 
 /**
  * GitLab APIから返却されるMR情報の型定義
@@ -66,13 +67,15 @@ export class GitLabMrGateway implements MrGateway {
   async getMrContext(projectId: string, mrIid: string): Promise<MrContext> {
     const [mrInfo, mrChanges, commitsPage] = await Promise.all([
       this.client.get<GitLabMrInfo>(`/projects/${projectId}/merge_requests/${mrIid}`),
-      this.client.get<GitLabMrChanges>(`/projects/${projectId}/merge_requests/${mrIid}/changes`),
+      this.client.get<GitLabMrChanges>(
+        `/projects/${projectId}/merge_requests/${mrIid}/changes?access_raw_diffs=true`,
+      ),
       this.client.get<GitLabCommit[]>(
         `/projects/${projectId}/merge_requests/${mrIid}/commits?per_page=1`,
       ),
     ]);
 
-    const diff = this.combineDiffs(
+    const diff = combineDiffs(
       mrChanges.changes.map((c) => ({ oldPath: c.old_path, newPath: c.new_path, diff: c.diff })),
     );
     const commitMessage = commitsPage.length > 0 ? commitsPage[0].message.split('\n')[0] : '';
@@ -128,28 +131,8 @@ export class GitLabMrGateway implements MrGateway {
       `/projects/${projectId}/repository/compare?from=${sinceCommitHash}&to=${currentCommitHash}`,
     );
 
-    return this.combineDiffs(
+    return combineDiffs(
       compareResult.diffs.map((d) => ({ oldPath: d.old_path, newPath: d.new_path, diff: d.diff })),
     );
-  }
-
-  /**
-   * 複数のdiff文字列をファイルパス付きのgit diff形式で結合する
-   */
-  private combineDiffs(diffs: Array<{ oldPath: string; newPath: string; diff: string }>): string {
-    if (diffs.length === 0) {
-      return '';
-    }
-    return diffs
-      .map(({ oldPath, newPath, diff }) => {
-        const header = `diff --git a/${oldPath} b/${newPath}`;
-        // diff内容が既に --- a/ ヘッダーを含む場合はそのまま結合
-        if (diff.startsWith('--- a/')) {
-          return `${header}\n${diff}`;
-        }
-        // --- a/ ヘッダーがない場合は追加
-        return `${header}\n--- a/${oldPath}\n+++ b/${newPath}\n${diff}`;
-      })
-      .join('\n');
   }
 }

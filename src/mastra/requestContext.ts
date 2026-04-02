@@ -88,12 +88,12 @@ export function sanitizeForLog(ctx: Record<string, any>): Record<string, unknown
   if ('aiApiKey' in sanitized) {
     sanitized.aiApiKey = '***';
   }
-  if ('mrDiff' in sanitized && typeof sanitized.mrDiff === 'string') {
-    sanitized.mrDiff = `[${(sanitized.mrDiff as string).length} chars]`;
-  }
-  if ('omittedFileDiffs' in sanitized && sanitized.omittedFileDiffs instanceof Map) {
-    sanitized.omittedFileDiffs = `[Map with ${(sanitized.omittedFileDiffs as Map<string, string>).size} entries]`;
-  }
+  // if ('mrDiff' in sanitized && typeof sanitized.mrDiff === 'string') {
+  //   sanitized.mrDiff = `[${(sanitized.mrDiff as string).length} chars]`;
+  // }
+  // if ('omittedFileDiffs' in sanitized && sanitized.omittedFileDiffs instanceof Map) {
+  //   sanitized.omittedFileDiffs = `[Map with ${(sanitized.omittedFileDiffs as Map<string, string>).size} entries]`;
+  // }
   return sanitized;
 }
 

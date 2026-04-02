@@ -36,6 +36,9 @@ ai-review:
         echo "Error: AIKATA_PR_GITLAB_TOKEN is not set. Please configure AIKATA_PR_GITLAB_TOKEN." >&2
         exit 1
       fi
+    # ローカルgit diff用にgit履歴とターゲットブランチを取得（失敗時はAPIフォールバック）
+    - git fetch --unshallow || true
+    - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" || true
     # GitLab npm Registryの認証設定
     - echo "@aikata:registry=https://${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/" > .npmrc
     - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${AIKATA_PR_GITLAB_TOKEN}" >> .npmrc
