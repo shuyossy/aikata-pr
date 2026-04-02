@@ -93,6 +93,53 @@ export function compressFileDiff(
 }
 
 /**
+ * 単一ファイルのdiffを行数指定で圧縮する
+ * 上位keepLines行と下位keepLines行を保持し、中央部分を省略コメントで置換する
+ * keepLines=0の場合はヘッダー行（1行目）のみ保持する
+ *
+ * @returns compressed: 圧縮後のdiff文字列、omitted: 省略された部分の文字列
+ */
+export function compressFileDiffByLines(
+  fileDiff: string,
+  keepLines: number,
+): { compressed: string; omitted: string } {
+  const lines = fileDiff.split('\n');
+  const totalLines = lines.length;
+
+  // keepLines=0: ヘッダー行（1行目）のみ保持
+  if (keepLines === 0) {
+    if (totalLines <= 1) {
+      return { compressed: fileDiff, omitted: '' };
+    }
+    const headerLine = lines[0]!;
+    const omittedLines = lines.slice(1);
+    const omittedCount = omittedLines.length;
+    const omissionMarker = `[aikata: ${omittedCount} lines omitted from middle. Use getDiffDetail tool with file path to view omitted portion]`;
+    return {
+      compressed: [headerLine, omissionMarker].join('\n'),
+      omitted: omittedLines.join('\n'),
+    };
+  }
+
+  // 圧縮不要: 保持行数の合計が全体以上
+  if (keepLines * 2 >= totalLines) {
+    return { compressed: fileDiff, omitted: '' };
+  }
+
+  const topLines = lines.slice(0, keepLines);
+  const bottomLines = lines.slice(totalLines - keepLines);
+  const omittedLines = lines.slice(keepLines, totalLines - keepLines);
+  const omittedCount = omittedLines.length;
+
+  const omissionMarker = `[aikata: ${omittedCount} lines omitted from middle. Use getDiffDetail tool with file path to view omitted portion]`;
+
+  return {
+    compressed: [...topLines, omissionMarker, ...bottomLines].join('\n'),
+    omitted: omittedLines.join('\n'),
+  };
+}
+
+/**
  * 圧縮されたファイルdiffを結合して1つのdiff文字列に戻す
  */
 export function combineFileDiffs(fileDiffs: Map<string, string>): string {
@@ -219,6 +266,78 @@ export function compressDiffIfNeeded(
     // オリジナルdiffに対して圧縮
     const originalFileDiff = originalFileDiffs.get(targetFile)!;
     const { compressed, omitted } = compressFileDiff(originalFileDiff, newKeepPercent);
+
+    currentFileDiffs.set(targetFile, compressed);
+    if (omitted) {
+      omittedFileDiffs.set(targetFile, omitted);
+      compressedFilePaths.add(targetFile);
+    }
+
+    // 再結合してトークン数チェック
+    const combinedDiff = combineFileDiffs(currentFileDiffs);
+    if (isUnderThreshold(combinedDiff, currentFolderTree)) {
+      return {
+        compressed: true,
+        compressedDiff: combinedDiff,
+        folderTreeStripped,
+        strippedFolderTree,
+        omittedFileDiffs,
+        compressedFilePaths,
+        allDiffFilePaths,
+      };
+    }
+  }
+
+  // Phase 2: 行数ベースの段階的圧縮（keepLines半減ループ）
+  // Phase 1で全ファイルがminKeepPercentに達したが、まだ閾値を超えている場合
+  const fileKeepLines = new Map<string, number>();
+
+  // Phase 1完了時のkeepLinesを初期値として算出
+  for (const [filePath, keepPercent] of fileKeepPercents) {
+    if (keepPercent <= options.minKeepPercent) {
+      const originalFileDiff = originalFileDiffs.get(filePath)!;
+      const totalLines = originalFileDiff.split('\n').length;
+      const currentKeepLines = Math.floor((totalLines * keepPercent) / 100);
+      // keepLinesが0の場合（元々小さいファイル）は対象外
+      if (currentKeepLines > 0) {
+        fileKeepLines.set(filePath, currentKeepLines);
+      }
+    }
+  }
+
+  while (true) {
+    // 現在のdiff行数でソートし、最大ファイルを選択
+    const sortedFiles = Array.from(currentFileDiffs.keys()).sort(
+      (a, b) => getLineCount(b) - getLineCount(a),
+    );
+
+    // 圧縮可能なファイルを探す（fileKeepLinesに存在し、keepLines > 0のもの）
+    let targetFile: string | null = null;
+    for (const file of sortedFiles) {
+      if (!fileKeepLines.has(file)) {
+        continue;
+      }
+      const currentKeep = fileKeepLines.get(file)!;
+      if (currentKeep <= 0) {
+        continue;
+      }
+      targetFile = file;
+      break;
+    }
+
+    // 全ファイルがkeepLines=0に達した → ベストエフォートで完了
+    if (targetFile === null) {
+      break;
+    }
+
+    // keepLinesを半減
+    const currentKeepLines = fileKeepLines.get(targetFile)!;
+    const newKeepLines = Math.floor(currentKeepLines / 2);
+    fileKeepLines.set(targetFile, newKeepLines);
+
+    // オリジナルdiffに対して行数ベースで圧縮
+    const originalFileDiff = originalFileDiffs.get(targetFile)!;
+    const { compressed, omitted } = compressFileDiffByLines(originalFileDiff, newKeepLines);
 
     currentFileDiffs.set(targetFile, compressed);
     if (omitted) {

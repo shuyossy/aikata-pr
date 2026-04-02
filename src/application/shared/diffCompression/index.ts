@@ -1,6 +1,7 @@
 export {
   splitDiffByFile,
   compressFileDiff,
+  compressFileDiffByLines,
   combineFileDiffs,
   compressDiffIfNeeded,
 } from './DiffCompressor.js';
