@@ -11,7 +11,7 @@ export const REVIEW_DATA_PREFIX = '<!-- aikata-review-data: ';
 export const REVIEW_DATA_SUFFIX = ' -->';
 
 /** 折りたたみ表示にする閾値（この値を超えたら折りたたみ） */
-export const FOLD_THRESHOLD = 15;
+export const FOLD_THRESHOLD = 2;
 
 /**
  * MRコメント投稿用のMarkdown整形ロジック
