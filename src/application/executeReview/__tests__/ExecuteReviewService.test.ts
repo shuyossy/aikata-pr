@@ -436,9 +436,9 @@ describe('ExecuteReviewService', () => {
     expect(result.results).toHaveLength(2);
     expect(result.results.every((r) => r.isError)).toBe(true);
     expect(result.allResultsAreErrors).toBe(true);
-    // コメントは投稿されている
-    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
-    expect(result.commentPosted).toBe(true);
+    // 全エラーの場合はコメントが投稿されない
+    expect(mrDiscussionGateway.postDiscussion).not.toHaveBeenCalled();
+    expect(result.commentPosted).toBe(false);
   });
 
   it('複数のaikataコメントがある場合、最新のコメントのみ使用される', async () => {
@@ -997,7 +997,9 @@ describe('ExecuteReviewService', () => {
       expect(result.results).toHaveLength(2);
       expect(result.results.every((r) => r.isError)).toBe(true);
       expect(result.allResultsAreErrors).toBe(true);
-      expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+      // 全エラーの場合はコメントが投稿されない
+      expect(mrDiscussionGateway.postDiscussion).not.toHaveBeenCalled();
+      expect(result.commentPosted).toBe(false);
     });
 
     it('チェックリストに新項目が追加された場合、新項目のみworkflowで再レビューされる', async () => {

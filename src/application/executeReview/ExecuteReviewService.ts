@@ -155,20 +155,28 @@ export class ExecuteReviewService {
 
       const results = this.convertToReviewResults(workflowResult, command);
 
-      const commentBody = CommentFormatter.formatComment(
-        results,
-        command.reviewSettings.ratings,
-        mrContext.commitHash,
-        mrContext.commitMessage,
-        command.reviewSettings.hiddenRatingLabels,
-      );
-      await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
+      // 全エラーの場合はコメントを投稿しない
+      const allErrors = ReviewResult.allAreErrors(results);
+      if (!allErrors) {
+        const commentBody = CommentFormatter.formatComment(
+          results,
+          command.reviewSettings.ratings,
+          mrContext.commitHash,
+          mrContext.commitMessage,
+          command.reviewSettings.hiddenRatingLabels,
+        );
+        await this.mrDiscussionGateway.postDiscussion(
+          command.projectId,
+          command.mrIid,
+          commentBody,
+        );
+      }
 
       return {
         results,
         commitHash: mrContext.commitHash,
-        commentPosted: true,
-        allResultsAreErrors: ReviewResult.allAreErrors(results),
+        commentPosted: !allErrors,
+        allResultsAreErrors: allErrors,
       };
     } finally {
       this.cleanupTempFiles(resultFilePath);
@@ -257,20 +265,28 @@ export class ExecuteReviewService {
         throw new Error(`Result not found for item: ${item.content}`);
       });
 
-      const commentBody = CommentFormatter.formatComment(
-        mergedResults,
-        command.reviewSettings.ratings,
-        mrContext.commitHash,
-        mrContext.commitMessage,
-        command.reviewSettings.hiddenRatingLabels,
-      );
-      await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
+      // 全エラーの場合はコメントを投稿しない
+      const allErrors = ReviewResult.allAreErrors(mergedResults);
+      if (!allErrors) {
+        const commentBody = CommentFormatter.formatComment(
+          mergedResults,
+          command.reviewSettings.ratings,
+          mrContext.commitHash,
+          mrContext.commitMessage,
+          command.reviewSettings.hiddenRatingLabels,
+        );
+        await this.mrDiscussionGateway.postDiscussion(
+          command.projectId,
+          command.mrIid,
+          commentBody,
+        );
+      }
 
       return {
         results: mergedResults,
         commitHash: mrContext.commitHash,
-        commentPosted: true,
-        allResultsAreErrors: ReviewResult.allAreErrors(mergedResults),
+        commentPosted: !allErrors,
+        allResultsAreErrors: allErrors,
       };
     } finally {
       this.cleanupTempFiles(resultFilePath);
