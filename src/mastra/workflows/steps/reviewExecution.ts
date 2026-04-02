@@ -199,6 +199,7 @@ async function executeWithErrorRecovery(params: {
       await agent.generate(prompt, {
         requestContext,
         memory: memoryOption,
+        maxSteps: 50,
         prepareStep: buildPrepareStepForImageInjection(requestContext),
         ...buildGenerateOptions(requestContext.all as WorkflowRequestContext),
       });
