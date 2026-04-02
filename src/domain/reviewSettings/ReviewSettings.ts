@@ -16,6 +16,7 @@ interface ReviewSettingsParams {
   concurrentReviewCount: number | null;
   commentFormat: string;
   ratings: Rating[];
+  hiddenRatingLabels: string[];
 }
 
 /**
@@ -27,6 +28,7 @@ export class ReviewSettings {
   readonly concurrentReviewCount: number | null;
   readonly commentFormat: string;
   readonly ratings: Rating[];
+  readonly hiddenRatingLabels: string[];
 
   constructor(params: ReviewSettingsParams) {
     if (params.concurrentReviewCount !== null && params.concurrentReviewCount < 1) {
@@ -35,10 +37,17 @@ export class ReviewSettings {
     if (params.ratings.length === 0) {
       throw new Error('ratings must not be empty');
     }
+    const ratingLabels = new Set(params.ratings.map((r) => r.label));
+    for (const label of params.hiddenRatingLabels) {
+      if (!ratingLabels.has(label)) {
+        throw new Error(`hiddenRatingLabels contains unknown label: ${label}`);
+      }
+    }
     this.additionalInstructions = params.additionalInstructions;
     this.concurrentReviewCount = params.concurrentReviewCount;
     this.commentFormat = params.commentFormat;
     this.ratings = params.ratings;
+    this.hiddenRatingLabels = params.hiddenRatingLabels;
   }
 
   /** デフォルト値でReviewSettingsを生成する */
@@ -48,6 +57,7 @@ export class ReviewSettings {
       concurrentReviewCount: null,
       commentFormat: DEFAULT_COMMENT_FORMAT,
       ratings: DEFAULT_RATINGS,
+      hiddenRatingLabels: [],
     });
   }
 }

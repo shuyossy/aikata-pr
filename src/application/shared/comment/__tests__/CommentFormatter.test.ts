@@ -233,4 +233,155 @@ describe('CommentFormatter', () => {
       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
     });
   });
+
+  describe('hiddenRatingLabels', () => {
+    it('hiddenRatingLabels未指定では全結果が表に表示される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+        ReviewResult.success(
+          new CheckItem('チェック項目2'),
+          new Rating('B', '概ね満たしている'),
+          'コメント2',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+
+      expect(output).toContain('| チェック項目1 | A | コメント1 |');
+      expect(output).toContain('| チェック項目2 | B | コメント2 |');
+    });
+
+    it('hiddenRatingLabelsに一致する評定の結果が表に表示されない', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+        ReviewResult.success(
+          new CheckItem('チェック項目2'),
+          new Rating('B', '概ね満たしている'),
+          'コメント2',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+        'A',
+      ]);
+
+      expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
+      expect(output).toContain('| チェック項目2 | B | コメント2 |');
+    });
+
+    it('非表示の結果がメタデータのhiddenResultsに格納される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+        ReviewResult.success(
+          new CheckItem('チェック項目2'),
+          new Rating('B', '概ね満たしている'),
+          'コメント2',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+        'A',
+      ]);
+
+      // メタデータのJSON部分を抽出してパース
+      const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
+      const dataEnd = output.indexOf(REVIEW_DATA_SUFFIX, dataStart);
+      const jsonStr = output.substring(dataStart, dataEnd);
+      const metadata = JSON.parse(jsonStr);
+
+      expect(metadata.hiddenResults).toEqual([
+        { checkItemContent: 'チェック項目1', ratingLabel: 'A', comment: 'コメント1' },
+      ]);
+    });
+
+    it('エラー結果はhiddenRatingLabelsに関係なく常に表に表示される', () => {
+      const results = [
+        ReviewResult.error(new CheckItem('エラー項目'), 'タイムアウト'),
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+        'A',
+      ]);
+
+      expect(output).toContain('| エラー項目 | エラー | タイムアウト |');
+      expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
+    });
+
+    it('全ての非エラー結果が非表示の場合、代替メッセージが表示される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+        'A',
+      ]);
+
+      expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
+      expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
+    });
+
+    it('hiddenRatingLabelsが空配列の場合、メタデータにhiddenResultsが含まれない', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+      );
+
+      const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
+      const dataEnd = output.indexOf(REVIEW_DATA_SUFFIX, dataStart);
+      const jsonStr = output.substring(dataStart, dataEnd);
+      const metadata = JSON.parse(jsonStr);
+
+      expect(metadata.hiddenResults).toBeUndefined();
+    });
+
+    it('折りたたみ判定はvisibleResultsの件数で行われる', () => {
+      // FOLD_THRESHOLD + 1件のうち、1件を非表示にしてFOLD_THRESHOLD件にする
+      const count = FOLD_THRESHOLD + 1;
+      const results = Array.from({ length: count }, (_, i) => {
+        const checkItem = new CheckItem(`チェック項目${i + 1}`);
+        const rating = ratings[i % ratings.length];
+        return ReviewResult.success(checkItem, rating, `コメント${i + 1}`);
+      });
+
+      // Aを非表示にすると、visible件数が減って折りたたみ閾値以下になる
+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+        'A',
+      ]);
+
+      // A評定の結果が非表示になるため、visible件数はFOLD_THRESHOLD以下
+      expect(output).not.toContain('<details>');
+    });
+  });
 });

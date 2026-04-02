@@ -160,6 +160,7 @@ export class ExecuteReviewService {
         command.reviewSettings.ratings,
         mrContext.commitHash,
         mrContext.commitMessage,
+        command.reviewSettings.hiddenRatingLabels,
       );
       await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
 
@@ -208,6 +209,7 @@ export class ExecuteReviewService {
         command.reviewSettings.ratings,
         mrContext.commitHash,
         mrContext.commitMessage,
+        command.reviewSettings.hiddenRatingLabels,
       );
       await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
       return {
@@ -260,6 +262,7 @@ export class ExecuteReviewService {
         command.reviewSettings.ratings,
         mrContext.commitHash,
         mrContext.commitMessage,
+        command.reviewSettings.hiddenRatingLabels,
       );
       await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
 
@@ -445,8 +448,9 @@ export class ExecuteReviewService {
         continue;
       }
 
-      // エラー結果を除外し、今回のチェックリストに含まれる項目のみフィルタ
-      const filteredResults = parsed.results
+      // 表示結果と非表示結果をマージし、エラー結果を除外、今回のチェックリストに含まれる項目のみフィルタ
+      const allResults = [...parsed.results, ...parsed.hiddenResults];
+      const filteredResults = allResults
         .filter((r) => !r.isError && currentCheckItemContents.includes(r.checkItem.content))
         .map((r) => ({
           checkItemContent: r.checkItem.content,

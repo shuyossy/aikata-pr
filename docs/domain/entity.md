@@ -57,11 +57,13 @@
   - 不変条件
     - concurrentReviewCountがnullまたは1以上
     - ratingsが空でないこと
+    - hiddenRatingLabelsの各ラベルがratingsに存在すること
   - 属性
     - additionalInstructions (string)
     - concurrentReviewCount (number | null)
     - commentFormat (string)
     - ratings (Rating[])
+    - hiddenRatingLabels (string[])
   - 振る舞い
     - default(静的ファクトリ): デフォルト設定を生成
 

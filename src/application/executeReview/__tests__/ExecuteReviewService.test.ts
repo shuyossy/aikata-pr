@@ -45,6 +45,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
         new Rating('B', '概ね満たしている'),
         new Rating('C', '満たしていない'),
       ],
+      hiddenRatingLabels: [],
     }),
     skillsPaths: [],
     projectDir: '/test/project',
@@ -95,6 +96,7 @@ function createAikataComment(
   commitHash: string,
   ratings: Rating[],
   createdAt: string,
+  hiddenRatingLabels: string[] = [],
 ): MrComment {
   const results = items.map((item) => {
     if (item.isError) {
@@ -104,7 +106,13 @@ function createAikataComment(
     if (!rating) throw new Error(`Rating not found: ${item.ratingLabel}`);
     return ReviewResult.success(new CheckItem(item.content), rating, item.comment);
   });
-  const body = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
+  const body = CommentFormatter.formatComment(
+    results,
+    ratings,
+    commitHash,
+    'test commit',
+    hiddenRatingLabels,
+  );
   return { id: 1, body, createdAt };
 }
 
@@ -1252,6 +1260,112 @@ describe('ExecuteReviewService', () => {
       expect(runCall.priorReviewResults).not.toBeNull();
       expect(runCall.priorCommitMessages).toEqual(['new commit']);
       expect(runCall.priorDiffSincePrior).toBe('new diff');
+    });
+  });
+
+  describe('hiddenRatingLabels', () => {
+    it('hiddenRatingLabels指定時、投稿コメントにメタデータ内の非表示結果が含まれる', async () => {
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: [
+            new Rating('A', '完全に満たしている'),
+            new Rating('B', '概ね満たしている'),
+            new Rating('C', '満たしていない'),
+          ],
+          hiddenRatingLabels: ['A'],
+        }),
+      });
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      const postedBody = vi.mocked(mrDiscussionGateway.postDiscussion).mock.calls[0][2];
+      // A評定の「コードの可読性」はテーブルに表示されない
+      expect(postedBody).not.toContain('| コードの可読性 | A | 良いコードです |');
+      // B評定の「テストカバレッジ」はテーブルに表示される
+      expect(postedBody).toContain('| テストカバレッジ | B | テストを追加してください |');
+      // A評定の結果はメタデータに格納されている
+      expect(postedBody).toContain('"hiddenResults"');
+      expect(postedBody).toContain('"checkItemContent":"コードの可読性"');
+    });
+
+    it('過去のコメントにhiddenResultsがある場合、priorReviewResultsに含まれる', async () => {
+      const ratings = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+        new Rating('C', '満たしていない'),
+      ];
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      // 過去のコメントではA評定が非表示だった
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良いです',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'もう少し',
+          },
+        ],
+        'prior-commit-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+        ['A'], // A評定を非表示
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
+      vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      // 非表示だったA評定の結果もpriorReviewResultsに含まれる
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.priorReviewResults).toHaveLength(2);
+      expect(runCall.priorReviewResults!.map((r) => r.checkItemContent)).toEqual([
+        'テストカバレッジ',
+        'コードの可読性',
+      ]);
+    });
+
+    it('hiddenRatingLabelsが空の場合、従来と同じ動作をする', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      const postedBody = vi.mocked(mrDiscussionGateway.postDiscussion).mock.calls[0][2];
+      // 全ての結果がテーブルに表示される
+      expect(postedBody).toContain('| コードの可読性 | A | 良いコードです |');
+      expect(postedBody).toContain('| テストカバレッジ | B | テストを追加してください |');
+      // hiddenResultsはメタデータに含まれない
+      expect(postedBody).not.toContain('"hiddenResults"');
     });
   });
 });

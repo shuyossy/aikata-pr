@@ -18,6 +18,7 @@ const reviewSettingsSchema = z.object({
     )
     .min(1)
     .optional(),
+  hiddenRatingLabels: z.array(z.string().min(1)).optional(),
 });
 
 /**
@@ -58,6 +59,7 @@ export class ReviewSettingsParser {
       ratings: data.ratings
         ? data.ratings.map((r) => new Rating(r.label, r.definition))
         : defaults.ratings,
+      hiddenRatingLabels: data.hiddenRatingLabels ?? [],
     });
   }
 }

@@ -7,6 +7,7 @@ import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './Comment
 interface ReviewMetadata {
   ratings: { label: string; definition: string }[];
   commitHash: string;
+  hiddenResults?: { checkItemContent: string; ratingLabel: string; comment: string }[];
 }
 
 /**
@@ -16,6 +17,7 @@ export interface ParsedReviewComment {
   results: ReviewResult[];
   ratings: Rating[];
   commitHash: string;
+  hiddenResults: ReviewResult[];
 }
 
 /**
@@ -37,10 +39,17 @@ export class CommentParser {
     const ratings = metadata.ratings.map((r) => new Rating(r.label, r.definition));
     const results = CommentParser.parseTableRows(lines, ratings);
 
+    // メタデータから非表示結果を復元
+    const hiddenResults = (metadata.hiddenResults ?? []).map((hr) => {
+      const rating = CommentParser.findRating(hr.ratingLabel, ratings);
+      return ReviewResult.success(new CheckItem(hr.checkItemContent), rating, hr.comment);
+    });
+
     return {
       results,
       ratings,
       commitHash: metadata.commitHash,
+      hiddenResults,
     };
   }
 

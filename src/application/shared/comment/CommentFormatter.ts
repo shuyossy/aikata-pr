@@ -26,17 +26,33 @@ export class CommentFormatter {
     ratings: Rating[],
     commitHash: string,
     commitMessage: string,
+    hiddenRatingLabels: string[] = [],
   ): string {
+    // 表示/非表示に分割（エラー結果は常に表示）
+    const visibleResults = results.filter(
+      (r) => r.isError || !hiddenRatingLabels.includes(r.rating.label),
+    );
+    const hiddenResults = results.filter(
+      (r) => !r.isError && hiddenRatingLabels.includes(r.rating.label),
+    );
+
     const lines: string[] = [];
 
     // 識別用マーカー
     lines.push(REVIEW_MARKER);
 
-    // メタデータマーカー（評定基準とコミットハッシュを埋め込む）
-    const metadata = {
+    // メタデータマーカー（評定基準、コミットハッシュ、非表示結果を埋め込む）
+    const metadata: Record<string, unknown> = {
       ratings: ratings.map((r) => ({ label: r.label, definition: r.definition })),
       commitHash,
     };
+    if (hiddenResults.length > 0) {
+      metadata.hiddenResults = hiddenResults.map((r) => ({
+        checkItemContent: r.checkItem.content,
+        ratingLabel: r.rating.label,
+        comment: r.comment,
+      }));
+    }
     lines.push(`${REVIEW_DATA_PREFIX}${JSON.stringify(metadata)}${REVIEW_DATA_SUFFIX}`);
 
     // ヘッダー
@@ -44,21 +60,27 @@ export class CommentFormatter {
     lines.push('## AIKATA-PR レビュー結果');
     lines.push(`レビュー時最新コミット: ${commitMessage}`);
 
-    // Markdownテーブルを生成
-    const table = CommentFormatter.buildTable(results);
-
-    // 折りたたみ判定
-    if (results.length > FOLD_THRESHOLD) {
+    if (visibleResults.length === 0) {
+      // 全ての非エラー結果が非表示の場合
       lines.push('');
-      lines.push('<details>');
-      lines.push(`<summary>レビュー結果（${results.length}件）</summary>`);
-      lines.push('');
-      lines.push(table);
-      lines.push('');
-      lines.push('</details>');
+      lines.push('全てのチェック項目が非表示の評定に該当しました。');
     } else {
-      lines.push('');
-      lines.push(table);
+      // Markdownテーブルを生成
+      const table = CommentFormatter.buildTable(visibleResults);
+
+      // 折りたたみ判定
+      if (visibleResults.length > FOLD_THRESHOLD) {
+        lines.push('');
+        lines.push('<details>');
+        lines.push(`<summary>レビュー結果（${visibleResults.length}件）</summary>`);
+        lines.push('');
+        lines.push(table);
+        lines.push('');
+        lines.push('</details>');
+      } else {
+        lines.push('');
+        lines.push(table);
+      }
     }
 
     return lines.join('\n');

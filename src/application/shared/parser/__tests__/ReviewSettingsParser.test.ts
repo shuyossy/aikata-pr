@@ -71,4 +71,32 @@ describe('ReviewSettingsParser', () => {
     const settings = ReviewSettingsParser.parse(JSON.stringify({}));
     expect(settings.concurrentReviewCount).toBeNull();
   });
+
+  it('hiddenRatingLabelsを含むJSONをパースできる', () => {
+    const json = JSON.stringify({
+      ratings: [
+        { label: 'A', definition: '完全に満たしている' },
+        { label: 'B', definition: '概ね満たしている' },
+        { label: 'C', definition: '満たしていない' },
+      ],
+      hiddenRatingLabels: ['A'],
+    });
+
+    const settings = ReviewSettingsParser.parse(json);
+
+    expect(settings.hiddenRatingLabels).toEqual(['A']);
+  });
+
+  it('hiddenRatingLabels未指定の場合はデフォルト（空配列）が適用される', () => {
+    const settings = ReviewSettingsParser.parse(JSON.stringify({}));
+    expect(settings.hiddenRatingLabels).toEqual([]);
+  });
+
+  it('hiddenRatingLabelsにratingsに存在しないラベルがある場合エラーになる', () => {
+    const json = JSON.stringify({
+      ratings: [{ label: 'A', definition: '完全に満たしている' }],
+      hiddenRatingLabels: ['X'],
+    });
+    expect(() => ReviewSettingsParser.parse(json)).toThrow();
+  });
 });

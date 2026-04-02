@@ -273,6 +273,89 @@ describe('CommentParser', () => {
       expect(parsed!.results[0].comment).toBe('行1\n行2 | 行3');
     });
 
+    it('hiddenResultsを含むメタデータからhiddenResultsを復元できる', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+        ReviewResult.success(
+          new CheckItem('チェック項目2'),
+          new Rating('B', '概ね満たしている'),
+          'コメント2',
+        ),
+      ];
+
+      // Aを非表示にしてフォーマット
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit', [
+        'A',
+      ]);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      // テーブルにはB評定のみ
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0].rating.label).toBe('B');
+      // hiddenResultsにA評定
+      expect(parsed!.hiddenResults).toHaveLength(1);
+      expect(parsed!.hiddenResults[0].checkItem.content).toBe('チェック項目1');
+      expect(parsed!.hiddenResults[0].rating.label).toBe('A');
+      expect(parsed!.hiddenResults[0].comment).toBe('コメント1');
+    });
+
+    it('hiddenResults付きコメントのラウンドトリップが正しく動作する', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('項目A'),
+          new Rating('A', '完全に満たしている'),
+          'Aコメント',
+        ),
+        ReviewResult.success(
+          new CheckItem('項目B'),
+          new Rating('B', '概ね満たしている'),
+          'Bコメント',
+        ),
+        ReviewResult.success(
+          new CheckItem('項目C'),
+          new Rating('C', '満たしていない'),
+          'Cコメント',
+        ),
+      ];
+
+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit', [
+        'A',
+      ]);
+      const parsed = CommentParser.parseComment(comment);
+
+      expect(parsed).not.toBeNull();
+      // visible: B, C
+      expect(parsed!.results).toHaveLength(2);
+      expect(parsed!.results[0].checkItem.content).toBe('項目B');
+      expect(parsed!.results[1].checkItem.content).toBe('項目C');
+      // hidden: A
+      expect(parsed!.hiddenResults).toHaveLength(1);
+      expect(parsed!.hiddenResults[0].checkItem.content).toBe('項目A');
+    });
+
+    it('旧フォーマットのコメントでもhiddenResultsは空配列で返る', () => {
+      // 旧フォーマット（hiddenResultsなし）を手動で構築
+      const body = [
+        '<!-- aikata-review -->',
+        `<!-- aikata-review-data: ${JSON.stringify({ ratings: [{ label: 'A', definition: '完全に満たしている' }], commitHash: 'old123' })} -->`,
+        '',
+        '| チェック項目 | 評定 | コメント |',
+        '| --- | --- | --- |',
+        '| 旧チェック項目 | A | 旧コメント |',
+      ].join('\n');
+
+      const parsed = CommentParser.parseComment(body);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.hiddenResults).toEqual([]);
+    });
+
     it('エスケープなしの旧コメント（パイプなし）が引き続きパースできる', () => {
       // 旧フォーマットを手動で構築（エスケープなし）
       const body = [
