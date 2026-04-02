@@ -3,7 +3,7 @@ import { ExecuteReviewService } from '../ExecuteReviewService.js';
 import type { ReviewWorkflowRunner, ReviewWorkflowResult } from '../ExecuteReviewService.js';
 import type { ExecuteReviewCommand } from '../ExecuteReviewCommand.js';
 import type { MrGateway } from '../../shared/port/gateway/index.js';
-import type { MrCommentGateway, MrComment } from '../../shared/port/gateway/index.js';
+import type { MrDiscussionGateway, MrComment } from '../../shared/port/gateway/index.js';
 import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
 import { MrContext } from '../../../domain/mrContext/index.js';
 import { CheckItem } from '../../../domain/checkItem/index.js';
@@ -110,7 +110,7 @@ function createAikataComment(
 
 describe('ExecuteReviewService', () => {
   let mrGateway: MrGateway;
-  let mrCommentGateway: MrCommentGateway;
+  let mrDiscussionGateway: MrDiscussionGateway;
   let workflowRunner: ReviewWorkflowRunner;
   let projectTreeGateway: ProjectTreeGateway;
   let service: ExecuteReviewService;
@@ -121,9 +121,9 @@ describe('ExecuteReviewService', () => {
       getCommitsSince: vi.fn(),
       getDiffSince: vi.fn(),
     };
-    mrCommentGateway = {
-      getComments: vi.fn(),
-      postComment: vi.fn(),
+    mrDiscussionGateway = {
+      getDiscussions: vi.fn(),
+      postDiscussion: vi.fn(),
     };
     workflowRunner = {
       run: vi.fn(),
@@ -133,7 +133,7 @@ describe('ExecuteReviewService', () => {
     };
     service = new ExecuteReviewService(
       mrGateway,
-      mrCommentGateway,
+      mrDiscussionGateway,
       workflowRunner,
       projectTreeGateway,
     );
@@ -145,21 +145,21 @@ describe('ExecuteReviewService', () => {
     const workflowResult = createWorkflowResult();
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]); // 過去コメントなし
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]); // 過去コメントなし
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     const result = await service.execute(command);
 
     // Step 0: MRコンテキスト取得
     expect(mrGateway.getMrContext).toHaveBeenCalledWith('project-1', '42');
     // Step 0: 過去コメント取得
-    expect(mrCommentGateway.getComments).toHaveBeenCalledWith('project-1', '42');
+    expect(mrDiscussionGateway.getDiscussions).toHaveBeenCalledWith('project-1', '42');
     // Steps 1-2: Workflow実行
     expect(workflowRunner.run).toHaveBeenCalledOnce();
     // Step 3: コメント投稿
-    expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
-    expect(mrCommentGateway.postComment).toHaveBeenCalledWith(
+    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledWith(
       'project-1',
       '42',
       expect.stringContaining('コードの可読性'),
@@ -208,14 +208,14 @@ describe('ExecuteReviewService', () => {
     );
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue([
       'fix: improve code',
       'test: add tests',
     ]);
     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('diff since prior');
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -254,9 +254,9 @@ describe('ExecuteReviewService', () => {
     const workflowResult = createWorkflowResult();
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]); // 過去コメントなし
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]); // 過去コメントなし
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -309,11 +309,11 @@ describe('ExecuteReviewService', () => {
     );
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -332,15 +332,15 @@ describe('ExecuteReviewService', () => {
     const workflowResult = createWorkflowResult();
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     const result = await service.execute(command);
 
     // コメントが正しいフォーマットで投稿される
-    expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
-    const postedBody = vi.mocked(mrCommentGateway.postComment).mock.calls[0][2];
+    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+    const postedBody = vi.mocked(mrDiscussionGateway.postDiscussion).mock.calls[0][2];
     expect(postedBody).toContain('<!-- aikata-review -->');
     expect(postedBody).toContain('コードの可読性');
     expect(postedBody).toContain('テストカバレッジ');
@@ -381,9 +381,9 @@ describe('ExecuteReviewService', () => {
     };
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     const result = await service.execute(command);
 
@@ -419,9 +419,9 @@ describe('ExecuteReviewService', () => {
     };
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     const result = await service.execute(command);
 
@@ -429,7 +429,7 @@ describe('ExecuteReviewService', () => {
     expect(result.results.every((r) => r.isError)).toBe(true);
     expect(result.allResultsAreErrors).toBe(true);
     // コメントは投稿されている
-    expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
+    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
     expect(result.commentPosted).toBe(true);
   });
 
@@ -475,11 +475,11 @@ describe('ExecuteReviewService', () => {
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
     // 古い順で返されても、新しい方が使われる
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([olderComment, newerComment]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([olderComment, newerComment]);
     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['new commit']);
     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('new diff');
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -521,11 +521,11 @@ describe('ExecuteReviewService', () => {
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
     // 非aikataコメントが新しい＝最初に評価されるがスキップされる
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([aikataComment, normalComment]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([aikataComment, normalComment]);
     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -563,9 +563,9 @@ describe('ExecuteReviewService', () => {
     );
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([aikataComment]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([aikataComment]);
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -598,7 +598,7 @@ describe('ExecuteReviewService', () => {
     };
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
 
     await expect(service.execute(command)).rejects.toThrow('Check item not found: 存在しない項目');
@@ -610,9 +610,9 @@ describe('ExecuteReviewService', () => {
     const workflowResult = createWorkflowResult();
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -647,9 +647,9 @@ describe('ExecuteReviewService', () => {
     const workflowResult = createWorkflowResult();
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -660,7 +660,7 @@ describe('ExecuteReviewService', () => {
     const command = createCommand();
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(createMrContext());
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
     vi.mocked(projectTreeGateway.getTree).mockRejectedValue(new Error('Tree retrieval failed'));
 
     await expect(service.execute(command)).rejects.toThrow('Tree retrieval failed');
@@ -699,11 +699,11 @@ describe('ExecuteReviewService', () => {
     );
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -748,9 +748,9 @@ describe('ExecuteReviewService', () => {
     );
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
     await service.execute(command);
 
@@ -798,8 +798,8 @@ describe('ExecuteReviewService', () => {
       );
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       const result = await service.execute(command);
 
@@ -807,7 +807,7 @@ describe('ExecuteReviewService', () => {
       expect(workflowRunner.run).not.toHaveBeenCalled();
 
       // コメントは投稿される
-      expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
 
       // 結果が前回と同じ
       expect(result.results).toHaveLength(2);
@@ -861,9 +861,9 @@ describe('ExecuteReviewService', () => {
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       const result = await service.execute(command);
 
@@ -916,9 +916,9 @@ describe('ExecuteReviewService', () => {
       const workflowResult = createWorkflowResult();
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       const result = await service.execute(command);
 
@@ -980,16 +980,16 @@ describe('ExecuteReviewService', () => {
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       const result = await service.execute(command);
 
       expect(result.results).toHaveLength(2);
       expect(result.results.every((r) => r.isError)).toBe(true);
       expect(result.allResultsAreErrors).toBe(true);
-      expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
     });
 
     it('チェックリストに新項目が追加された場合、新項目のみworkflowで再レビューされる', async () => {
@@ -1036,9 +1036,9 @@ describe('ExecuteReviewService', () => {
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       const result = await service.execute(command);
 
@@ -1082,8 +1082,8 @@ describe('ExecuteReviewService', () => {
       );
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       const result = await service.execute(command);
 
@@ -1136,9 +1136,9 @@ describe('ExecuteReviewService', () => {
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       const result = await service.execute(command);
 
@@ -1202,9 +1202,9 @@ describe('ExecuteReviewService', () => {
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       const result = await service.execute(command);
 
@@ -1236,11 +1236,11 @@ describe('ExecuteReviewService', () => {
       );
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
       vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['new commit']);
       vi.mocked(mrGateway.getDiffSince).mockResolvedValue('new diff');
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 
       await service.execute(command);
 

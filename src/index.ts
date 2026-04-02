@@ -10,7 +10,7 @@ import type {
 import { ExecuteReviewService } from './application/executeReview/ExecuteReviewService.js';
 import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
 import { GitLabMrGateway, LocalGitDiffMrGateway } from './infrastructure/adapter/gateway/index.js';
-import { GitLabMrCommentGateway } from './infrastructure/adapter/gateway/index.js';
+import { GitLabMrDiscussionGateway } from './infrastructure/adapter/gateway/index.js';
 import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/index.js';
 import { mastra } from './mastra/index.js';
 import { ReviewSettings } from './domain/reviewSettings/index.js';
@@ -150,13 +150,13 @@ async function main(): Promise<void> {
     const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
     const apiMrGateway = new GitLabMrGateway(gitlabClient);
     const mrGateway = new LocalGitDiffMrGateway(projectDir, apiMrGateway, gitlabClient);
-    const mrCommentGateway = new GitLabMrCommentGateway(gitlabClient);
+    const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
     const workflowRunner = new MastraReviewWorkflowRunner();
     const treeGateway = new LocalProjectTreeGateway();
 
     const service = new ExecuteReviewService(
       mrGateway,
-      mrCommentGateway,
+      mrDiscussionGateway,
       workflowRunner,
       treeGateway,
     );

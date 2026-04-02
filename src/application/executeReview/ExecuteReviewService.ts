@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import type { MrGateway } from '../shared/port/gateway/index.js';
-import type { MrCommentGateway } from '../shared/port/gateway/index.js';
+import type { MrDiscussionGateway } from '../shared/port/gateway/index.js';
 import type { ProjectTreeGateway } from '../shared/port/gateway/index.js';
 import { CommentFormatter } from '../shared/comment/index.js';
 import { CommentParser } from '../shared/comment/index.js';
@@ -95,7 +95,7 @@ interface PriorContext {
 export class ExecuteReviewService {
   constructor(
     private readonly mrGateway: MrGateway,
-    private readonly mrCommentGateway: MrCommentGateway,
+    private readonly mrDiscussionGateway: MrDiscussionGateway,
     private readonly workflowRunner: ReviewWorkflowRunner,
     private readonly projectTreeGateway: ProjectTreeGateway,
   ) {}
@@ -103,7 +103,7 @@ export class ExecuteReviewService {
   async execute(command: ExecuteReviewCommand): Promise<ExecuteReviewDto> {
     const [mrContext, comments, folderTree] = await Promise.all([
       this.mrGateway.getMrContext(command.projectId, command.mrIid),
-      this.mrCommentGateway.getComments(command.projectId, command.mrIid),
+      this.mrDiscussionGateway.getDiscussions(command.projectId, command.mrIid),
       this.projectTreeGateway.getTree(command.projectDir, { maxDepth: command.treeMaxDepth }),
     ]);
 
@@ -161,7 +161,7 @@ export class ExecuteReviewService {
         mrContext.commitHash,
         mrContext.commitMessage,
       );
-      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
+      await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
 
       return {
         results,
@@ -209,7 +209,7 @@ export class ExecuteReviewService {
         mrContext.commitHash,
         mrContext.commitMessage,
       );
-      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
+      await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
       return {
         results: keptResults,
         commitHash: mrContext.commitHash,
@@ -261,7 +261,7 @@ export class ExecuteReviewService {
         mrContext.commitHash,
         mrContext.commitMessage,
       );
-      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
+      await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
 
       return {
         results: mergedResults,

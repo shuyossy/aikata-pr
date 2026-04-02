@@ -30,7 +30,7 @@
   - メインフロー
     1. MRコンテキストを取得（MrGateway）
        - MR diffはローカルgitリポジトリから優先取得し、失敗時はGitLab API（access_raw_diffs=true）にフォールバック
-    2. MRの既存コメントを取得（MrCommentGateway）
+    2. MRの既存ディスカッションを取得（MrDiscussionGateway）
     3. 最新のaikataレビューコメントをパースして前回レビューコンテキストを構築
     3.5. 前回レビューのコミットハッシュと今回のコミットハッシュが一致する場合（パイプラインリトライ）:
        - 前回の成功結果をそのまま保持する
