@@ -8,7 +8,7 @@ import { QualityGate } from '../../../domain/qualityGate/index.js';
  */
 const reviewSettingsSchema = z.object({
   additionalInstructions: z.string().optional(),
-  concurrentReviewCount: z.number().int().optional(),
+  concurrentReviewCount: z.number().int().nullable().optional(),
   commentFormat: z.string().optional(),
   ratings: z
     .array(
@@ -61,7 +61,8 @@ export class ReviewSettingsParser {
 
     // 未設定または1未満の場合はnull（分割しない）に変換
     const rawCount = data.concurrentReviewCount;
-    const concurrentReviewCount = rawCount === undefined || rawCount < 1 ? null : rawCount;
+    const concurrentReviewCount =
+      rawCount === undefined || rawCount === null || rawCount < 1 ? null : rawCount;
 
     // 品質ゲートの構築
     const qualityGate = data.qualityGate

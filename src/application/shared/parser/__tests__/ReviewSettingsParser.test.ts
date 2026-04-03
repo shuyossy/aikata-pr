@@ -72,6 +72,11 @@ describe('ReviewSettingsParser', () => {
     expect(settings.concurrentReviewCount).toBeNull();
   });
 
+  it('concurrentReviewCountがnullの場合はnullに変換される', () => {
+    const settings = ReviewSettingsParser.parse(JSON.stringify({ concurrentReviewCount: null }));
+    expect(settings.concurrentReviewCount).toBeNull();
+  });
+
   it('hiddenRatingLabelsを含むJSONをパースできる', () => {
     const json = JSON.stringify({
       ratings: [
