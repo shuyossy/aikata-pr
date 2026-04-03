@@ -1,828 +1,808 @@
 diff --git a/.ci-template/pipelines/template-npx.yml b/.ci-template/pipelines/template-npx.yml
-index 59e2230..42df6ad 100644
+index 42df6ad..1483aaf 100644
 --- a/.ci-template/pipelines/template-npx.yml
 +++ b/.ci-template/pipelines/template-npx.yml
-@@ -36,6 +36,9 @@ ai-review:
-         echo "Error: AIKATA_PR_GITLAB_TOKEN is not set. Please configure AIKATA_PR_GITLAB_TOKEN." >&2
-         exit 1
-       fi
-+    # ローカルgit diff用にgit履歴とターゲットブランチを取得（失敗時はAPIフォールバック）
-+    - git fetch --unshallow || true
-+    - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" || true
-     # GitLab npm Registryの認証設定
-     - echo "@aikata:registry=https://${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/" > .npmrc
-     - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${AIKATA_PR_GITLAB_TOKEN}" >> .npmrc
+@@ -12,7 +12,7 @@ include:
+ stages:
+   - review
+ 
+-ai-review:
++aikata-pr-review:
+   stage: review
+   image: node:22-slim
+   variables:
 diff --git a/.ci-template/pipelines/template.yml b/.ci-template/pipelines/template.yml
-index 3bc4d95..f5f7b2b 100644
+index f5f7b2b..21b17e8 100644
 --- a/.ci-template/pipelines/template.yml
 +++ b/.ci-template/pipelines/template.yml
-@@ -30,6 +30,9 @@ ai-review:
-         echo "Error: AIKATA_PR_GITLAB_TOKEN is not set. Please configure AIKATA_PR_GITLAB_TOKEN." >&2
-         exit 1
-       fi
-+    # ローカルgit diff用にgit履歴とターゲットブランチを取得（失敗時はAPIフォールバック）
-+    - git fetch --unshallow || true
-+    - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" || true
-     # コンテナイメージ内のaikata-prコマンドを実行
-     - |
-       aikata-pr \
-diff --git a/Dockerfile b/Dockerfile
-index 63b0865..eeb773e 100644
---- a/Dockerfile
-+++ b/Dockerfile
-@@ -8,6 +8,8 @@ RUN npm run build:cli
+@@ -12,7 +12,7 @@ include:
+ stages:
+   - review
  
- # ---- Runtime stage ----
- FROM node:22-slim
-+# ローカルgit diff取得に必要
-+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
- WORKDIR /opt/aikata-pr
- COPY package.json package-lock.json ./
- RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+-ai-review:
++aikata-pr-review:
+   stage: review
+   image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
+   rules:
 diff --git a/PBI.md b/PBI.md
-index e0afdf5..604fcd6 100644
+index 604fcd6..5e3eae7 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -9,3 +9,36 @@
- - 指摘事項（in progressの場合のみ）
+@@ -10,35 +10,16 @@
  ```
  
-+# ID: 1
-+- PBI名: コメントをnote単体ではなく、discussion前提に変更する
-+- ステータス: done
-+- ユーザストーリー
-+  - ユーザはMRに投稿されたレビュー結果に対して、対応方針やresolveの管理ができる
-+    - なぜなら、レビューを実施してから対応するまでが一連の作業だからだ
-+- 受け入れ基準
-+  - 従来のnote APIを前提としたコメント投稿・取得をdiscussion APIを前提として書き換えられている
-+    - 前回レビュー結果についても、discussion内で複数コメントが投稿されていようとも、従来と変わらず問題なく取得できている
-+- 注意事項
-+  - 既存のコメントに関する動作に関して一切影響が出ない様に注意すること
-+- 指摘事項（in progressの場合のみ）
-+
-+# ID: 2
-+- PBI名: コメントに表示しない評定を選択できる
-+- ステータス: done
-+- ユーザストーリー
-+  - ユーザはコメントに表示しない評定を選択できる
-+    - 大抵、興味があるのはチェックに問題がある項目だからだ
-+- 受け入れ基準
-+  - コメントに表示しない評定をレビュー設定にて指定できる
-+    - 指定された評定はAIレビュー実行後、コメント投稿する際に、隠しフィールドに入れられる
-+    - レビュー実行時、前回のレビュー結果があれば、それを参考にするが、表示しない評定については隠しフィールドから取得される
-+- 注意事項
-+- 指摘事項（in progressの場合のみ）
-+
-+# ID: 3
-+- PBI名: チェックリスト全エラーの場合にコメントを出力しない様にする
-+- ステータス: done
-+- 受け入れ基準
-+  - チェックリスト全エラーの場合にコメントを出力しない
-+- 注意事項
-+- 指摘事項（in progressの場合のみ）
-diff --git a/docs/archtecture/overallflow_concept.md b/docs/archtecture/overallflow_concept.md
-index dbbeef3..76db5e3 100644
---- a/docs/archtecture/overallflow_concept.md
-+++ b/docs/archtecture/overallflow_concept.md
-@@ -14,6 +14,12 @@
+ # ID: 1
+-- PBI名: コメントをnote単体ではなく、discussion前提に変更する
++- PBI名: 品質ゲートの導入
+ - ステータス: done
+-- ユーザストーリー
+-  - ユーザはMRに投稿されたレビュー結果に対して、対応方針やresolveの管理ができる
+-    - なぜなら、レビューを実施してから対応するまでが一連の作業だからだ
++- 背景
++  - このジョブを入れる動機としては、異常がないかパイプラインでチェックして、もし異常があればパイプラインを失敗としてストップ
+ - 受け入れ基準
+-  - 従来のnote APIを前提としたコメント投稿・取得をdiscussion APIを前提として書き換えられている
+-    - 前回レビュー結果についても、discussion内で複数コメントが投稿されていようとも、従来と変わらず問題なく取得できている
+-- 注意事項
+-  - 既存のコメントに関する動作に関して一切影響が出ない様に注意すること
+-- 指摘事項（in progressの場合のみ）
+-
+-# ID: 2
+-- PBI名: コメントに表示しない評定を選択できる
+-- ステータス: done
+-- ユーザストーリー
+-  - ユーザはコメントに表示しない評定を選択できる
+-    - 大抵、興味があるのはチェックに問題がある項目だからだ
+-- 受け入れ基準
+-  - コメントに表示しない評定をレビュー設定にて指定できる
+-    - 指定された評定はAIレビュー実行後、コメント投稿する際に、隠しフィールドに入れられる
+-    - レビュー実行時、前回のレビュー結果があれば、それを参考にするが、表示しない評定については隠しフィールドから取得される
+-- 注意事項
+-- 指摘事項（in progressの場合のみ）
+-
+-# ID: 3
+-- PBI名: チェックリスト全エラーの場合にコメントを出力しない様にする
+-- ステータス: done
+-- 受け入れ基準
+-  - チェックリスト全エラーの場合にコメントを出力しない
++  - チェック失敗の基準を設定できる（任意、デフォルトは基準なし）
++    - チェック失敗の基準は、評定とその評定がいくつ以上で異常終了とするかのペアを複数リストで保持できる
++      - or条件で判定
++  - チェック失敗基準に抵触し終了する場合でもコメントにチェック結果が送信されている
++    - 基準に抵触したかどうか、コメントを見ればわかる様になっている
++  - ユーザガイドが更新されている
+ - 注意事項
+ - 指摘事項（in progressの場合のみ）
+diff --git a/README.md b/README.md
+index 6f434ec..af35740 100644
+--- a/README.md
++++ b/README.md
+@@ -1,27 +1,51 @@
+ # aikata-pr
  
- # システム処理フロー
- 0. ワークフロー開始前の事前処理
-+  - MR diffの取得（ローカルgit優先）
-+    - MR diffはローカルgitリポジトリ（`git diff`）から優先取得する
-+      - CI/CD環境では事前に `git fetch --unshallow` と `git fetch origin <targetBranch>` を実行してgit履歴を確保する
-+    - ローカルgit取得が失敗した場合はGitLab API（`access_raw_diffs=true`）にフォールバック
-+    - 両方失敗した場合はエラー終了
-+    - インクリメンタルdiff（前回レビュー以降の差分）も同様にローカルgit優先
-   - 最新チェック結果の取得
-     - MRのコメント履歴から過去のチェック履歴があるか確認し、存在した場合は最新のチェック結果を取得する
-       - ただし、チェック結果に紐づくチェックリストと今回チェックするチェックリストを比較して、後者に含まれない履歴は削除しておく
+-Welcome to your new [Mastra](https://mastra.ai/) project! We're excited to see what you'll build.
++GitLabのマージリクエスト（MR）に対して、AIがチェックリストに沿ったレビューを自動実行するCI/CDパイプラインテンプレートです。
+ 
+-## Getting Started
++## 特徴
+ 
+-Start the development server:
++- チェックリスト（CSV形式）に定義した観点でMRを自動レビュー
++- レビュー結果をMRのディスカッションにコメントとして自動投稿
++- 評定基準・コメントフォーマット・レビュー言語のカスタマイズが可能
+ 
+-```shell
+-npm run dev
++## クイックスタート
++
++### 1. CIテンプレートの設定
++
++対象プロジェクトの`.gitlab-ci.yml`に以下を追加します。
++
++```yaml
++include:
++  - project: '<aikata-prプロジェクトのパス>'
++    file: '.ci-template/pipelines/template.yml'
+ ```
+ 
+-Open [http://localhost:4111](http://localhost:4111) in your browser to access [Mastra Studio](https://mastra.ai/docs/getting-started/studio). It provides an interactive UI for building and testing your agents, along with a REST API that exposes your Mastra application as a local service. This lets you start building without worrying about integration right away.
++### 2. CI/CD変数の設定
+ 
+-You can start editing files inside the `src/mastra` directory. The development server will automatically reload whenever you make changes.
++GitLabプロジェクトの **設定 > CI/CD > 変数** から以下を設定します。
+ 
+-## Learn more
++| 変数名 | 説明 |
++|--------|------|
++| `AI_API_KEY` | AIモデルのAPIキー |
++| `AI_API_ENDPOINT_URL` | AIモデルのAPIエンドポイントURL |
++| `AI_MODEL_NAME` | 使用するAIモデル名 |
++| `AIKATA_PR_GITLAB_TOKEN` | GitLab APIトークン（apiスコープ） |
++| `CHECKLIST_PATH` | チェックリストファイルのパス |
++| `AIKATA_IMAGE` | aikata-prのDockerイメージ |
+ 
+-To learn more about Mastra, visit our [documentation](https://mastra.ai/docs/). Your bootstrapped project includes example code for [agents](https://mastra.ai/docs/agents/overview), [tools](https://mastra.ai/docs/agents/using-tools), [workflows](https://mastra.ai/docs/workflows/overview), [scorers](https://mastra.ai/docs/evals/overview), and [observability](https://mastra.ai/docs/observability/overview).
++### 3. チェックリストの作成
+ 
+-If you're new to AI agents, check out our [course](https://mastra.ai/course) and [YouTube videos](https://youtube.com/@mastra-ai). You can also join our [Discord](https://discord.gg/BTYqqHKUrf) community to get help and share your projects.
++プロジェクト内にチェックリストファイル（CSV形式）を配置します。
++
++```csv
++コードの可読性が十分か
++テストが適切に記述されているか
++セキュリティ上の問題がないか
++エラーハンドリングが適切か
++```
+ 
+-## Deploy on Mastra Cloud
++MRを作成すると、AIが自動的にレビューを実行し、結果をコメントとして投稿します。
+ 
+-[Mastra Cloud](https://cloud.mastra.ai/) gives you a serverless agent environment with atomic deployments. Access your agents from anywhere and monitor performance. Make sure they don't go off the rails with evals and tracing.
++## ドキュメント
+ 
+-Check out the [deployment guide](https://mastra.ai/docs/deployment/overview) for more details.
++詳細な設定方法や活用のヒントについては[記事](docs/guide/user-guide.md)を参照してください。
 diff --git a/docs/domain/business_rule.md b/docs/domain/business_rule.md
-index 0193b10..0ba6ea5 100644
+index 0ba6ea5..bf774db 100644
 --- a/docs/domain/business_rule.md
 +++ b/docs/domain/business_rule.md
-@@ -105,7 +105,7 @@
-     - レビュー実行の結果、全てのチェック項目のレビュー結果がエラーである場合
-     - 結果が0件の場合はエラーとは見なさない
-   - 結果(アクション)
--    - レビュー結果コメントをMRに投稿した後、ジョブを失敗（exit code 1）として終了する
-+    - コメントを投稿せず、ジョブを失敗（exit code 1）として終了する
-   - 関連するユースケースorエンティティ: ReviewResult, ExecuteReviewService
+@@ -98,6 +98,20 @@
+     - 保持された結果と新規レビュー結果をチェックリスト順でマージし、コメント投稿
+   - 関連するユースケースorエンティティ: ExecuteReviewService
  
- - 画像ファイル読み取りルール
++- 品質ゲートルール
++  - 目的/背景
++    - レビュー結果に基づいてパイプラインの成否を制御するため
++  - 条件
++    - 品質ゲートが設定されている場合（failureCriteriaが空でない）
++    - 各基準について、非エラーのレビュー結果の評定ラベルごとのカウントを集計
++    - いずれかの基準で count >= threshold の場合、品質ゲート失敗（OR条件）
++    - エラー結果（isError=true）は評価から除外
++    - 非表示評定ラベル（hiddenRatingLabels）の結果も評価対象（hiddenRatingLabelsは表示制御のみ）
++  - 結果(アクション)
++    - 品質ゲート失敗時: レビューコメントを投稿した後（警告メッセージを付加）、ジョブを失敗（exit code 1）として終了
++    - 品質ゲート成功時（または未設定時）: 通常通りジョブ成功として終了
++  - 関連するユースケースorエンティティ: QualityGate, ReviewSettings, ExecuteReviewService
++
+ - 全レビュー結果エラー時のジョブ失敗ルール
+   - 目的/背景
+     - CI/CDジョブとしてレビューが全て失敗した場合はジョブ失敗として扱う必要がある
 diff --git a/docs/domain/entity.md b/docs/domain/entity.md
-index e714859..2a9ebf3 100644
+index 2a9ebf3..2a3fce8 100644
 --- a/docs/domain/entity.md
 +++ b/docs/domain/entity.md
-@@ -57,11 +57,13 @@
-   - 不変条件
+@@ -51,6 +51,22 @@
+     - success(静的ファクトリ): 成功結果を生成
+     - error(静的ファクトリ): エラー結果を生成
+ 
++- 品質ゲート
++  - 識別子: QualityGate
++  - 種類: 値オブジェクト
++  - 不変条件
++    - failureCriteriaの各要素のratingLabelが空文字でないこと
++    - failureCriteriaの各要素のthresholdが1以上であること
++  - 属性
++    - failureCriteria (FailureCriterion[])
++      - FailureCriterion: { ratingLabel: string, threshold: number }
++  - 振る舞い
++    - evaluate(results: ReviewResult[]): QualityGateResult - 品質ゲートの評価
++    - none(静的ファクトリ): 基準なしの品質ゲートを生成
++  - 関連型
++    - QualityGateResult: { passed: boolean, violations: QualityGateViolation[] }
++    - QualityGateViolation: { ratingLabel: string, threshold: number, actualCount: number }
++
+ - レビュー設定
+   - 識別子: ReviewSettings
+   - 種類: 値オブジェクト
+@@ -58,12 +74,14 @@
      - concurrentReviewCountがnullまたは1以上
      - ratingsが空でないこと
-+    - hiddenRatingLabelsの各ラベルがratingsに存在すること
+     - hiddenRatingLabelsの各ラベルがratingsに存在すること
++    - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること
    - 属性
      - additionalInstructions (string)
      - concurrentReviewCount (number | null)
      - commentFormat (string)
      - ratings (Rating[])
-+    - hiddenRatingLabels (string[])
+     - hiddenRatingLabels (string[])
++    - qualityGate (QualityGate)
    - 振る舞い
      - default(静的ファクトリ): デフォルト設定を生成
  
 diff --git a/docs/domain/glossary.md b/docs/domain/glossary.md
-index 24298bc..f3bd654 100644
+index f3bd654..0e890c5 100644
 --- a/docs/domain/glossary.md
 +++ b/docs/domain/glossary.md
-@@ -31,3 +31,6 @@
-       - 以下ペアのリストで構成される
-         - ラベル（例：A）
-         - ラベル定義（例：チェック項目の要件を完全に満たしている）
-+    - 非表示評定ラベル
-+      - コメントに表示しない評定のラベルリスト（例：["A"]）
-+      - 指定された評定の結果はコメント投稿時にメタデータ（隠しフィールド）に格納される
+@@ -19,6 +19,10 @@
+ - チェック対象
+   - AIレビューの対象
+   - CIテンプレート提供先のプロジェクト資源
++- 品質ゲート
++  - レビュー結果に基づいてパイプラインの成否を判定する仕組み
++  - 失敗基準のリスト（評定ラベルとしきい値のペア）で構成される
++  - いずれかの基準に抵触した場合にパイプラインを失敗とする（OR条件）
+ - レビュー設定
+   - AIによるレビュー実行時にユーザがアレンジ可能な設定項目
+   - 以下で構成される（全て任意、指定しない場合はデフォルト値が適用される）
+@@ -34,3 +38,6 @@
+     - 非表示評定ラベル
+       - コメントに表示しない評定のラベルリスト（例：["A"]）
+       - 指定された評定の結果はコメント投稿時にメタデータ（隠しフィールド）に格納される
++    - 品質ゲート
++      - 失敗基準のリスト（評定ラベルとしきい値のペア）
++      - 指定しない場合はデフォルト値（基準なし=品質ゲートなし）が適用される
 diff --git a/docs/domain/usecase.md b/docs/domain/usecase.md
-index a6b7882..521dc3d 100644
+index 521dc3d..46239b0 100644
 --- a/docs/domain/usecase.md
 +++ b/docs/domain/usecase.md
-@@ -29,7 +29,8 @@
-   - 出力: ExecuteReviewDto（results, commitHash, commentPosted）
+@@ -26,7 +26,7 @@
+     - AI APIキーとエンドポイントが有効
+     - チェックリストが提供済み
+   - 入力: ExecuteReviewCommand（userId, projectId, mrIid, checklist, reviewSettings, skillsPaths, aiApiKey, aiApiEndpointUrl, aiModelName, gitlabToken）
+-  - 出力: ExecuteReviewDto（results, commitHash, commentPosted）
++  - 出力: ExecuteReviewDto（results, commitHash, commentPosted, allResultsAreErrors, qualityGatePassed）
    - メインフロー
      1. MRコンテキストを取得（MrGateway）
--    2. MRの既存コメントを取得（MrCommentGateway）
-+       - MR diffはローカルgitリポジトリから優先取得し、失敗時はGitLab API（access_raw_diffs=true）にフォールバック
-+    2. MRの既存ディスカッションを取得（MrDiscussionGateway）
-     3. 最新のaikataレビューコメントをパースして前回レビューコンテキストを構築
-     3.5. 前回レビューのコミットハッシュと今回のコミットハッシュが一致する場合（パイプラインリトライ）:
-        - 前回の成功結果をそのまま保持する
-diff --git a/docs/plans/2026-04-02-pbi1-diff-compression-design.md b/docs/plans/2026-04-02-pbi1-diff-compression-design.md
+        - MR diffはローカルgitリポジトリから優先取得し、失敗時はGitLab API（access_raw_diffs=true）にフォールバック
+@@ -38,8 +38,9 @@
+        - 再レビュー対象がない場合は前回結果をそのまま投稿して終了
+        - 再レビュー結果と保持結果をマージしてコメント投稿
+     4. レビューワークフローを実行（チェックリスト分割→レビュー実行）
+-    5. レビュー結果をMarkdownコメントとして整形
+-    6. MRにコメントを投稿
++    5. 品質ゲートを評価（QualityGate.evaluate）
++    6. レビュー結果をMarkdownコメントとして整形（品質ゲート結果を含む）
++    7. MRにコメントを投稿
+   - 例外
+     - パターン1: GitLab API認証エラー
+       - エラーをスロー
+@@ -55,5 +56,7 @@
+       - 未完了チェック項目のレビュー結果に「予期せぬエラー（実行ログを確認してください）」を表示する
+     - パターン5: 全てのレビュー結果がエラー
+       - レビュー結果コメントをMRに投稿した後、ジョブを失敗（exit code 1）として終了する
++    - パターン6: 品質ゲートに抵触
++      - レビュー結果コメント（警告メッセージ付き）をMRに投稿した後、ジョブを失敗（exit code 1）として終了する
+   - 事後処理
+     - なし
+diff --git a/docs/guide/user-guide.md b/docs/guide/user-guide.md
 new file mode 100644
-index 0000000..fe25fb6
+index 0000000..19c0e5d
 --- /dev/null
-+++ b/docs/plans/2026-04-02-pbi1-diff-compression-design.md
-@@ -0,0 +1,94 @@
-+# PBI #1 MR diff圧縮改善 - 設計書
++++ b/docs/guide/user-guide.md
+@@ -0,0 +1,302 @@
++# aikata-pr ユーザガイド
 +
-+## 概要
++## 目次
 +
-+MR diff圧縮アルゴリズムにPhase 2（行数ベースの段階的圧縮）を追加し、超大ファイルでも閾値まで圧縮できるようにする。
++1. [aikata-prとは](#1-aikata-prとは)
++2. [前提条件](#2-前提条件)
++3. [導入手順](#3-導入手順)
++4. [設定リファレンス](#4-設定リファレンス)
++5. [レビュー結果の見方](#5-レビュー結果の見方)
++6. [活用のヒント](#6-活用のヒント)
++7. [トラブルシューティング](#7-トラブルシューティング)
 +
-+## 問題
++---
 +
-+- 現在のアルゴリズムは`minKeepPercent=5%`が圧縮下限
-+- 超大ファイル（例: 10,000行）では5%時点で上500行+下500行=1,000行が残る
-+- AIモデルのコンテキスト長閾値を超える場合がある
-+- 切り詰め可能な最小単位は先頭行（`diff --git a/... b/...`）まで
++## 1. aikata-prとは
 +
-+## 方針
++aikata-prは、GitLabのマージリクエスト（MR）に対してAIがチェックリストに沿ったレビューを自動実行するCI/CDパイプラインテンプレートです。
 +
-+Phase 1（現状の%ベース圧縮）完了後にPhase 2（行数ベースの段階的圧縮）を追加。
++### 特徴
 +
-+## 圧縮フロー（改善後）
++- チェックリストに定義した観点でMRを自動レビュー
++- レビュー結果はMRのディスカッションにコメントとして投稿
++- 評定基準やコメントフォーマットのカスタマイズが可能
++
++### 処理フロー
 +
 +```
-+Phase 1（既存・変更なし）: keepPercent 30% -> 25% -> ... -> 5%
-+  | まだ閾値超過
-+  v
-+Phase 2（新規）: keepLines半減ループ
-+  最大ファイルを選択 -> keepLinesを半減 -> 圧縮 -> 閾値チェック
-+  例: 10000行ファイル
-+  500行 -> 250行 -> 125行 -> 62行 -> 31行 -> 15行 -> 7行 -> 3行 -> 1行 -> 0(ヘッダーのみ)
-+  ※各ステップで閾値チェック、到達次第終了
-+  ※全ファイルがheader-only(keepLines=0)に達したらベストエフォートで終了
++1. MR作成・更新
++   ↓
++2. CIパイプラインが起動し、aikata-prジョブが実行される
++   ↓
++3. MRのdiff・最新レビュー結果・メタ情報を取得
++   ↓
++4. AIエージェントがレビューを実行
++   （コードベースの調査が必要な場合はAIエージェントが自律的に調査を実行）
++   ↓
++5. 全チェック項目のレビュー完了後、結果をMRにコメント投稿
 +```
 +
-+## 変更対象ファイル
++---
 +
-+### 1. `src/application/shared/diffCompression/DiffCompressor.ts`
++## 2. 前提条件
 +
-+#### 新関数: `compressFileDiffByLines`
++aikata-prを導入するには、AI-bow API等のOpenAI互換のAIモデルを利用者自身で用意する必要があります。
++※
++将来的にはaikata-pr自体にAIモデルを組み込むことで、AIモデルを用意せずとも利用できる様に計画しています
 +
-+```typescript
-+export function compressFileDiffByLines(
-+  fileDiff: string,
-+  keepLines: number,
-+): { compressed: string; omitted: string }
++---
++
++## 3. 導入手順
++
++### 3.1 CIテンプレートの設定
++
++対象プロジェクトの`.gitlab-ci.yml`に以下を追記してください。
++
++```yaml
++include:
++  - project: '<aikata-prプロジェクトのパス>'
++    file: '.ci-template/pipelines/template.yml'
 +```
 +
-+- `keepLines >= 1`: 先頭keepLines行 + 末尾keepLines行を保持、中間を省略マーカーで置換
-+- `keepLines === 0`: diff --gitヘッダー行（1行目）のみ保持、2行目以降を全て省略
-+- `keepLines * 2 >= totalLines` の場合: 圧縮不要（そのまま返す）
-+- 省略マーカーは既存の`compressFileDiff`と同一フォーマット
++これにより、MR作成時に`ai-review`ジョブが自動実行されます。
 +
-+#### `compressDiffIfNeeded`にPhase 2ループ追加
++> **補足**: テンプレートにはステージを定義していません。ステージを指定したい場合は適用対象パイプラインにて以下の様にジョブを上書きしてください。
++```yaml
++include:
++  - project: '<aikata-prプロジェクトのパス>'
++    file: '.ci-template/pipelines/template.yml'
 +
-+Phase 1の`while(true)`ループ後、ベストエフォートreturnの前にPhase 2ブロックを挿入。
++stages:
++  - lint
++  - build
++  - test
++  - deploy
 +
-+Phase 2の動作:
-+1. Phase 1完了時の各ファイルのkeepLinesを算出（`Math.floor(totalLines * minKeepPercent / 100)`）
-+2. whileループで最大ファイルを選択
-+3. keepLinesを半減（`Math.floor(currentKeepLines / 2)`）
-+4. `compressFileDiffByLines(originalFileDiff, newKeepLines)`で圧縮
-+5. 閾値チェック、到達次第終了
-+6. 全ファイルがkeepLines=0に達したらベストエフォートで終了
++ai-review:
++  stage: lint
++```
 +
-+### 2. `src/application/shared/diffCompression/index.ts`
++### 3.2 CI/CD変数の設定
 +
-+`compressFileDiffByLines`をエクスポートに追加。
++GitLabプロジェクトの **設定 > CI/CD > 変数** から以下の変数を設定してください。
++変数設定時はProtect variableにチェックを入れない様に注意してください。
 +
-+### 3. `src/application/shared/diffCompression/__tests__/DiffCompressor.test.ts`
++尚、これらの変数は環境変数としてGitLab CI/CDパイプライン実行時に読み込まれます。直接`.gitlab-ci.yml`の`variable`セクションに記載いたいても問題ありません。
 +
-+テスト追加（TDDスタイル）。
++#### 必須変数
 +
-+## 変更不要ファイル
++| 変数名 | 説明 | 例 |
++|--------|------|-----|
++| `AI_API_KEY` | AIモデルのAPIキー | `123456789` |
++| `AI_API_ENDPOINT_URL` | AIモデルのAPIエンドポイントURL | `https://api.example.com/v1` |
++| `AI_MODEL_NAME` | 使用するAIモデル名 | `openai/o4-mini` |
++| `AIKATA_PR_GITLAB_TOKEN` | GitLab APIトークン（apiスコープ） | `glpat-...` |
++| `CHECKLIST_PATH` | チェックリストファイルのパス | `.aikata-pr/checklist.csv` |
 +
-+- `getDiffDetail.ts` -- omittedFileDiffsのインターフェース不変
-+- `ExecuteReviewService.ts` -- 呼び出しインターフェース・オプション不変
-+- `FolderTreeStripper.ts` -- 無関係
-+- `DiffCompressionOptions` -- 新オプション不要（Phase 2は自動的に開始）
++> **注意**: `AI_API_KEY`と`AIKATA_PR_GITLAB_TOKEN`は秘密情報です。変数設定時に「Mask variable」を有効にしてください。
 +
-+## テスト計画
++#### 任意変数
 +
-+### `compressFileDiffByLines`のユニットテスト
++| 変数名 | 説明 | デフォルト値 |
++|--------|------|-------------|
++| `REVIEW_SETTINGS_PATH` | レビュー設定ファイルのパス | なし |
++| `SKILLS_PATH` | skillsファイル/ディレクトリのパス | なし |
++| `COMMENT_LANGUAGE` | レビューコメントの言語 | `Japanese` |
++| `AIKATA_LOG_LEVEL` | ログレベル（trace/debug/info/warn/error/fatal） | `info` |
++| `MAX_CONTEXT_LENGTH` | AIモデルのコンテキスト長（トークン数）。設定時、プロンプトのトークン数がコンテキスト長の一定割合を超えるとdiffを自動圧縮（AIエージェントは必要な際に自律的に圧縮された部分のdiffを参照） | なし（圧縮しない） |
++| `OPENAI_REASONING_EFFORT` | OpenAI reasoningモデルのreasoning effort（minimal/low/medium/high）。reasoningモデルの場合は設定必須。そうでない場合は設定しない | なし |
++| `AIKATA_PR_DISABLED` | `true`に設定するとAIレビューをスキップ | `false` |
 +
-+1. keepLines=3で上位3行と下位3行を保持する
-+2. keepLines=1で上位1行と下位1行を保持する
-+3. keepLines=0でdiff --gitヘッダー行のみ保持する
-+4. keepLines=0で1行のみのdiffの場合は圧縮不要
-+5. keepLines * 2 >= totalLinesの場合は圧縮不要
-+6. 省略マーカーのフォーマットが既存と一致する
++> **注意**: OpenAI reasoningモデルを利用する場合は`OPENAI_REASONING_EFFORT`を必ず設定し、そうでない場合は必ず設定しないでください
 +
-+### Phase 2統合テスト
++### 3.3 チェックリストファイルの作成
 +
-+7. Phase 1の5%で閾値以下になる場合、Phase 2は実行されない（既存テストで担保）
-+8. Phase 1の5%では不十分で、Phase 2のkeepLines半減で閾値以下になる場合
-+9. Phase 2で複数ファイルがある場合、最大ファイルから順に圧縮される
-+10. Phase 2で全ファイルがkeepLines=0に達してもベストエフォートで完了する
-+11. Phase 2の結果がomittedFileDiffsに正しく反映される
++チェックリストはCSV形式（1行1チェック項目）で作成し、プロジェクトリポジトリ内に配置します。
++
++**例: `checklist.csv`**
++
++```csv
++コードの可読性が十分か（変数名、関数名、コメントなど）
++テストが適切に記述されているか
++セキュリティ上の問題がないか（インジェクション、認証・認可の不備など）
++エラーハンドリングが適切か
++パフォーマンスへの影響がないか
++```
++
++**仕様:**
++- 各行が1つのチェック項目に対応
++- 空行は無視される
++- 最低1つのチェック項目が必要
++
++### 3.4 レビュー設定ファイルの作成（任意）
++
++レビューの動作をカスタマイズする場合、JSON形式のレビュー設定ファイルを作成します。全てのフィールドは任意です。
++
++**例: `review_settings.json`**
++
++```json
++{
++  "additionalInstructions": "セキュリティ観点を特に重視してレビューしてください",
++  "concurrentReviewCount": 20,
++  "commentFormat": "### {comment}",
++  "ratings": [
++    { "label": "A", "definition": "チェック項目の要件を完全に満たしている" },
++    { "label": "B", "definition": "概ね満たしているが軽微な指摘がある" },
++    { "label": "C", "definition": "要件を満たしていない" }
++  ],
++  "hiddenRatingLabels": ["A"]
++}
++```
++
++レビュー設定はJSON形式で記述します。全てのフィールドは任意で、指定しない場合はデフォルト値が適用されます。
++
++| フィールド | 型 | デフォルト値 | 説明 |
++|-----------|-----|-------------|------|
++| `additionalInstructions` | string | `""` | AIレビュー実行時のシステムプロンプトに組み込まれる追加指示 |
++| `concurrentReviewCount` | number \| null | `null` | 一度にレビューするチェック項目数（正の整数）。`null`または未指定の場合は分割しない（全項目を一度にレビュー）。1未満の値は`null`に変換 |
++| `commentFormat` | string | `"{comment}"` | レビューコメントのフォーマット。`{comment}`がAIのコメントに置換される |
++| `ratings` | array | 下記参照 | 評定基準のリスト |
++| `hiddenRatingLabels` | string[] | `[]` | コメントに表示しない評定のラベルリスト。指定されたラベルの結果はメタデータに格納される |
++| `qualityGate` | object | なし | 品質ゲート設定。詳細は[3.5 品質ゲートの設定](#35-品質ゲートの設定任意)を参照 |
++
++**`ratings`のデフォルト値:**
++
++| ラベル | 定義 |
++|--------|------|
++| A | チェック項目の要件を完全に満たしている |
++| B | 概ね満たしているが軽微な指摘がある |
++| C | 要件を満たしていない |
++
++**`ratings`の制約:**
++- 各要素に`label`（空文字不可）と`definition`（空文字不可）が必要
++- 最低1つの評定基準が必要
++
++**`hiddenRatingLabels`の制約:**
++- 指定するラベルは`ratings`に定義されているラベルと一致する必要がある
++
++**カスタマイズ例:**
++
++評定A（問題なし）の結果をコメントに表示せず、指摘があるもののみ表示する場合:
++
++```json
++{
++  "hiddenRatingLabels": ["A"]
++}
++```
++
++独自の評定基準を定義する場合:
++
++```json
++{
++  "ratings": [
++    { "label": "OK", "definition": "問題なし" },
++    { "label": "WARN", "definition": "改善の余地あり" },
++    { "label": "NG", "definition": "修正が必要" }
++  ]
++}
++```
++
++### 3.5 品質ゲートの設定（任意）
++
++品質ゲートを使用すると、レビュー結果に基づいてパイプラインを失敗させることができます。レビュー設定ファイル内の`qualityGate`フィールドで設定します。
++
++**例: 評定Cが1件以上の場合にパイプラインを失敗させる**
++
++```json
++{
++  "qualityGate": {
++    "failureCriteria": [
++      { "ratingLabel": "C", "threshold": 1 }
++    ]
++  }
++}
++```
++
++**例: 複数の基準を設定する（OR条件）**
++
++```json
++{
++  "qualityGate": {
++    "failureCriteria": [
++      { "ratingLabel": "C", "threshold": 1 },
++      { "ratingLabel": "B", "threshold": 5 }
++    ]
++  }
++}
++```
++
++この例では、C評定が1件以上 **または** B評定が5件以上の場合にパイプラインが失敗します。
++
++| フィールド | 型 | 説明 |
++|-----------|-----|------|
++| `qualityGate` | object | 品質ゲート設定（任意） |
++| `qualityGate.failureCriteria` | array | 失敗基準のリスト |
++| `qualityGate.failureCriteria[].ratingLabel` | string | 評定ラベル（`ratings`に定義されたラベルと一致する必要がある） |
++| `qualityGate.failureCriteria[].threshold` | number | しきい値（1以上の整数。この数以上の該当評定があると失敗） |
++
++**動作仕様:**
++- 品質ゲートに抵触した場合でも、レビュー結果はコメントとして投稿されます
++- コメントの末尾に警告メッセージが表示され、どの基準に抵触したかがわかります
++- パイプラインはexit code 1で失敗します
++- エラー結果（AIの処理エラー等）は品質ゲートの評価対象外です
++- `hiddenRatingLabels`で非表示にした評定も品質ゲートの評価対象に含まれます
++- 未設定の場合、品質ゲートは適用されません（デフォルト）
++
++---
++
++## 4. レビュー結果の見方
++
++### 4.1 コメント構成と評定ラベル
++
++AIレビューが完了すると、MRのコメントに以下の形式でコメントが投稿されます。
++
++- Markdown表形式で各チェック項目の結果（チェック項目名、評定ラベル、コメント）が表示される
++- エラーが発生したチェック項目は、評定欄に「エラー」、コメント欄にエラーメッセージが表示される
++- `hiddenRatingLabels`で指定された評定の結果はコメントの表には表示されない
++
++### 4.2 リトライの挙動
++
++| シナリオ | 挙動 |
++|----------|------|
++| パイプラインをリトライ（コミット変更なし） | 前回成功したレビュー結果はそのまま再利用。エラーだった項目や結果がない項目のみ再レビュー |
++| 新しいコミットをプッシュ | 前回のレビュー結果を参考情報として保持しつつ、全チェック項目を再レビュー |
++| 前回のレビューコメントを削除してからMR更新 | 前回のレビュー結果を参照せず、新規としてレビューを実行 |
++
++---
++
++## 5. 活用のヒント
++
++aikata-prはMRの「コード差分」をAIがレビューするツールですが、チェックリストの設計次第で様々な場面に応用できます。
++
++### コードレビューの標準化
++
++チーム共通のコーディング規約やレビュー観点をチェックリストに定義することで、レビューの品質を均一化できます。
++
++```csv
++命名規則に従っているか（変数: camelCase、定数: UPPER_SNAKE_CASE）
++関数の責務が単一か（1関数1責務）
++適切なエラーハンドリングがされているか
++テストが追加・更新されているか
++```
++
++### ドキュメントの品質チェック
++
++ドキュメント（マニュアル、仕様書など）をGit管理し、ドキュメント更新のMRに対してチェックを実行することで、ドキュメントの品質を自動的に担保できます。
++
++```csv
++誤字脱字がないか
++説明が十分に具体的で、読者が理解できるか
++記載内容に矛盾がないか
++目次や見出しの構成が適切か
++```
++
++### 設計書とコードの整合性チェック
++
++設計書をGit管理し、コード修正のMRに対して設計書との整合性をチェックすることで、設計と実装の乖離を早期に検出できます。
++
++```csv
++変更内容が設計書（docs/design/配下）の記載と整合しているか
++設計書に記載のないインターフェース変更がないか
++設計書の更新が必要な変更の場合、設計書も合わせて更新されているか
++```
+diff --git a/docs/plans/2026-04-03-user-guide-design.md b/docs/plans/2026-04-03-user-guide-design.md
+new file mode 100644
+index 0000000..428275f
+--- /dev/null
++++ b/docs/plans/2026-04-03-user-guide-design.md
+@@ -0,0 +1,77 @@
++# ユーザガイド・README整備 設計書
++
++## 背景・目的
++
++aikata-prは社内セルフホストGitLab環境向けのAIレビューツールだが、現状のREADMEはMastraテンプレートのままであり、ユーザガイドも存在しない。導入方法や設定方法、活用方法を文書化することで、チーム横断での導入を促進する。
++
++## 成果物
++
++1. **`docs/guide/user-guide.md`** — ユーザガイド（導入背景〜具体的な導入方法〜活用のヒント）
++2. **`README.md`** — ユーザガイドの要約レベル
++
++## 設計方針
++
++- 想定読者: 管理者・開発者を区別せず、1つの流れで記載
++- 言語: 日本語
++- 対象環境: セルフホストGitLabのみ
++- 導入方法: Dockerのみ（npxは案内しない）
++
++## ユーザガイド構成
++
++### 1. aikata-prとは
++- 概要: MRに対してAIがチェックリストに沿ったレビューを自動実行するCIテンプレート
++- 仕組み: CIテンプレートをinclude → MR作成時に自動レビュー → 結果をディスカッションに投稿
++- 処理フロー概要（テキストベースの図）
++
++### 2. 前提条件
++- セルフホストGitLab + Docker executor対応のRunner
++- AIモデルのAPIエンドポイント（OpenAI互換）
++- GitLab APIトークン（apiスコープ）
++
++### 3. 導入手順
++- 3.1 CIテンプレートの設定（.gitlab-ci.ymlへのinclude記述例）
++- 3.2 CI/CD変数の設定（必須/任意の一覧表付き）
++- 3.3 チェックリストファイルの作成（CSV形式、サンプル付き）
++- 3.4 レビュー設定ファイルの作成（任意、JSON形式、サンプル付き）
++
++### 4. 設定リファレンス
++- 4.1 環境変数一覧（カテゴリ別テーブル: AI設定、GitLab設定、入力ファイル、動作設定）
++- 4.2 チェックリスト仕様（フォーマット・制約・サンプル）
++- 4.3 レビュー設定仕様（JSONスキーマ・各フィールド説明・デフォルト値・カスタマイズ例）
++- 4.4 無効化（AIKATA_PR_DISABLED=true）
++
++### 5. レビュー結果の見方
++- 5.1 コメント構成と評定ラベルの意味
++- 5.2 リトライの挙動（同一コミット/新コミット/コメント削除時）
++
++### 6. 活用のヒント
++- コードレビューの標準化（チーム共通のチェック観点を定義）
++- ドキュメントの品質チェック（git管理されたドキュメント更新時に自動チェック）
++- 設計書とコードの整合性チェック（コード修正時に設計書との乖離を検出）
++- その他の応用例
++
++### 7. トラブルシューティング
++- よくあるエラーと対処法
++
++## README.md構成
++- プロジェクト名 + 一行説明
++- 特徴（箇条書き3-4個）
++- クイックスタート（最小構成の設定例）
++- 詳細はユーザガイドへのリンク
++
++## 情報ソース
++
++ドキュメント作成時に参照すべき既存ファイル:
++
++| 情報 | ファイルパス |
++|------|-------------|
++| 環境変数一覧 | `docs/config/env_val.md` |
++| CIテンプレート | `.ci-template/piplines/template.yml` |
++| テンプレート変数デフォルト | `.ci-template/variable/variables.yml` |
++| ドメインエンティティ | `docs/domain/entity.md` |
++| ビジネスルール | `docs/domain/business_rule.md` |
++| 処理フロー概念 | `docs/archtecture/overallflow_concept.md` |
++| チェックリストパーサ | `src/application/shared/parser/ChecklistParser.ts` |
++| レビュー設定パーサ | `src/application/shared/parser/ReviewSettingsParser.ts` |
++| CLIオプション定義 | `src/index.ts` |
++| .env.example | `.env.example` |
+diff --git a/src/application/executeReview/ExecuteReviewDto.ts b/src/application/executeReview/ExecuteReviewDto.ts
+index 11b3605..cb70e20 100644
+--- a/src/application/executeReview/ExecuteReviewDto.ts
++++ b/src/application/executeReview/ExecuteReviewDto.ts
+@@ -9,4 +9,6 @@ export interface ExecuteReviewDto {
+   commentPosted: boolean;
+   /** 全てのレビュー結果がエラーかどうか */
+   allResultsAreErrors: boolean;
++  /** 品質ゲートを通過したかどうか */
++  qualityGatePassed: boolean;
+ }
 diff --git a/src/application/executeReview/ExecuteReviewService.ts b/src/application/executeReview/ExecuteReviewService.ts
-index 8968883..d51761f 100644
+index d51761f..3e56bf6 100644
 --- a/src/application/executeReview/ExecuteReviewService.ts
 +++ b/src/application/executeReview/ExecuteReviewService.ts
-@@ -1,6 +1,6 @@
- import * as fs from 'node:fs';
- import type { MrGateway } from '../shared/port/gateway/index.js';
--import type { MrCommentGateway } from '../shared/port/gateway/index.js';
-+import type { MrDiscussionGateway } from '../shared/port/gateway/index.js';
- import type { ProjectTreeGateway } from '../shared/port/gateway/index.js';
- import { CommentFormatter } from '../shared/comment/index.js';
- import { CommentParser } from '../shared/comment/index.js';
-@@ -95,7 +95,7 @@ interface PriorContext {
- export class ExecuteReviewService {
-   constructor(
-     private readonly mrGateway: MrGateway,
--    private readonly mrCommentGateway: MrCommentGateway,
-+    private readonly mrDiscussionGateway: MrDiscussionGateway,
-     private readonly workflowRunner: ReviewWorkflowRunner,
-     private readonly projectTreeGateway: ProjectTreeGateway,
-   ) {}
-@@ -103,7 +103,7 @@ export class ExecuteReviewService {
-   async execute(command: ExecuteReviewCommand): Promise<ExecuteReviewDto> {
-     const [mrContext, comments, folderTree] = await Promise.all([
-       this.mrGateway.getMrContext(command.projectId, command.mrIid),
--      this.mrCommentGateway.getComments(command.projectId, command.mrIid),
-+      this.mrDiscussionGateway.getDiscussions(command.projectId, command.mrIid),
-       this.projectTreeGateway.getTree(command.projectDir, { maxDepth: command.treeMaxDepth }),
-     ]);
- 
-@@ -155,19 +155,28 @@ export class ExecuteReviewService {
+@@ -155,6 +155,9 @@ export class ExecuteReviewService {
  
        const results = this.convertToReviewResults(workflowResult, command);
  
--      const commentBody = CommentFormatter.formatComment(
--        results,
--        command.reviewSettings.ratings,
--        mrContext.commitHash,
--        mrContext.commitMessage,
--      );
--      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
-+      // 全エラーの場合はコメントを投稿しない
-+      const allErrors = ReviewResult.allAreErrors(results);
-+      if (!allErrors) {
-+        const commentBody = CommentFormatter.formatComment(
-+          results,
-+          command.reviewSettings.ratings,
-+          mrContext.commitHash,
-+          mrContext.commitMessage,
-+          command.reviewSettings.hiddenRatingLabels,
-+        );
-+        await this.mrDiscussionGateway.postDiscussion(
-+          command.projectId,
-+          command.mrIid,
-+          commentBody,
-+        );
-+      }
- 
-       return {
-         results,
++      // 品質ゲート評価
++      const qualityGateResult = command.reviewSettings.qualityGate.evaluate(results);
++
+       // 全エラーの場合はコメントを投稿しない
+       const allErrors = ReviewResult.allAreErrors(results);
+       if (!allErrors) {
+@@ -164,6 +167,7 @@ export class ExecuteReviewService {
+           mrContext.commitHash,
+           mrContext.commitMessage,
+           command.reviewSettings.hiddenRatingLabels,
++          qualityGateResult,
+         );
+         await this.mrDiscussionGateway.postDiscussion(
+           command.projectId,
+@@ -177,6 +181,7 @@ export class ExecuteReviewService {
          commitHash: mrContext.commitHash,
--        commentPosted: true,
--        allResultsAreErrors: ReviewResult.allAreErrors(results),
-+        commentPosted: !allErrors,
-+        allResultsAreErrors: allErrors,
+         commentPosted: !allErrors,
+         allResultsAreErrors: allErrors,
++        qualityGatePassed: qualityGateResult.passed,
        };
      } finally {
        this.cleanupTempFiles(resultFilePath);
-@@ -208,8 +217,9 @@ export class ExecuteReviewService {
+@@ -212,12 +217,14 @@ export class ExecuteReviewService {
+ 
+     // 再レビュー対象なし → 前回結果をそのまま投稿
+     if (itemsToReview.length === 0) {
++      const qualityGateResult = command.reviewSettings.qualityGate.evaluate(keptResults);
+       const commentBody = CommentFormatter.formatComment(
+         keptResults,
          command.reviewSettings.ratings,
          mrContext.commitHash,
          mrContext.commitMessage,
-+        command.reviewSettings.hiddenRatingLabels,
+         command.reviewSettings.hiddenRatingLabels,
++        qualityGateResult,
        );
--      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
-+      await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
+       await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
        return {
-         results: keptResults,
+@@ -225,6 +232,7 @@ export class ExecuteReviewService {
          commitHash: mrContext.commitHash,
-@@ -255,19 +265,28 @@ export class ExecuteReviewService {
+         commentPosted: true,
+         allResultsAreErrors: ReviewResult.allAreErrors(keptResults),
++        qualityGatePassed: qualityGateResult.passed,
+       };
+     }
+ 
+@@ -265,6 +273,9 @@ export class ExecuteReviewService {
          throw new Error(`Result not found for item: ${item.content}`);
        });
  
--      const commentBody = CommentFormatter.formatComment(
--        mergedResults,
--        command.reviewSettings.ratings,
--        mrContext.commitHash,
--        mrContext.commitMessage,
--      );
--      await this.mrCommentGateway.postComment(command.projectId, command.mrIid, commentBody);
-+      // 全エラーの場合はコメントを投稿しない
-+      const allErrors = ReviewResult.allAreErrors(mergedResults);
-+      if (!allErrors) {
-+        const commentBody = CommentFormatter.formatComment(
-+          mergedResults,
-+          command.reviewSettings.ratings,
-+          mrContext.commitHash,
-+          mrContext.commitMessage,
-+          command.reviewSettings.hiddenRatingLabels,
-+        );
-+        await this.mrDiscussionGateway.postDiscussion(
-+          command.projectId,
-+          command.mrIid,
-+          commentBody,
-+        );
-+      }
- 
-       return {
-         results: mergedResults,
++      // 品質ゲート評価
++      const qualityGateResult = command.reviewSettings.qualityGate.evaluate(mergedResults);
++
+       // 全エラーの場合はコメントを投稿しない
+       const allErrors = ReviewResult.allAreErrors(mergedResults);
+       if (!allErrors) {
+@@ -274,6 +285,7 @@ export class ExecuteReviewService {
+           mrContext.commitHash,
+           mrContext.commitMessage,
+           command.reviewSettings.hiddenRatingLabels,
++          qualityGateResult,
+         );
+         await this.mrDiscussionGateway.postDiscussion(
+           command.projectId,
+@@ -287,6 +299,7 @@ export class ExecuteReviewService {
          commitHash: mrContext.commitHash,
--        commentPosted: true,
--        allResultsAreErrors: ReviewResult.allAreErrors(mergedResults),
-+        commentPosted: !allErrors,
-+        allResultsAreErrors: allErrors,
+         commentPosted: !allErrors,
+         allResultsAreErrors: allErrors,
++        qualityGatePassed: qualityGateResult.passed,
        };
      } finally {
        this.cleanupTempFiles(resultFilePath);
-@@ -445,8 +464,9 @@ export class ExecuteReviewService {
-         continue;
-       }
- 
--      // エラー結果を除外し、今回のチェックリストに含まれる項目のみフィルタ
--      const filteredResults = parsed.results
-+      // 表示結果と非表示結果をマージし、エラー結果を除外、今回のチェックリストに含まれる項目のみフィルタ
-+      const allResults = [...parsed.results, ...parsed.hiddenResults];
-+      const filteredResults = allResults
-         .filter((r) => !r.isError && currentCheckItemContents.includes(r.checkItem.content))
-         .map((r) => ({
-           checkItemContent: r.checkItem.content,
 diff --git a/src/application/executeReview/__tests__/ExecuteReviewService.test.ts b/src/application/executeReview/__tests__/ExecuteReviewService.test.ts
-index 1196bd9..92e014c 100644
+index 92e014c..d77298f 100644
 --- a/src/application/executeReview/__tests__/ExecuteReviewService.test.ts
 +++ b/src/application/executeReview/__tests__/ExecuteReviewService.test.ts
-@@ -3,7 +3,7 @@ import { ExecuteReviewService } from '../ExecuteReviewService.js';
- import type { ReviewWorkflowRunner, ReviewWorkflowResult } from '../ExecuteReviewService.js';
- import type { ExecuteReviewCommand } from '../ExecuteReviewCommand.js';
- import type { MrGateway } from '../../shared/port/gateway/index.js';
--import type { MrCommentGateway, MrComment } from '../../shared/port/gateway/index.js';
-+import type { MrDiscussionGateway, MrComment } from '../../shared/port/gateway/index.js';
- import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
- import { MrContext } from '../../../domain/mrContext/index.js';
- import { CheckItem } from '../../../domain/checkItem/index.js';
-@@ -45,6 +45,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
-         new Rating('B', '概ね満たしている'),
+@@ -11,6 +11,7 @@ import { Checklist } from '../../../domain/checklist/index.js';
+ import { Rating } from '../../../domain/rating/index.js';
+ import { ReviewSettings } from '../../../domain/reviewSettings/index.js';
+ import { ReviewResult } from '../../../domain/reviewResult/index.js';
++import { QualityGate } from '../../../domain/qualityGate/index.js';
+ import { CommentFormatter } from '../../shared/comment/index.js';
+ 
+ // ヘルパー: テスト用のMrContextを生成
+@@ -46,6 +47,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
          new Rating('C', '満たしていない'),
        ],
-+      hiddenRatingLabels: [],
+       hiddenRatingLabels: [],
++      qualityGate: QualityGate.none(),
      }),
      skillsPaths: [],
      projectDir: '/test/project',
-@@ -95,6 +96,7 @@ function createAikataComment(
-   commitHash: string,
-   ratings: Rating[],
-   createdAt: string,
-+  hiddenRatingLabels: string[] = [],
- ): MrComment {
-   const results = items.map((item) => {
-     if (item.isError) {
-@@ -104,13 +106,19 @@ function createAikataComment(
-     if (!rating) throw new Error(`Rating not found: ${item.ratingLabel}`);
-     return ReviewResult.success(new CheckItem(item.content), rating, item.comment);
-   });
--  const body = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
-+  const body = CommentFormatter.formatComment(
-+    results,
-+    ratings,
-+    commitHash,
-+    'test commit',
-+    hiddenRatingLabels,
-+  );
+@@ -112,6 +114,7 @@ function createAikataComment(
+     commitHash,
+     'test commit',
+     hiddenRatingLabels,
++    { passed: true, violations: [] },
+   );
    return { id: 1, body, createdAt };
  }
- 
- describe('ExecuteReviewService', () => {
-   let mrGateway: MrGateway;
--  let mrCommentGateway: MrCommentGateway;
-+  let mrDiscussionGateway: MrDiscussionGateway;
-   let workflowRunner: ReviewWorkflowRunner;
-   let projectTreeGateway: ProjectTreeGateway;
-   let service: ExecuteReviewService;
-@@ -121,9 +129,9 @@ describe('ExecuteReviewService', () => {
-       getCommitsSince: vi.fn(),
-       getDiffSince: vi.fn(),
-     };
--    mrCommentGateway = {
--      getComments: vi.fn(),
--      postComment: vi.fn(),
-+    mrDiscussionGateway = {
-+      getDiscussions: vi.fn(),
-+      postDiscussion: vi.fn(),
-     };
-     workflowRunner = {
-       run: vi.fn(),
-@@ -133,7 +141,7 @@ describe('ExecuteReviewService', () => {
-     };
-     service = new ExecuteReviewService(
-       mrGateway,
--      mrCommentGateway,
-+      mrDiscussionGateway,
-       workflowRunner,
-       projectTreeGateway,
-     );
-@@ -145,21 +153,21 @@ describe('ExecuteReviewService', () => {
-     const workflowResult = createWorkflowResult();
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]); // 過去コメントなし
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]); // 過去コメントなし
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     const result = await service.execute(command);
- 
-     // Step 0: MRコンテキスト取得
-     expect(mrGateway.getMrContext).toHaveBeenCalledWith('project-1', '42');
-     // Step 0: 過去コメント取得
--    expect(mrCommentGateway.getComments).toHaveBeenCalledWith('project-1', '42');
-+    expect(mrDiscussionGateway.getDiscussions).toHaveBeenCalledWith('project-1', '42');
-     // Steps 1-2: Workflow実行
-     expect(workflowRunner.run).toHaveBeenCalledOnce();
-     // Step 3: コメント投稿
--    expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
--    expect(mrCommentGateway.postComment).toHaveBeenCalledWith(
-+    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
-+    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledWith(
-       'project-1',
-       '42',
-       expect.stringContaining('コードの可読性'),
-@@ -208,14 +216,14 @@ describe('ExecuteReviewService', () => {
-     );
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue([
-       'fix: improve code',
-       'test: add tests',
-     ]);
-     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('diff since prior');
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -254,9 +262,9 @@ describe('ExecuteReviewService', () => {
-     const workflowResult = createWorkflowResult();
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]); // 過去コメントなし
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]); // 過去コメントなし
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -309,11 +317,11 @@ describe('ExecuteReviewService', () => {
-     );
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
-     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -332,15 +340,15 @@ describe('ExecuteReviewService', () => {
-     const workflowResult = createWorkflowResult();
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     const result = await service.execute(command);
- 
-     // コメントが正しいフォーマットで投稿される
--    expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
--    const postedBody = vi.mocked(mrCommentGateway.postComment).mock.calls[0][2];
-+    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
-+    const postedBody = vi.mocked(mrDiscussionGateway.postDiscussion).mock.calls[0][2];
-     expect(postedBody).toContain('<!-- aikata-review -->');
-     expect(postedBody).toContain('コードの可読性');
-     expect(postedBody).toContain('テストカバレッジ');
-@@ -381,9 +389,9 @@ describe('ExecuteReviewService', () => {
-     };
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     const result = await service.execute(command);
- 
-@@ -419,18 +427,18 @@ describe('ExecuteReviewService', () => {
-     };
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     const result = await service.execute(command);
- 
-     expect(result.results).toHaveLength(2);
-     expect(result.results.every((r) => r.isError)).toBe(true);
-     expect(result.allResultsAreErrors).toBe(true);
--    // コメントは投稿されている
--    expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
--    expect(result.commentPosted).toBe(true);
-+    // 全エラーの場合はコメントが投稿されない
-+    expect(mrDiscussionGateway.postDiscussion).not.toHaveBeenCalled();
-+    expect(result.commentPosted).toBe(false);
-   });
- 
-   it('複数のaikataコメントがある場合、最新のコメントのみ使用される', async () => {
-@@ -475,11 +483,11 @@ describe('ExecuteReviewService', () => {
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-     // 古い順で返されても、新しい方が使われる
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([olderComment, newerComment]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([olderComment, newerComment]);
-     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['new commit']);
-     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('new diff');
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -521,11 +529,11 @@ describe('ExecuteReviewService', () => {
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-     // 非aikataコメントが新しい＝最初に評価されるがスキップされる
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([aikataComment, normalComment]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([aikataComment, normalComment]);
-     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
-     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -563,9 +571,9 @@ describe('ExecuteReviewService', () => {
-     );
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([aikataComment]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([aikataComment]);
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -598,7 +606,7 @@ describe('ExecuteReviewService', () => {
-     };
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
- 
-     await expect(service.execute(command)).rejects.toThrow('Check item not found: 存在しない項目');
-@@ -610,9 +618,9 @@ describe('ExecuteReviewService', () => {
-     const workflowResult = createWorkflowResult();
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -647,9 +655,9 @@ describe('ExecuteReviewService', () => {
-     const workflowResult = createWorkflowResult();
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -660,7 +668,7 @@ describe('ExecuteReviewService', () => {
-     const command = createCommand();
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(createMrContext());
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
-     vi.mocked(projectTreeGateway.getTree).mockRejectedValue(new Error('Tree retrieval failed'));
- 
-     await expect(service.execute(command)).rejects.toThrow('Tree retrieval failed');
-@@ -699,11 +707,11 @@ describe('ExecuteReviewService', () => {
-     );
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-     vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
-     vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -748,9 +756,9 @@ describe('ExecuteReviewService', () => {
-     );
- 
-     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--    vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-     vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--    vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+    vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-     await service.execute(command);
- 
-@@ -798,8 +806,8 @@ describe('ExecuteReviewService', () => {
-       );
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       const result = await service.execute(command);
- 
-@@ -807,7 +815,7 @@ describe('ExecuteReviewService', () => {
-       expect(workflowRunner.run).not.toHaveBeenCalled();
- 
-       // コメントは投稿される
--      expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
-+      expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
- 
-       // 結果が前回と同じ
-       expect(result.results).toHaveLength(2);
-@@ -861,9 +869,9 @@ describe('ExecuteReviewService', () => {
-       };
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       const result = await service.execute(command);
- 
-@@ -916,9 +924,9 @@ describe('ExecuteReviewService', () => {
-       const workflowResult = createWorkflowResult();
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       const result = await service.execute(command);
- 
-@@ -980,16 +988,18 @@ describe('ExecuteReviewService', () => {
-       };
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       const result = await service.execute(command);
- 
-       expect(result.results).toHaveLength(2);
-       expect(result.results.every((r) => r.isError)).toBe(true);
-       expect(result.allResultsAreErrors).toBe(true);
--      expect(mrCommentGateway.postComment).toHaveBeenCalledOnce();
-+      // 全エラーの場合はコメントが投稿されない
-+      expect(mrDiscussionGateway.postDiscussion).not.toHaveBeenCalled();
-+      expect(result.commentPosted).toBe(false);
-     });
- 
-     it('チェックリストに新項目が追加された場合、新項目のみworkflowで再レビューされる', async () => {
-@@ -1036,9 +1046,9 @@ describe('ExecuteReviewService', () => {
-       };
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       const result = await service.execute(command);
- 
-@@ -1082,8 +1092,8 @@ describe('ExecuteReviewService', () => {
-       );
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       const result = await service.execute(command);
- 
-@@ -1136,9 +1146,9 @@ describe('ExecuteReviewService', () => {
-       };
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       const result = await service.execute(command);
- 
-@@ -1202,9 +1212,9 @@ describe('ExecuteReviewService', () => {
-       };
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       const result = await service.execute(command);
- 
-@@ -1236,11 +1246,11 @@ describe('ExecuteReviewService', () => {
-       );
- 
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
--      vi.mocked(mrCommentGateway.getComments).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-       vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['new commit']);
-       vi.mocked(mrGateway.getDiffSince).mockResolvedValue('new diff');
-       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
--      vi.mocked(mrCommentGateway.postComment).mockResolvedValue(undefined);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
- 
-       await service.execute(command);
- 
-@@ -1254,4 +1264,110 @@ describe('ExecuteReviewService', () => {
-       expect(runCall.priorDiffSincePrior).toBe('new diff');
+@@ -1278,6 +1281,7 @@ describe('ExecuteReviewService', () => {
+             new Rating('C', '満たしていない'),
+           ],
+           hiddenRatingLabels: ['A'],
++          qualityGate: QualityGate.none(),
+         }),
+       });
+       const mrContext = createMrContext();
+@@ -1370,4 +1374,185 @@ describe('ExecuteReviewService', () => {
+       expect(postedBody).not.toContain('"hiddenResults"');
      });
    });
 +
-+  describe('hiddenRatingLabels', () => {
-+    it('hiddenRatingLabels指定時、投稿コメントにメタデータ内の非表示結果が含まれる', async () => {
++  describe('品質ゲート', () => {
++    it('品質ゲート未設定の場合、qualityGatePassedがtrueになる', async () => {
++      const command = createCommand();
++      const mrContext = createMrContext();
++      const workflowResult = createWorkflowResult();
++
++      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
++      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
++      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
++      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
++
++      const result = await service.execute(command);
++
++      expect(result.qualityGatePassed).toBe(true);
++    });
++
++    it('品質ゲートに抵触した場合、コメントは投稿されqualityGatePassedがfalseになる', async () => {
 +      const command = createCommand({
 +        reviewSettings: new ReviewSettings({
 +          additionalInstructions: '',
@@ -833,7 +813,41 @@ index 1196bd9..92e014c 100644
 +            new Rating('B', '概ね満たしている'),
 +            new Rating('C', '満たしていない'),
 +          ],
-+          hiddenRatingLabels: ['A'],
++          hiddenRatingLabels: [],
++          qualityGate: new QualityGate([{ ratingLabel: 'B', threshold: 1 }]),
++        }),
++      });
++      const mrContext = createMrContext();
++      // ワークフロー結果にB評定が含まれる
++      const workflowResult = createWorkflowResult();
++
++      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
++      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
++      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
++      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
++
++      const result = await service.execute(command);
++
++      // コメントは投稿される
++      expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
++      expect(result.commentPosted).toBe(true);
++      // 品質ゲートはfail
++      expect(result.qualityGatePassed).toBe(false);
++    });
++
++    it('品質ゲートに抵触した場合、コメントに警告が含まれる', async () => {
++      const command = createCommand({
++        reviewSettings: new ReviewSettings({
++          additionalInstructions: '',
++          concurrentReviewCount: null,
++          commentFormat: '{comment}',
++          ratings: [
++            new Rating('A', '完全に満たしている'),
++            new Rating('B', '概ね満たしている'),
++            new Rating('C', '満たしていない'),
++          ],
++          hiddenRatingLabels: [],
++          qualityGate: new QualityGate([{ ratingLabel: 'B', threshold: 1 }]),
 +        }),
 +      });
 +      const mrContext = createMrContext();
@@ -847,331 +861,484 @@ index 1196bd9..92e014c 100644
 +      await service.execute(command);
 +
 +      const postedBody = vi.mocked(mrDiscussionGateway.postDiscussion).mock.calls[0][2];
-+      // A評定の「コードの可読性」はテーブルに表示されない
-+      expect(postedBody).not.toContain('| コードの可読性 | A | 良いコードです |');
-+      // B評定の「テストカバレッジ」はテーブルに表示される
-+      expect(postedBody).toContain('| テストカバレッジ | B | テストを追加してください |');
-+      // A評定の結果はメタデータに格納されている
-+      expect(postedBody).toContain('"hiddenResults"');
-+      expect(postedBody).toContain('"checkItemContent":"コードの可読性"');
++      expect(postedBody).toContain('Quality Gate Failed');
 +    });
 +
-+    it('過去のコメントにhiddenResultsがある場合、priorReviewResultsに含まれる', async () => {
-+      const ratings = [
-+        new Rating('A', '完全に満たしている'),
-+        new Rating('B', '概ね満たしている'),
-+        new Rating('C', '満たしていない'),
-+      ];
-+      const command = createCommand();
++    it('全エラーの場合、品質ゲートは評価されるがコメントは投稿されない', async () => {
++      const command = createCommand({
++        reviewSettings: new ReviewSettings({
++          additionalInstructions: '',
++          concurrentReviewCount: null,
++          commentFormat: '{comment}',
++          ratings: [
++            new Rating('A', '完全に満たしている'),
++            new Rating('B', '概ね満たしている'),
++            new Rating('C', '満たしていない'),
++          ],
++          hiddenRatingLabels: [],
++          qualityGate: new QualityGate([{ ratingLabel: 'C', threshold: 1 }]),
++        }),
++      });
 +      const mrContext = createMrContext();
-+      const workflowResult = createWorkflowResult();
-+
-+      // 過去のコメントではA評定が非表示だった
-+      const priorComment = createAikataComment(
-+        [
++      const workflowResult: ReviewWorkflowResult = {
++        results: [
 +          {
-+            content: 'コードの可読性',
-+            ratingLabel: 'A',
-+            ratingDefinition: '完全に満たしている',
-+            comment: '良いです',
++            checkItemContent: 'コードの可読性',
++            ratingLabel: '',
++            ratingDefinition: '',
++            comment: '',
++            isError: true,
++            errorMessage: 'Error',
 +          },
 +          {
-+            content: 'テストカバレッジ',
-+            ratingLabel: 'B',
-+            ratingDefinition: '概ね満たしている',
-+            comment: 'もう少し',
++            checkItemContent: 'テストカバレッジ',
++            ratingLabel: '',
++            ratingDefinition: '',
++            comment: '',
++            isError: true,
++            errorMessage: 'Error',
 +          },
 +        ],
-+        'prior-commit-hash',
-+        ratings,
-+        '2026-01-01T00:00:00Z',
-+        ['A'], // A評定を非表示
-+      );
-+
-+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
-+      vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: update']);
-+      vi.mocked(mrGateway.getDiffSince).mockResolvedValue('some diff');
-+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
-+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
-+
-+      await service.execute(command);
-+
-+      // 非表示だったA評定の結果もpriorReviewResultsに含まれる
-+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
-+      expect(runCall.priorReviewResults).toHaveLength(2);
-+      expect(runCall.priorReviewResults!.map((r) => r.checkItemContent)).toEqual([
-+        'テストカバレッジ',
-+        'コードの可読性',
-+      ]);
-+    });
-+
-+    it('hiddenRatingLabelsが空の場合、従来と同じ動作をする', async () => {
-+      const command = createCommand();
-+      const mrContext = createMrContext();
-+      const workflowResult = createWorkflowResult();
++      };
 +
 +      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
 +      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
 +      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
++
++      const result = await service.execute(command);
++
++      expect(result.allResultsAreErrors).toBe(true);
++      expect(result.commentPosted).toBe(false);
++      // 全エラー時は非エラー結果がないので品質ゲートはpass
++      expect(result.qualityGatePassed).toBe(true);
++    });
++
++    it('リトライフローでも品質ゲートが評価される', async () => {
++      const ratingsArr = [
++        new Rating('A', '完全に満たしている'),
++        new Rating('B', '概ね満たしている'),
++        new Rating('C', '満たしていない'),
++      ];
++      const command = createCommand({
++        reviewSettings: new ReviewSettings({
++          additionalInstructions: '',
++          concurrentReviewCount: null,
++          commentFormat: '{comment}',
++          ratings: ratingsArr,
++          hiddenRatingLabels: [],
++          qualityGate: new QualityGate([{ ratingLabel: 'C', threshold: 1 }]),
++        }),
++      });
++      const mrContext = createMrContext({ commitHash: 'same-hash' });
++
++      // 前回の結果にC評定あり
++      const priorComment = createAikataComment(
++        [
++          {
++            content: 'コードの可読性',
++            ratingLabel: 'C',
++            ratingDefinition: '満たしていない',
++            comment: '問題あり',
++          },
++          {
++            content: 'テストカバレッジ',
++            ratingLabel: 'A',
++            ratingDefinition: '完全に満たしている',
++            comment: '良い',
++          },
++        ],
++        'same-hash',
++        ratingsArr,
++        '2026-01-01T00:00:00Z',
++      );
++
++      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
++      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
 +      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
 +
-+      await service.execute(command);
++      const result = await service.execute(command);
 +
-+      const postedBody = vi.mocked(mrDiscussionGateway.postDiscussion).mock.calls[0][2];
-+      // 全ての結果がテーブルに表示される
-+      expect(postedBody).toContain('| コードの可読性 | A | 良いコードです |');
-+      expect(postedBody).toContain('| テストカバレッジ | B | テストを追加してください |');
-+      // hiddenResultsはメタデータに含まれない
-+      expect(postedBody).not.toContain('"hiddenResults"');
++      // リトライで全て保持 → workflowは呼ばれない
++      expect(workflowRunner.run).not.toHaveBeenCalled();
++      // C評定1件で品質ゲート失敗
++      expect(result.qualityGatePassed).toBe(false);
++      // コメントは投稿される
++      expect(result.commentPosted).toBe(true);
 +    });
 +  });
  });
 diff --git a/src/application/shared/comment/CommentFormatter.ts b/src/application/shared/comment/CommentFormatter.ts
-index 71ee865..4cceaeb 100644
+index 4cceaeb..8e920b7 100644
 --- a/src/application/shared/comment/CommentFormatter.ts
 +++ b/src/application/shared/comment/CommentFormatter.ts
-@@ -11,7 +11,7 @@ export const REVIEW_DATA_PREFIX = '<!-- aikata-review-data: ';
- export const REVIEW_DATA_SUFFIX = ' -->';
+@@ -1,5 +1,6 @@
+ import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/reviewResult/index.js';
+ import { Rating } from '../../../domain/rating/index.js';
++import type { QualityGateResult } from '../../../domain/qualityGate/index.js';
  
- /** 折りたたみ表示にする閾値（この値を超えたら折りたたみ） */
--export const FOLD_THRESHOLD = 15;
-+export const FOLD_THRESHOLD = 2;
- 
- /**
-  * MRコメント投稿用のMarkdown整形ロジック
-@@ -26,17 +26,33 @@ export class CommentFormatter {
+ /** aikataレビューコメント識別用マーカー */
+ export const REVIEW_MARKER = '<!-- aikata-review -->';
+@@ -26,7 +27,8 @@ export class CommentFormatter {
      ratings: Rating[],
      commitHash: string,
      commitMessage: string,
-+    hiddenRatingLabels: string[] = [],
+-    hiddenRatingLabels: string[] = [],
++    hiddenRatingLabels: string[],
++    qualityGateResult: QualityGateResult,
    ): string {
-+    // 表示/非表示に分割（エラー結果は常に表示）
-+    const visibleResults = results.filter(
-+      (r) => r.isError || !hiddenRatingLabels.includes(r.rating.label),
-+    );
-+    const hiddenResults = results.filter(
-+      (r) => !r.isError && hiddenRatingLabels.includes(r.rating.label),
-+    );
-+
-     const lines: string[] = [];
- 
-     // 識別用マーカー
-     lines.push(REVIEW_MARKER);
- 
--    // メタデータマーカー（評定基準とコミットハッシュを埋め込む）
--    const metadata = {
-+    // メタデータマーカー（評定基準、コミットハッシュ、非表示結果を埋め込む）
-+    const metadata: Record<string, unknown> = {
-       ratings: ratings.map((r) => ({ label: r.label, definition: r.definition })),
-       commitHash,
-     };
-+    if (hiddenResults.length > 0) {
-+      metadata.hiddenResults = hiddenResults.map((r) => ({
-+        checkItemContent: r.checkItem.content,
-+        ratingLabel: r.rating.label,
-+        comment: r.comment,
-+      }));
-+    }
-     lines.push(`${REVIEW_DATA_PREFIX}${JSON.stringify(metadata)}${REVIEW_DATA_SUFFIX}`);
- 
-     // ヘッダー
-@@ -44,21 +60,27 @@ export class CommentFormatter {
+     // 表示/非表示に分割（エラー結果は常に表示）
+     const visibleResults = results.filter(
+@@ -60,6 +62,15 @@ export class CommentFormatter {
      lines.push('## AIKATA-PR レビュー結果');
      lines.push(`レビュー時最新コミット: ${commitMessage}`);
  
--    // Markdownテーブルを生成
--    const table = CommentFormatter.buildTable(results);
--
--    // 折りたたみ判定
--    if (results.length > FOLD_THRESHOLD) {
--      lines.push('');
--      lines.push('<details>');
--      lines.push(`<summary>レビュー結果（${results.length}件）</summary>`);
-+    if (visibleResults.length === 0) {
-+      // 全ての非エラー結果が非表示の場合
-       lines.push('');
--      lines.push(table);
--      lines.push('');
--      lines.push('</details>');
-+      lines.push('全てのチェック項目が非表示の評定に該当しました。');
-     } else {
--      lines.push('');
--      lines.push(table);
-+      // Markdownテーブルを生成
-+      const table = CommentFormatter.buildTable(visibleResults);
-+
-+      // 折りたたみ判定
-+      if (visibleResults.length > FOLD_THRESHOLD) {
-+        lines.push('');
-+        lines.push('<details>');
-+        lines.push(`<summary>レビュー結果（${visibleResults.length}件）</summary>`);
-+        lines.push('');
-+        lines.push(table);
-+        lines.push('');
-+        lines.push('</details>');
-+      } else {
-+        lines.push('');
-+        lines.push(table);
++    // 品質ゲート警告（テーブルの上に表示）
++    if (!qualityGateResult.passed) {
++      lines.push('');
++      lines.push('> **⚠ Quality Gate Failed**');
++      for (const v of qualityGateResult.violations) {
++        lines.push(`> - Rating "${v.ratingLabel}" : ${v.actualCount} (threshold: ${v.threshold})`);
 +      }
-     }
- 
-     return lines.join('\n');
-diff --git a/src/application/shared/comment/CommentParser.ts b/src/application/shared/comment/CommentParser.ts
-index f908e0e..f36a600 100644
---- a/src/application/shared/comment/CommentParser.ts
-+++ b/src/application/shared/comment/CommentParser.ts
-@@ -7,6 +7,7 @@ import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './Comment
- interface ReviewMetadata {
-   ratings: { label: string; definition: string }[];
-   commitHash: string;
-+  hiddenResults?: { checkItemContent: string; ratingLabel: string; comment: string }[];
- }
- 
- /**
-@@ -16,6 +17,7 @@ export interface ParsedReviewComment {
-   results: ReviewResult[];
-   ratings: Rating[];
-   commitHash: string;
-+  hiddenResults: ReviewResult[];
- }
- 
- /**
-@@ -37,10 +39,17 @@ export class CommentParser {
-     const ratings = metadata.ratings.map((r) => new Rating(r.label, r.definition));
-     const results = CommentParser.parseTableRows(lines, ratings);
- 
-+    // メタデータから非表示結果を復元
-+    const hiddenResults = (metadata.hiddenResults ?? []).map((hr) => {
-+      const rating = CommentParser.findRating(hr.ratingLabel, ratings);
-+      return ReviewResult.success(new CheckItem(hr.checkItemContent), rating, hr.comment);
-+    });
++    }
 +
-     return {
-       results,
-       ratings,
-       commitHash: metadata.commitHash,
-+      hiddenResults,
-     };
-   }
- 
+     if (visibleResults.length === 0) {
+       // 全ての非エラー結果が非表示の場合
+       lines.push('');
 diff --git a/src/application/shared/comment/__tests__/CommentFormatter.test.ts b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
-index e000a83..dbd786a 100644
+index dbd786a..3ddc1aa 100644
 --- a/src/application/shared/comment/__tests__/CommentFormatter.test.ts
 +++ b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
-@@ -233,4 +233,155 @@ describe('CommentFormatter', () => {
+@@ -9,6 +9,10 @@ import {
+ import { ReviewResult } from '../../../../domain/reviewResult/index.js';
+ import { CheckItem } from '../../../../domain/checkItem/index.js';
+ import { Rating } from '../../../../domain/rating/index.js';
++import type { QualityGateResult } from '../../../../domain/qualityGate/index.js';
++
++/** 品質ゲート通過時のデフォルト結果 */
++const PASSED_GATE: QualityGateResult = { passed: true, violations: [] };
+ 
+ describe('CommentFormatter', () => {
+   const ratings = [
+@@ -45,7 +49,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       // テーブルヘッダの確認
+       expect(output).toContain('| チェック項目 | 評定 | コメント |');
+@@ -64,7 +75,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('## AIKATA-PR レビュー結果');
+     });
+@@ -83,6 +101,8 @@ describe('CommentFormatter', () => {
+         ratings,
+         commitHash,
+         'feat: implement login',
++        [],
++        PASSED_GATE,
+       );
+ 
+       expect(output).toContain('レビュー時最新コミット: feat: implement login');
+@@ -97,7 +117,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain(REVIEW_MARKER);
+     });
+@@ -111,7 +138,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       // メタデータマーカーの存在確認
+       expect(output).toContain(REVIEW_DATA_PREFIX);
+@@ -138,7 +172,14 @@ describe('CommentFormatter', () => {
+         ReviewResult.error(new CheckItem('エラーのチェック項目'), 'Timeout occurred'),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('| エラーのチェック項目 | エラー | Timeout occurred |');
+     });
+@@ -146,7 +187,14 @@ describe('CommentFormatter', () => {
+     it('15項目超の場合は折りたたみ形式になる', () => {
+       const results = createResults(FOLD_THRESHOLD + 1);
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('<details>');
+       expect(output).toContain('<summary>');
+@@ -157,7 +205,14 @@ describe('CommentFormatter', () => {
+     it('15項目以下の場合は折りたたみにならない', () => {
+       const results = createResults(FOLD_THRESHOLD);
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).not.toContain('<details>');
+       expect(output).not.toContain('<summary>');
+@@ -173,7 +228,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('| 条件A \\| 条件B の確認 | A | 問題ありません |');
+     });
+@@ -187,7 +249,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('| 可読性 | A | if (a \\| b) のパターンに注意 |');
+     });
+@@ -197,7 +266,14 @@ describe('CommentFormatter', () => {
+         ReviewResult.success(new CheckItem('A|B'), new Rating('A', '完全に満たしている'), 'X|Y|Z'),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
+     });
+@@ -211,7 +287,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('| 可読性 | A | 1行目<br>2行目<br>3行目 |');
+       // 改行がそのまま残っていないことを確認（テーブル行内）
+@@ -228,7 +311,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
        expect(output).toContain('| 項目A<br>項目B | A | コメント |');
+     });
+@@ -249,7 +339,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('| チェック項目1 | A | コメント1 |');
+       expect(output).toContain('| チェック項目2 | B | コメント2 |');
+@@ -269,9 +366,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+-        'A',
+-      ]);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        ['A'],
++        PASSED_GATE,
++      );
+ 
+       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
+       expect(output).toContain('| チェック項目2 | B | コメント2 |');
+@@ -291,9 +393,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+-        'A',
+-      ]);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        ['A'],
++        PASSED_GATE,
++      );
+ 
+       // メタデータのJSON部分を抽出してパース
+       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
+@@ -316,9 +423,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+-        'A',
+-      ]);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        ['A'],
++        PASSED_GATE,
++      );
+ 
+       expect(output).toContain('| エラー項目 | エラー | タイムアウト |');
+       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
+@@ -333,9 +445,14 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+-        'A',
+-      ]);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        ['A'],
++        PASSED_GATE,
++      );
+ 
+       expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
+       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
+@@ -356,6 +473,7 @@ describe('CommentFormatter', () => {
+         commitHash,
+         commitMessage,
+         [],
++        PASSED_GATE,
+       );
+ 
+       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
+@@ -376,12 +494,141 @@ describe('CommentFormatter', () => {
+       });
+ 
+       // Aを非表示にすると、visible件数が減って折りたたみ閾値以下になる
+-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
+-        'A',
+-      ]);
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        ['A'],
++        PASSED_GATE,
++      );
+ 
+       // A評定の結果が非表示になるため、visible件数はFOLD_THRESHOLD以下
+       expect(output).not.toContain('<details>');
      });
    });
 +
-+  describe('hiddenRatingLabels', () => {
-+    it('hiddenRatingLabels未指定では全結果が表に表示される', () => {
-+      const results = [
-+        ReviewResult.success(
-+          new CheckItem('チェック項目1'),
-+          new Rating('A', '完全に満たしている'),
-+          'コメント1',
-+        ),
-+        ReviewResult.success(
-+          new CheckItem('チェック項目2'),
-+          new Rating('B', '概ね満たしている'),
-+          'コメント2',
-+        ),
-+      ];
-+
-+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
-+
-+      expect(output).toContain('| チェック項目1 | A | コメント1 |');
-+      expect(output).toContain('| チェック項目2 | B | コメント2 |');
-+    });
-+
-+    it('hiddenRatingLabelsに一致する評定の結果が表に表示されない', () => {
-+      const results = [
-+        ReviewResult.success(
-+          new CheckItem('チェック項目1'),
-+          new Rating('A', '完全に満たしている'),
-+          'コメント1',
-+        ),
-+        ReviewResult.success(
-+          new CheckItem('チェック項目2'),
-+          new Rating('B', '概ね満たしている'),
-+          'コメント2',
-+        ),
-+      ];
-+
-+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-+        'A',
-+      ]);
-+
-+      expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
-+      expect(output).toContain('| チェック項目2 | B | コメント2 |');
-+    });
-+
-+    it('非表示の結果がメタデータのhiddenResultsに格納される', () => {
-+      const results = [
-+        ReviewResult.success(
-+          new CheckItem('チェック項目1'),
-+          new Rating('A', '完全に満たしている'),
-+          'コメント1',
-+        ),
-+        ReviewResult.success(
-+          new CheckItem('チェック項目2'),
-+          new Rating('B', '概ね満たしている'),
-+          'コメント2',
-+        ),
-+      ];
-+
-+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-+        'A',
-+      ]);
-+
-+      // メタデータのJSON部分を抽出してパース
-+      const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
-+      const dataEnd = output.indexOf(REVIEW_DATA_SUFFIX, dataStart);
-+      const jsonStr = output.substring(dataStart, dataEnd);
-+      const metadata = JSON.parse(jsonStr);
-+
-+      expect(metadata.hiddenResults).toEqual([
-+        { checkItemContent: 'チェック項目1', ratingLabel: 'A', comment: 'コメント1' },
-+      ]);
-+    });
-+
-+    it('エラー結果はhiddenRatingLabelsに関係なく常に表に表示される', () => {
-+      const results = [
-+        ReviewResult.error(new CheckItem('エラー項目'), 'タイムアウト'),
-+        ReviewResult.success(
-+          new CheckItem('チェック項目1'),
-+          new Rating('A', '完全に満たしている'),
-+          'コメント1',
-+        ),
-+      ];
-+
-+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-+        'A',
-+      ]);
-+
-+      expect(output).toContain('| エラー項目 | エラー | タイムアウト |');
-+      expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
-+    });
-+
-+    it('全ての非エラー結果が非表示の場合、代替メッセージが表示される', () => {
-+      const results = [
-+        ReviewResult.success(
-+          new CheckItem('チェック項目1'),
-+          new Rating('A', '完全に満たしている'),
-+          'コメント1',
-+        ),
-+      ];
-+
-+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-+        'A',
-+      ]);
-+
-+      expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
-+      expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
-+    });
-+
-+    it('hiddenRatingLabelsが空配列の場合、メタデータにhiddenResultsが含まれない', () => {
++  describe('qualityGateResult', () => {
++    it('品質ゲート通過時は警告メッセージが表示されない', () => {
 +      const results = [
 +        ReviewResult.success(
 +          new CheckItem('チェック項目1'),
@@ -1186,743 +1353,890 @@ index e000a83..dbd786a 100644
 +        commitHash,
 +        commitMessage,
 +        [],
++        PASSED_GATE,
 +      );
 +
-+      const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
-+      const dataEnd = output.indexOf(REVIEW_DATA_SUFFIX, dataStart);
-+      const jsonStr = output.substring(dataStart, dataEnd);
-+      const metadata = JSON.parse(jsonStr);
-+
-+      expect(metadata.hiddenResults).toBeUndefined();
++      expect(output).not.toContain('Quality Gate Failed');
 +    });
 +
-+    it('折りたたみ判定はvisibleResultsの件数で行われる', () => {
-+      // FOLD_THRESHOLD + 1件のうち、1件を非表示にしてFOLD_THRESHOLD件にする
-+      const count = FOLD_THRESHOLD + 1;
-+      const results = Array.from({ length: count }, (_, i) => {
-+        const checkItem = new CheckItem(`チェック項目${i + 1}`);
-+        const rating = ratings[i % ratings.length];
-+        return ReviewResult.success(checkItem, rating, `コメント${i + 1}`);
-+      });
++    it('品質ゲート失敗時に警告メッセージが表示される', () => {
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('C', '満たしていない'),
++          'コメント1',
++        ),
++      ];
 +
-+      // Aを非表示にすると、visible件数が減って折りたたみ閾値以下になる
-+      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-+        'A',
-+      ]);
++      const gateResult: QualityGateResult = {
++        passed: false,
++        violations: [{ ratingLabel: 'C', threshold: 1, actualCount: 1 }],
++      };
 +
-+      // A評定の結果が非表示になるため、visible件数はFOLD_THRESHOLD以下
-+      expect(output).not.toContain('<details>');
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        gateResult,
++      );
++
++      expect(output).toContain('> **⚠ Quality Gate Failed**');
++      expect(output).toContain('> - Rating "C" : 1 (threshold: 1)');
 +    });
-+  });
- });
-diff --git a/src/application/shared/comment/__tests__/CommentParser.test.ts b/src/application/shared/comment/__tests__/CommentParser.test.ts
-index 3ffcc28..678e3e9 100644
---- a/src/application/shared/comment/__tests__/CommentParser.test.ts
-+++ b/src/application/shared/comment/__tests__/CommentParser.test.ts
-@@ -273,6 +273,89 @@ describe('CommentParser', () => {
-       expect(parsed!.results[0].comment).toBe('行1\n行2 | 行3');
-     });
- 
-+    it('hiddenResultsを含むメタデータからhiddenResultsを復元できる', () => {
++
++    it('品質ゲート失敗時に複数のviolationが表示される', () => {
++      const results = createResults(4);
++
++      const gateResult: QualityGateResult = {
++        passed: false,
++        violations: [
++          { ratingLabel: 'C', threshold: 1, actualCount: 2 },
++          { ratingLabel: 'B', threshold: 1, actualCount: 1 },
++        ],
++      };
++
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        gateResult,
++      );
++
++      expect(output).toContain('> - Rating "C" : 2 (threshold: 1)');
++      expect(output).toContain('> - Rating "B" : 1 (threshold: 1)');
++    });
++
++    it('折りたたみ時に警告メッセージがdetailsの前に表示される', () => {
++      const results = createResults(FOLD_THRESHOLD + 1);
++
++      const gateResult: QualityGateResult = {
++        passed: false,
++        violations: [{ ratingLabel: 'C', threshold: 1, actualCount: 1 }],
++      };
++
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        gateResult,
++      );
++
++      // 警告がdetails開始タグの前に表示される
++      const warningStart = output.indexOf('> **⚠ Quality Gate Failed**');
++      const detailsStart = output.indexOf('<details>');
++      expect(warningStart).toBeLessThan(detailsStart);
++    });
++
++    it('全ての結果が非表示でも品質ゲート警告は表示される', () => {
 +      const results = [
 +        ReviewResult.success(
 +          new CheckItem('チェック項目1'),
 +          new Rating('A', '完全に満たしている'),
 +          'コメント1',
 +        ),
-+        ReviewResult.success(
-+          new CheckItem('チェック項目2'),
-+          new Rating('B', '概ね満たしている'),
-+          'コメント2',
-+        ),
 +      ];
 +
-+      // Aを非表示にしてフォーマット
-+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit', [
-+        'A',
-+      ]);
-+      const parsed = CommentParser.parseComment(comment);
-+
-+      expect(parsed).not.toBeNull();
-+      // テーブルにはB評定のみ
-+      expect(parsed!.results).toHaveLength(1);
-+      expect(parsed!.results[0].rating.label).toBe('B');
-+      // hiddenResultsにA評定
-+      expect(parsed!.hiddenResults).toHaveLength(1);
-+      expect(parsed!.hiddenResults[0].checkItem.content).toBe('チェック項目1');
-+      expect(parsed!.hiddenResults[0].rating.label).toBe('A');
-+      expect(parsed!.hiddenResults[0].comment).toBe('コメント1');
-+    });
-+
-+    it('hiddenResults付きコメントのラウンドトリップが正しく動作する', () => {
-+      const results = [
-+        ReviewResult.success(
-+          new CheckItem('項目A'),
-+          new Rating('A', '完全に満たしている'),
-+          'Aコメント',
-+        ),
-+        ReviewResult.success(
-+          new CheckItem('項目B'),
-+          new Rating('B', '概ね満たしている'),
-+          'Bコメント',
-+        ),
-+        ReviewResult.success(
-+          new CheckItem('項目C'),
-+          new Rating('C', '満たしていない'),
-+          'Cコメント',
-+        ),
-+      ];
-+
-+      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit', [
-+        'A',
-+      ]);
-+      const parsed = CommentParser.parseComment(comment);
-+
-+      expect(parsed).not.toBeNull();
-+      // visible: B, C
-+      expect(parsed!.results).toHaveLength(2);
-+      expect(parsed!.results[0].checkItem.content).toBe('項目B');
-+      expect(parsed!.results[1].checkItem.content).toBe('項目C');
-+      // hidden: A
-+      expect(parsed!.hiddenResults).toHaveLength(1);
-+      expect(parsed!.hiddenResults[0].checkItem.content).toBe('項目A');
-+    });
-+
-+    it('旧フォーマットのコメントでもhiddenResultsは空配列で返る', () => {
-+      // 旧フォーマット（hiddenResultsなし）を手動で構築
-+      const body = [
-+        '<!-- aikata-review -->',
-+        `<!-- aikata-review-data: ${JSON.stringify({ ratings: [{ label: 'A', definition: '完全に満たしている' }], commitHash: 'old123' })} -->`,
-+        '',
-+        '| チェック項目 | 評定 | コメント |',
-+        '| --- | --- | --- |',
-+        '| 旧チェック項目 | A | 旧コメント |',
-+      ].join('\n');
-+
-+      const parsed = CommentParser.parseComment(body);
-+
-+      expect(parsed).not.toBeNull();
-+      expect(parsed!.results).toHaveLength(1);
-+      expect(parsed!.hiddenResults).toEqual([]);
-+    });
-+
-     it('エスケープなしの旧コメント（パイプなし）が引き続きパースできる', () => {
-       // 旧フォーマットを手動で構築（エスケープなし）
-       const body = [
-diff --git a/src/application/shared/diffCompression/DiffCompressor.ts b/src/application/shared/diffCompression/DiffCompressor.ts
-index 62c151b..a292b75 100644
---- a/src/application/shared/diffCompression/DiffCompressor.ts
-+++ b/src/application/shared/diffCompression/DiffCompressor.ts
-@@ -92,6 +92,53 @@ export function compressFileDiff(
-   };
- }
- 
-+/**
-+ * 単一ファイルのdiffを行数指定で圧縮する
-+ * 上位keepLines行と下位keepLines行を保持し、中央部分を省略コメントで置換する
-+ * keepLines=0の場合はヘッダー行（1行目）のみ保持する
-+ *
-+ * @returns compressed: 圧縮後のdiff文字列、omitted: 省略された部分の文字列
-+ */
-+export function compressFileDiffByLines(
-+  fileDiff: string,
-+  keepLines: number,
-+): { compressed: string; omitted: string } {
-+  const lines = fileDiff.split('\n');
-+  const totalLines = lines.length;
-+
-+  // keepLines=0: ヘッダー行（1行目）のみ保持
-+  if (keepLines === 0) {
-+    if (totalLines <= 1) {
-+      return { compressed: fileDiff, omitted: '' };
-+    }
-+    const headerLine = lines[0]!;
-+    const omittedLines = lines.slice(1);
-+    const omittedCount = omittedLines.length;
-+    const omissionMarker = `[aikata: ${omittedCount} lines omitted from middle. Use getDiffDetail tool with file path to view omitted portion]`;
-+    return {
-+      compressed: [headerLine, omissionMarker].join('\n'),
-+      omitted: omittedLines.join('\n'),
-+    };
-+  }
-+
-+  // 圧縮不要: 保持行数の合計が全体以上
-+  if (keepLines * 2 >= totalLines) {
-+    return { compressed: fileDiff, omitted: '' };
-+  }
-+
-+  const topLines = lines.slice(0, keepLines);
-+  const bottomLines = lines.slice(totalLines - keepLines);
-+  const omittedLines = lines.slice(keepLines, totalLines - keepLines);
-+  const omittedCount = omittedLines.length;
-+
-+  const omissionMarker = `[aikata: ${omittedCount} lines omitted from middle. Use getDiffDetail tool with file path to view omitted portion]`;
-+
-+  return {
-+    compressed: [...topLines, omissionMarker, ...bottomLines].join('\n'),
-+    omitted: omittedLines.join('\n'),
-+  };
-+}
-+
- /**
-  * 圧縮されたファイルdiffを結合して1つのdiff文字列に戻す
-  */
-@@ -241,6 +288,78 @@ export function compressDiffIfNeeded(
-     }
-   }
- 
-+  // Phase 2: 行数ベースの段階的圧縮（keepLines半減ループ）
-+  // Phase 1で全ファイルがminKeepPercentに達したが、まだ閾値を超えている場合
-+  const fileKeepLines = new Map<string, number>();
-+
-+  // Phase 1完了時のkeepLinesを初期値として算出
-+  for (const [filePath, keepPercent] of fileKeepPercents) {
-+    if (keepPercent <= options.minKeepPercent) {
-+      const originalFileDiff = originalFileDiffs.get(filePath)!;
-+      const totalLines = originalFileDiff.split('\n').length;
-+      const currentKeepLines = Math.floor((totalLines * keepPercent) / 100);
-+      // keepLinesが0の場合（元々小さいファイル）は対象外
-+      if (currentKeepLines > 0) {
-+        fileKeepLines.set(filePath, currentKeepLines);
-+      }
-+    }
-+  }
-+
-+  while (true) {
-+    // 現在のdiff行数でソートし、最大ファイルを選択
-+    const sortedFiles = Array.from(currentFileDiffs.keys()).sort(
-+      (a, b) => getLineCount(b) - getLineCount(a),
-+    );
-+
-+    // 圧縮可能なファイルを探す（fileKeepLinesに存在し、keepLines > 0のもの）
-+    let targetFile: string | null = null;
-+    for (const file of sortedFiles) {
-+      if (!fileKeepLines.has(file)) {
-+        continue;
-+      }
-+      const currentKeep = fileKeepLines.get(file)!;
-+      if (currentKeep <= 0) {
-+        continue;
-+      }
-+      targetFile = file;
-+      break;
-+    }
-+
-+    // 全ファイルがkeepLines=0に達した → ベストエフォートで完了
-+    if (targetFile === null) {
-+      break;
-+    }
-+
-+    // keepLinesを半減
-+    const currentKeepLines = fileKeepLines.get(targetFile)!;
-+    const newKeepLines = Math.floor(currentKeepLines / 2);
-+    fileKeepLines.set(targetFile, newKeepLines);
-+
-+    // オリジナルdiffに対して行数ベースで圧縮
-+    const originalFileDiff = originalFileDiffs.get(targetFile)!;
-+    const { compressed, omitted } = compressFileDiffByLines(originalFileDiff, newKeepLines);
-+
-+    currentFileDiffs.set(targetFile, compressed);
-+    if (omitted) {
-+      omittedFileDiffs.set(targetFile, omitted);
-+      compressedFilePaths.add(targetFile);
-+    }
-+
-+    // 再結合してトークン数チェック
-+    const combinedDiff = combineFileDiffs(currentFileDiffs);
-+    if (isUnderThreshold(combinedDiff, currentFolderTree)) {
-+      return {
-+        compressed: true,
-+        compressedDiff: combinedDiff,
-+        folderTreeStripped,
-+        strippedFolderTree,
-+        omittedFileDiffs,
-+        compressedFilePaths,
-+        allDiffFilePaths,
++      const gateResult: QualityGateResult = {
++        passed: false,
++        violations: [{ ratingLabel: 'A', threshold: 1, actualCount: 1 }],
 +      };
-+    }
-+  }
 +
-   // ベストエフォート: 全ファイル圧縮済みで閾値を超えている
-   return {
-     compressed: true,
-diff --git a/src/application/shared/diffCompression/__tests__/DiffCompressor.test.ts b/src/application/shared/diffCompression/__tests__/DiffCompressor.test.ts
-index 8a59802..dcc2cd1 100644
---- a/src/application/shared/diffCompression/__tests__/DiffCompressor.test.ts
-+++ b/src/application/shared/diffCompression/__tests__/DiffCompressor.test.ts
-@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
- import {
-   splitDiffByFile,
-   compressFileDiff,
-+  compressFileDiffByLines,
-   combineFileDiffs,
-   compressDiffIfNeeded,
- } from '../DiffCompressor.js';
-@@ -141,6 +142,87 @@ describe('compressFileDiff', () => {
-   });
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        ['A'],
++        gateResult,
++      );
++
++      expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
++      expect(output).toContain('> **⚠ Quality Gate Failed**');
++    });
++  });
  });
+diff --git a/src/application/shared/comment/__tests__/CommentParser.test.ts b/src/application/shared/comment/__tests__/CommentParser.test.ts
+index 678e3e9..da4d6d5 100644
+--- a/src/application/shared/comment/__tests__/CommentParser.test.ts
++++ b/src/application/shared/comment/__tests__/CommentParser.test.ts
+@@ -28,7 +28,14 @@ describe('CommentParser', () => {
+         ),
+       ];
  
-+describe('compressFileDiffByLines', () => {
-+  // 20行のdiffを生成
-+  const lines: string[] = [];
-+  for (let i = 1; i <= 20; i++) {
-+    lines.push(`line${i}`);
-+  }
-+  const twentyLineDiff = lines.join('\n');
-+
-+  it('keepLines=3で上位3行と下位3行を保持する', () => {
-+    const result = compressFileDiffByLines(twentyLineDiff, 3);
-+    // 上3行 + 下3行を保持、中間14行を省略
-+    expect(result.compressed).toContain('line1');
-+    expect(result.compressed).toContain('line3');
-+    expect(result.compressed).toContain('line18');
-+    expect(result.compressed).toContain('line20');
-+    expect(result.compressed).toContain('[aikata:');
-+    expect(result.compressed).toContain('14 lines omitted');
-+
-+    // 省略部分
-+    expect(result.omitted).toContain('line4');
-+    expect(result.omitted).toContain('line17');
-+    const omittedLines = result.omitted.split('\n');
-+    expect(omittedLines[0]).toBe('line4');
-+    expect(omittedLines[omittedLines.length - 1]).toBe('line17');
-+  });
-+
-+  it('keepLines=1で上位1行と下位1行を保持する', () => {
-+    const result = compressFileDiffByLines(twentyLineDiff, 1);
-+    // 上1行 + 下1行を保持、中間18行を省略
-+    expect(result.compressed).toContain('line1');
-+    expect(result.compressed).toContain('line20');
-+    expect(result.compressed).toContain('18 lines omitted');
-+    expect(result.omitted).toContain('line2');
-+    expect(result.omitted).toContain('line19');
-+  });
-+
-+  it('keepLines=0でdiff --gitヘッダー行のみ保持する', () => {
-+    const diffWithHeader = [
-+      'diff --git a/src/file.ts b/src/file.ts',
-+      'index 1234567..abcdefg 100644',
-+      '--- a/src/file.ts',
-+      '+++ b/src/file.ts',
-+      '@@ -1,3 +1,3 @@',
-+      '+code',
-+    ].join('\n');
-+
-+    const result = compressFileDiffByLines(diffWithHeader, 0);
-+    // ヘッダー行のみ保持
-+    expect(result.compressed).toContain('diff --git a/src/file.ts b/src/file.ts');
-+    expect(result.compressed).toContain('[aikata:');
-+    expect(result.compressed).toContain('5 lines omitted');
-+    // 2行目以降が全てomittedに
-+    expect(result.omitted).toContain('index 1234567..abcdefg 100644');
-+    expect(result.omitted).toContain('+code');
-+    // ヘッダー行はomittedに含まれない
-+    expect(result.omitted).not.toContain('diff --git');
-+  });
-+
-+  it('keepLines=0で1行のみのdiffの場合は圧縮不要', () => {
-+    const singleLine = 'diff --git a/src/file.ts b/src/file.ts';
-+    const result = compressFileDiffByLines(singleLine, 0);
-+    expect(result.compressed).toBe(singleLine);
-+    expect(result.omitted).toBe('');
-+  });
-+
-+  it('keepLines * 2 >= totalLinesの場合は圧縮不要', () => {
-+    const fourLineDiff = 'line1\nline2\nline3\nline4';
-+    const result = compressFileDiffByLines(fourLineDiff, 3);
-+    // 3 * 2 = 6 >= 4 → 圧縮不要
-+    expect(result.compressed).toBe(fourLineDiff);
-+    expect(result.omitted).toBe('');
-+  });
-+
-+  it('省略マーカーのフォーマットが既存のcompressFileDiffと一致する', () => {
-+    const result = compressFileDiffByLines(twentyLineDiff, 3);
-+    expect(result.compressed).toContain(
-+      '[aikata: 14 lines omitted from middle. Use getDiffDetail tool with file path to view omitted portion]',
-+    );
-+  });
-+});
-+
- describe('combineFileDiffs', () => {
-   it('ファイルごとのdiffを結合する', () => {
-     const fileDiffs = new Map<string, string>([
-@@ -282,3 +364,126 @@ describe('compressDiffIfNeeded', () => {
-     expect(result.compressedDiff.length).toBeLessThan(diff.length);
-   });
- });
-+
-+describe('compressDiffIfNeeded - Phase 2 (行数ベース圧縮)', () => {
-+  const tokenCounter = new CharTokenCounter();
-+  const defaultOptions = {
-+    maxContextLength: 1000,
-+    thresholdRatio: 0.6,
-+    initialKeepPercent: 30,
-+    keepPercentStep: 5,
-+    minKeepPercent: 5,
-+  };
-+
-+  const userPromptBuilder = (diff: string, folderTree: string): string => {
-+    return `## Folder Tree\n${folderTree}\n## Diff\n${diff}`;
-+  };
-+
-+  it('Phase 1の5%では不十分で、Phase 2のkeepLines半減で閾値以下になる', () => {
-+    // 1000行のファイル: Phase 1の5%だと上50行+下50行=100行+マーカー
-+    // Phase 2で半減を繰り返して閾値以下にする
-+    const hugeLines = Array.from(
-+      { length: 1000 },
-+      (_, i) => `+huge line number ${i} with lots of extra padding content to make it large enough`,
-+    ).join('\n');
-+    const diff = `diff --git a/src/huge.ts b/src/huge.ts\n--- a/src/huge.ts\n+++ b/src/huge.ts\n${hugeLines}`;
-+
-+    // Phase 1の5%（100行保持）では収まらないが、Phase 2で半減すれば収まるmaxContextLength
-+    // userPromptBuilderのオーバーヘッド（"## Folder Tree\n\n## Diff\n"=約30文字）を考慮
-+    // Phase 1の5%: 上50行+下50行 ≒ 各行約80文字 × 100行 = 8000文字 + マーカー
-+    // Phase 2で25行まで下げると: 上25行+下25行 ≒ 50行 × 80文字 = 4000文字 + マーカー
-+    const result = compressDiffIfNeeded(userPromptBuilder, diff, '', tokenCounter, {
-+      ...defaultOptions,
-+      maxContextLength: 8000,
-+    });
-+
-+    expect(result.compressed).toBe(true);
-+    expect(result.compressedFilePaths.has('src/huge.ts')).toBe(true);
-+    // Phase 2で閾値以下に圧縮されたことを確認
-+    const promptLength = userPromptBuilder(result.compressedDiff, '').length;
-+    expect(promptLength).toBeLessThanOrEqual(8000 * 0.6);
-+  });
-+
-+  it('Phase 2で複数ファイルがある場合、最大ファイルから順に圧縮される', () => {
-+    // 2ファイル: 大ファイル500行、小ファイル100行
-+    const bigLines = Array.from(
-+      { length: 500 },
-+      (_, i) => `+big line ${i} with extra padding content here to ensure size`,
-+    ).join('\n');
-+    const smallLines = Array.from({ length: 100 }, (_, i) => `+small line ${i} with padding`).join(
-+      '\n',
-+    );
-+    const diff = [
-+      `diff --git a/src/small.ts b/src/small.ts`,
-+      `--- a/src/small.ts`,
-+      `+++ b/src/small.ts`,
-+      smallLines,
-+      `diff --git a/src/big.ts b/src/big.ts`,
-+      `--- a/src/big.ts`,
-+      `+++ b/src/big.ts`,
-+      bigLines,
-+    ].join('\n');
-+
-+    // Phase 1の5%では収まらない程度に小さいmaxContextLength
-+    const result = compressDiffIfNeeded(userPromptBuilder, diff, '', tokenCounter, {
-+      ...defaultOptions,
-+      maxContextLength: 5000,
-+    });
-+
-+    expect(result.compressed).toBe(true);
-+    // 大きいファイルが圧縮されている
-+    expect(result.compressedFilePaths.has('src/big.ts')).toBe(true);
-+    // 大きいファイルのomittedの方が多いことを確認
-+    const bigOmitted = result.omittedFileDiffs.get('src/big.ts') ?? '';
-+    const smallOmitted = result.omittedFileDiffs.get('src/small.ts') ?? '';
-+    expect(bigOmitted.length).toBeGreaterThan(smallOmitted.length);
-+  });
-+
-+  it('Phase 2で全ファイルがkeepLines=0に達してもベストエフォートで完了する', () => {
-+    // 極端に小さいmaxContextLength
-+    const hugeLines = Array.from(
-+      { length: 500 },
-+      (_, i) => `+line ${i} with lots of padding content to ensure very large file`,
-+    ).join('\n');
-+    const diff = `diff --git a/src/huge.ts b/src/huge.ts\n--- a/src/huge.ts\n+++ b/src/huge.ts\n${hugeLines}`;
-+
-+    const result = compressDiffIfNeeded(userPromptBuilder, diff, '', tokenCounter, {
-+      ...defaultOptions,
-+      maxContextLength: 10,
-+    });
-+
-+    // ベストエフォート: ヘッダー行のみまで圧縮される
-+    expect(result.compressed).toBe(true);
-+    expect(result.compressedDiff).toContain('diff --git a/src/huge.ts b/src/huge.ts');
-+    expect(result.compressedDiff).toContain('[aikata:');
-+    // Phase 1よりもさらに短い（Phase 2が実行されている）
-+    // Phase 1の5%: 上25行+下25行 = 50行分
-+    // Phase 2のヘッダーのみ: 1行+マーカー = 2行分
-+    const compressedLines = result.compressedDiff.split('\n');
-+    // ヘッダー行 + 省略マーカーのみ（2行）
-+    expect(compressedLines.length).toBeLessThanOrEqual(2);
-+  });
-+
-+  it('Phase 2の結果がomittedFileDiffsに正しく反映される', () => {
-+    const hugeLines = Array.from({ length: 500 }, (_, i) => `+line ${i} content`).join('\n');
-+    const diff = `diff --git a/src/huge.ts b/src/huge.ts\n--- a/src/huge.ts\n+++ b/src/huge.ts\n${hugeLines}`;
-+
-+    const result = compressDiffIfNeeded(userPromptBuilder, diff, '', tokenCounter, {
-+      ...defaultOptions,
-+      maxContextLength: 1000,
-+    });
-+
-+    expect(result.compressed).toBe(true);
-+    // omittedFileDiffsに省略された内容が格納されている
-+    const omitted = result.omittedFileDiffs.get('src/huge.ts');
-+    expect(omitted).toBeDefined();
-+    // 省略部分にはオリジナルdiffの内容が含まれる
-+    expect(omitted).toContain('+line');
-+    // 省略部分の行数 + compressedDiffの行数 ≒ オリジナルの行数（マーカー行分の差異あり）
-+    const originalLines = diff.split('\n').length;
-+    const compressedLines = result.compressedDiff.split('\n').length;
-+    const omittedLines = omitted!.split('\n').length;
-+    // マーカー行1行を考慮して: compressed行 - 1(マーカー) + omitted行 = original行
-+    expect(compressedLines - 1 + omittedLines).toBe(originalLines);
-+  });
-+});
-diff --git a/src/application/shared/diffCompression/index.ts b/src/application/shared/diffCompression/index.ts
-index 90eacc1..ce2cd89 100644
---- a/src/application/shared/diffCompression/index.ts
-+++ b/src/application/shared/diffCompression/index.ts
-@@ -1,6 +1,7 @@
- export {
-   splitDiffByFile,
-   compressFileDiff,
-+  compressFileDiffByLines,
-   combineFileDiffs,
-   compressDiffIfNeeded,
- } from './DiffCompressor.js';
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -63,7 +70,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -85,7 +99,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -101,7 +122,14 @@ describe('CommentParser', () => {
+         return ReviewResult.success(checkItem, rating, `コメント${i + 1}`);
+       });
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       // 折りたたみ形式であることを確認
+       expect(comment).toContain('<details>');
+ 
+@@ -124,7 +152,14 @@ describe('CommentParser', () => {
+         ReviewResult.error(new CheckItem('テストカバレッジ'), 'Timeout occurred'),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -150,7 +185,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -169,7 +211,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -197,7 +246,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -211,7 +267,14 @@ describe('CommentParser', () => {
+     it('エラー行にパイプ文字を含む場合も正しくパースされる', () => {
+       const results = [ReviewResult.error(new CheckItem('A | B のチェック'), 'Error | timeout')];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -230,7 +293,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -247,7 +317,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -264,7 +341,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit');
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        [],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -288,9 +372,14 @@ describe('CommentParser', () => {
+       ];
+ 
+       // Aを非表示にしてフォーマット
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit', [
+-        'A',
+-      ]);
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        ['A'],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -323,9 +412,14 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(results, ratings, commitHash, 'test commit', [
+-        'A',
+-      ]);
++      const comment = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        'test commit',
++        ['A'],
++        { passed: true, violations: [] },
++      );
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
 diff --git a/src/application/shared/parser/ReviewSettingsParser.ts b/src/application/shared/parser/ReviewSettingsParser.ts
-index 47de7a6..fb28a42 100644
+index fb28a42..43bcc6b 100644
 --- a/src/application/shared/parser/ReviewSettingsParser.ts
 +++ b/src/application/shared/parser/ReviewSettingsParser.ts
-@@ -18,6 +18,7 @@ const reviewSettingsSchema = z.object({
-     )
+@@ -1,6 +1,7 @@
+ import { z } from 'zod';
+ import { ReviewSettings } from '../../../domain/reviewSettings/index.js';
+ import { Rating } from '../../../domain/rating/index.js';
++import { QualityGate } from '../../../domain/qualityGate/index.js';
+ 
+ /**
+  * レビュー設定JSONのバリデーションスキーマ
+@@ -19,6 +20,16 @@ const reviewSettingsSchema = z.object({
      .min(1)
      .optional(),
-+  hiddenRatingLabels: z.array(z.string().min(1)).optional(),
+   hiddenRatingLabels: z.array(z.string().min(1)).optional(),
++  qualityGate: z
++    .object({
++      failureCriteria: z.array(
++        z.object({
++          ratingLabel: z.string().min(1),
++          threshold: z.number().int().min(1),
++        }),
++      ),
++    })
++    .optional(),
  });
  
  /**
-@@ -58,6 +59,7 @@ export class ReviewSettingsParser {
-       ratings: data.ratings
+@@ -52,6 +63,11 @@ export class ReviewSettingsParser {
+     const rawCount = data.concurrentReviewCount;
+     const concurrentReviewCount = rawCount === undefined || rawCount < 1 ? null : rawCount;
+ 
++    // 品質ゲートの構築
++    const qualityGate = data.qualityGate
++      ? new QualityGate(data.qualityGate.failureCriteria)
++      : QualityGate.none();
++
+     return new ReviewSettings({
+       additionalInstructions: data.additionalInstructions ?? defaults.additionalInstructions,
+       concurrentReviewCount,
+@@ -60,6 +76,7 @@ export class ReviewSettingsParser {
          ? data.ratings.map((r) => new Rating(r.label, r.definition))
          : defaults.ratings,
-+      hiddenRatingLabels: data.hiddenRatingLabels ?? [],
+       hiddenRatingLabels: data.hiddenRatingLabels ?? [],
++      qualityGate,
      });
    }
  }
 diff --git a/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts b/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
-index f06e2e4..d8fa67b 100644
+index d8fa67b..6128081 100644
 --- a/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
 +++ b/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
-@@ -71,4 +71,32 @@ describe('ReviewSettingsParser', () => {
-     const settings = ReviewSettingsParser.parse(JSON.stringify({}));
-     expect(settings.concurrentReviewCount).toBeNull();
+@@ -99,4 +99,71 @@ describe('ReviewSettingsParser', () => {
+     });
+     expect(() => ReviewSettingsParser.parse(json)).toThrow();
    });
 +
-+  it('hiddenRatingLabelsを含むJSONをパースできる', () => {
++  it('qualityGateを含むJSONをパースできる', () => {
 +    const json = JSON.stringify({
 +      ratings: [
 +        { label: 'A', definition: '完全に満たしている' },
-+        { label: 'B', definition: '概ね満たしている' },
 +        { label: 'C', definition: '満たしていない' },
 +      ],
-+      hiddenRatingLabels: ['A'],
++      qualityGate: {
++        failureCriteria: [{ ratingLabel: 'C', threshold: 1 }],
++      },
 +    });
 +
 +    const settings = ReviewSettingsParser.parse(json);
 +
-+    expect(settings.hiddenRatingLabels).toEqual(['A']);
++    expect(settings.qualityGate.failureCriteria).toEqual([{ ratingLabel: 'C', threshold: 1 }]);
 +  });
 +
-+  it('hiddenRatingLabels未指定の場合はデフォルト（空配列）が適用される', () => {
++  it('qualityGate未指定の場合はデフォルト（基準なし）が適用される', () => {
 +    const settings = ReviewSettingsParser.parse(JSON.stringify({}));
-+    expect(settings.hiddenRatingLabels).toEqual([]);
++    expect(settings.qualityGate.failureCriteria).toEqual([]);
 +  });
 +
-+  it('hiddenRatingLabelsにratingsに存在しないラベルがある場合エラーになる', () => {
++  it('qualityGateに複数の基準を指定できる', () => {
++    const json = JSON.stringify({
++      ratings: [
++        { label: 'B', definition: '概ね満たしている' },
++        { label: 'C', definition: '満たしていない' },
++      ],
++      qualityGate: {
++        failureCriteria: [
++          { ratingLabel: 'C', threshold: 1 },
++          { ratingLabel: 'B', threshold: 3 },
++        ],
++      },
++    });
++
++    const settings = ReviewSettingsParser.parse(json);
++    expect(settings.qualityGate.failureCriteria).toHaveLength(2);
++  });
++
++  it('qualityGateのthresholdが0以下の場合はエラーになる', () => {
++    const json = JSON.stringify({
++      qualityGate: {
++        failureCriteria: [{ ratingLabel: 'C', threshold: 0 }],
++      },
++    });
++    expect(() => ReviewSettingsParser.parse(json)).toThrow();
++  });
++
++  it('qualityGateのratingLabelが空文字の場合はエラーになる', () => {
++    const json = JSON.stringify({
++      qualityGate: {
++        failureCriteria: [{ ratingLabel: '', threshold: 1 }],
++      },
++    });
++    expect(() => ReviewSettingsParser.parse(json)).toThrow();
++  });
++
++  it('qualityGateのratingLabelがratingsに存在しない場合はエラーになる', () => {
 +    const json = JSON.stringify({
 +      ratings: [{ label: 'A', definition: '完全に満たしている' }],
-+      hiddenRatingLabels: ['X'],
++      qualityGate: {
++        failureCriteria: [{ ratingLabel: 'X', threshold: 1 }],
++      },
 +    });
 +    expect(() => ReviewSettingsParser.parse(json)).toThrow();
 +  });
  });
-diff --git a/src/application/shared/port/gateway/MrCommentGateway.ts b/src/application/shared/port/gateway/MrCommentGateway.ts
-deleted file mode 100644
-index 2e249f4..0000000
---- a/src/application/shared/port/gateway/MrCommentGateway.ts
-+++ /dev/null
-@@ -1,16 +0,0 @@
--/**
-- * MRコメントの型定義
-- */
--export interface MrComment {
--  id: number;
--  body: string;
--  createdAt: string;
--}
--
--/**
-- * MRコメントを操作するためのゲートウェイインターフェース
-- */
--export interface MrCommentGateway {
--  getComments(projectId: string, mrIid: string): Promise<MrComment[]>;
--  postComment(projectId: string, mrIid: string, body: string): Promise<void>;
--}
-diff --git a/src/application/shared/port/gateway/MrDiscussionGateway.ts b/src/application/shared/port/gateway/MrDiscussionGateway.ts
+diff --git a/src/domain/qualityGate/QualityGate.ts b/src/domain/qualityGate/QualityGate.ts
 new file mode 100644
-index 0000000..28038b9
+index 0000000..d398b18
 --- /dev/null
-+++ b/src/application/shared/port/gateway/MrDiscussionGateway.ts
-@@ -0,0 +1,16 @@
-+/**
-+ * MRコメントの型定義
-+ */
-+export interface MrComment {
-+  id: number;
-+  body: string;
-+  createdAt: string;
++++ b/src/domain/qualityGate/QualityGate.ts
+@@ -0,0 +1,83 @@
++import { ReviewResult } from '../reviewResult/index.js';
++
++/** 品質ゲートの失敗基準（評定ラベルと閾値のペア） */
++export interface FailureCriterion {
++  readonly ratingLabel: string;
++  readonly threshold: number;
++}
++
++/** 品質ゲート違反の詳細 */
++export interface QualityGateViolation {
++  readonly ratingLabel: string;
++  readonly threshold: number;
++  readonly actualCount: number;
++}
++
++/** 品質ゲートの評価結果 */
++export interface QualityGateResult {
++  readonly passed: boolean;
++  readonly violations: readonly QualityGateViolation[];
 +}
 +
 +/**
-+ * MRディスカッションを操作するためのゲートウェイインターフェース
++ * 品質ゲートの値オブジェクト
++ * レビュー結果に基づいてパイプラインの成否を判定する失敗基準を保持する
 + */
-+export interface MrDiscussionGateway {
-+  getDiscussions(projectId: string, mrIid: string): Promise<MrComment[]>;
-+  postDiscussion(projectId: string, mrIid: string, body: string): Promise<void>;
++export class QualityGate {
++  readonly failureCriteria: readonly FailureCriterion[];
++
++  constructor(failureCriteria: FailureCriterion[]) {
++    for (const criterion of failureCriteria) {
++      if (!criterion.ratingLabel) {
++        throw new Error('FailureCriterion ratingLabel must not be empty');
++      }
++      if (criterion.threshold < 1) {
++        throw new Error('FailureCriterion threshold must be at least 1');
++      }
++    }
++    this.failureCriteria = Object.freeze([...failureCriteria]);
++  }
++
++  /** 基準なしの品質ゲートを生成する */
++  static none(): QualityGate {
++    return new QualityGate([]);
++  }
++
++  /**
++   * レビュー結果を品質ゲートで評価する
++   * エラー結果は評価から除外し、非エラー結果の評定ラベル別カウントと基準を比較する
++   * いずれかの基準に抵触した場合はfailed（OR条件）
++   */
++  evaluate(results: ReviewResult[]): QualityGateResult {
++    if (this.failureCriteria.length === 0) {
++      return { passed: true, violations: [] };
++    }
++
++    // 非エラー結果の評定ラベル別カウントを集計
++    const counts = new Map<string, number>();
++    for (const r of results) {
++      if (!r.isError) {
++        const label = r.rating.label;
++        counts.set(label, (counts.get(label) ?? 0) + 1);
++      }
++    }
++
++    // 各基準を評価（OR条件）
++    const violations: QualityGateViolation[] = [];
++    for (const criterion of this.failureCriteria) {
++      const actualCount = counts.get(criterion.ratingLabel) ?? 0;
++      if (actualCount >= criterion.threshold) {
++        violations.push({
++          ratingLabel: criterion.ratingLabel,
++          threshold: criterion.threshold,
++          actualCount,
++        });
++      }
++    }
++
++    return {
++      passed: violations.length === 0,
++      violations: Object.freeze(violations),
++    };
++  }
 +}
-diff --git a/src/application/shared/port/gateway/index.ts b/src/application/shared/port/gateway/index.ts
-index 2e7aa68..71d34fd 100644
---- a/src/application/shared/port/gateway/index.ts
-+++ b/src/application/shared/port/gateway/index.ts
-@@ -1,3 +1,3 @@
- export type { MrGateway } from './MrGateway.js';
--export type { MrCommentGateway, MrComment } from './MrCommentGateway.js';
-+export type { MrDiscussionGateway, MrComment } from './MrDiscussionGateway.js';
- export type { ProjectTreeGateway, ProjectTreeOptions } from './ProjectTreeGateway.js';
+diff --git a/src/domain/qualityGate/__tests__/QualityGate.test.ts b/src/domain/qualityGate/__tests__/QualityGate.test.ts
+new file mode 100644
+index 0000000..f91efcb
+--- /dev/null
++++ b/src/domain/qualityGate/__tests__/QualityGate.test.ts
+@@ -0,0 +1,152 @@
++import { describe, it, expect } from 'vitest';
++import { QualityGate } from '../QualityGate.js';
++import { ReviewResult } from '../../reviewResult/index.js';
++import { CheckItem } from '../../checkItem/index.js';
++import { Rating } from '../../rating/index.js';
++
++/** テスト用のレビュー結果を生成する */
++function createSuccessResult(ratingLabel: string): ReviewResult {
++  return ReviewResult.success(
++    new CheckItem(`チェック項目_${ratingLabel}`),
++    new Rating(ratingLabel, `${ratingLabel}の定義`),
++    'コメント',
++  );
++}
++
++/** テスト用のエラーレビュー結果を生成する */
++function createErrorResult(): ReviewResult {
++  return ReviewResult.error(new CheckItem('エラー項目'), 'エラーメッセージ');
++}
++
++describe('QualityGate', () => {
++  describe('構築', () => {
++    it('有効な基準で構築できる', () => {
++      const gate = new QualityGate([{ ratingLabel: 'C', threshold: 1 }]);
++      expect(gate.failureCriteria).toEqual([{ ratingLabel: 'C', threshold: 1 }]);
++    });
++
++    it('複数の基準で構築できる', () => {
++      const criteria = [
++        { ratingLabel: 'C', threshold: 1 },
++        { ratingLabel: 'B', threshold: 3 },
++      ];
++      const gate = new QualityGate(criteria);
++      expect(gate.failureCriteria).toHaveLength(2);
++    });
++
++    it('none()で基準なしの品質ゲートを生成できる', () => {
++      const gate = QualityGate.none();
++      expect(gate.failureCriteria).toEqual([]);
++    });
++
++    it('thresholdが0以下の場合はエラーになる', () => {
++      expect(() => new QualityGate([{ ratingLabel: 'C', threshold: 0 }])).toThrow();
++      expect(() => new QualityGate([{ ratingLabel: 'C', threshold: -1 }])).toThrow();
++    });
++
++    it('ratingLabelが空文字の場合はエラーになる', () => {
++      expect(() => new QualityGate([{ ratingLabel: '', threshold: 1 }])).toThrow();
++    });
++  });
++
++  describe('evaluate', () => {
++    it('基準なし（none）の場合は常にpassする', () => {
++      const gate = QualityGate.none();
++      const results = [createSuccessResult('C'), createSuccessResult('C')];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(true);
++      expect(result.violations).toEqual([]);
++    });
++
++    it('基準に抵触する場合はfailする', () => {
++      const gate = new QualityGate([{ ratingLabel: 'C', threshold: 2 }]);
++      const results = [createSuccessResult('C'), createSuccessResult('C')];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(false);
++      expect(result.violations).toEqual([{ ratingLabel: 'C', threshold: 2, actualCount: 2 }]);
++    });
++
++    it('基準に抵触しない場合はpassする', () => {
++      const gate = new QualityGate([{ ratingLabel: 'C', threshold: 2 }]);
++      const results = [createSuccessResult('C')];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(true);
++      expect(result.violations).toEqual([]);
++    });
++
++    it('countがthresholdを超える場合もfailする', () => {
++      const gate = new QualityGate([{ ratingLabel: 'C', threshold: 1 }]);
++      const results = [
++        createSuccessResult('C'),
++        createSuccessResult('C'),
++        createSuccessResult('C'),
++      ];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(false);
++      expect(result.violations[0].actualCount).toBe(3);
++    });
++
++    it('OR条件: 複数基準のうち1つでも抵触すればfailする', () => {
++      const gate = new QualityGate([
++        { ratingLabel: 'C', threshold: 2 },
++        { ratingLabel: 'B', threshold: 3 },
++      ]);
++      // Cが2件 → 基準1に抵触、Bは1件 → 基準2は未抵触
++      const results = [
++        createSuccessResult('C'),
++        createSuccessResult('C'),
++        createSuccessResult('B'),
++      ];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(false);
++      expect(result.violations).toHaveLength(1);
++      expect(result.violations[0].ratingLabel).toBe('C');
++    });
++
++    it('複数の基準が同時に抵触する場合は全てのviolationを返す', () => {
++      const gate = new QualityGate([
++        { ratingLabel: 'C', threshold: 1 },
++        { ratingLabel: 'B', threshold: 1 },
++      ]);
++      const results = [createSuccessResult('C'), createSuccessResult('B')];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(false);
++      expect(result.violations).toHaveLength(2);
++    });
++
++    it('エラー結果は評価から除外される', () => {
++      const gate = new QualityGate([{ ratingLabel: 'C', threshold: 1 }]);
++      // エラー結果のみ → Cカウントは0
++      const results = [createErrorResult(), createErrorResult()];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(true);
++    });
++
++    it('空の結果配列の場合はpassする', () => {
++      const gate = new QualityGate([{ ratingLabel: 'C', threshold: 1 }]);
++      const result = gate.evaluate([]);
++      expect(result.passed).toBe(true);
++    });
++
++    it('actualCountが正確に報告される', () => {
++      const gate = new QualityGate([{ ratingLabel: 'C', threshold: 1 }]);
++      const results = [
++        createSuccessResult('A'),
++        createSuccessResult('C'),
++        createSuccessResult('C'),
++        createSuccessResult('C'),
++        createSuccessResult('B'),
++      ];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(false);
++      expect(result.violations[0].actualCount).toBe(3);
++    });
++
++    it('基準にないラベルの結果は無視される', () => {
++      const gate = new QualityGate([{ ratingLabel: 'C', threshold: 1 }]);
++      const results = [createSuccessResult('A'), createSuccessResult('B')];
++      const result = gate.evaluate(results);
++      expect(result.passed).toBe(true);
++    });
++  });
++});
+diff --git a/src/domain/qualityGate/index.ts b/src/domain/qualityGate/index.ts
+new file mode 100644
+index 0000000..e1df165
+--- /dev/null
++++ b/src/domain/qualityGate/index.ts
+@@ -0,0 +1,2 @@
++export { QualityGate } from './QualityGate.js';
++export type { FailureCriterion, QualityGateResult, QualityGateViolation } from './QualityGate.js';
 diff --git a/src/domain/reviewSettings/ReviewSettings.ts b/src/domain/reviewSettings/ReviewSettings.ts
-index 99c7dc5..97d90ac 100644
+index 97d90ac..102a3a1 100644
 --- a/src/domain/reviewSettings/ReviewSettings.ts
 +++ b/src/domain/reviewSettings/ReviewSettings.ts
-@@ -16,6 +16,7 @@ interface ReviewSettingsParams {
-   concurrentReviewCount: number | null;
+@@ -1,4 +1,5 @@
+ import { Rating } from '../rating/index.js';
++import { QualityGate } from '../qualityGate/index.js';
+ 
+ /** デフォルトのコメントフォーマット */
+ const DEFAULT_COMMENT_FORMAT = '{comment}';
+@@ -17,6 +18,7 @@ interface ReviewSettingsParams {
    commentFormat: string;
    ratings: Rating[];
-+  hiddenRatingLabels: string[];
+   hiddenRatingLabels: string[];
++  qualityGate: QualityGate;
  }
  
  /**
-@@ -27,6 +28,7 @@ export class ReviewSettings {
-   readonly concurrentReviewCount: number | null;
+@@ -29,6 +31,7 @@ export class ReviewSettings {
    readonly commentFormat: string;
    readonly ratings: Rating[];
-+  readonly hiddenRatingLabels: string[];
+   readonly hiddenRatingLabels: string[];
++  readonly qualityGate: QualityGate;
  
    constructor(params: ReviewSettingsParams) {
      if (params.concurrentReviewCount !== null && params.concurrentReviewCount < 1) {
-@@ -35,10 +37,17 @@ export class ReviewSettings {
-     if (params.ratings.length === 0) {
-       throw new Error('ratings must not be empty');
+@@ -43,11 +46,19 @@ export class ReviewSettings {
+         throw new Error(`hiddenRatingLabels contains unknown label: ${label}`);
+       }
      }
-+    const ratingLabels = new Set(params.ratings.map((r) => r.label));
-+    for (const label of params.hiddenRatingLabels) {
-+      if (!ratingLabels.has(label)) {
-+        throw new Error(`hiddenRatingLabels contains unknown label: ${label}`);
++    for (const criterion of params.qualityGate.failureCriteria) {
++      if (!ratingLabels.has(criterion.ratingLabel)) {
++        throw new Error(
++          `qualityGate failureCriteria contains unknown rating label: ${criterion.ratingLabel}`,
++        );
 +      }
 +    }
      this.additionalInstructions = params.additionalInstructions;
      this.concurrentReviewCount = params.concurrentReviewCount;
      this.commentFormat = params.commentFormat;
      this.ratings = params.ratings;
-+    this.hiddenRatingLabels = params.hiddenRatingLabels;
+     this.hiddenRatingLabels = params.hiddenRatingLabels;
++    this.qualityGate = params.qualityGate;
    }
  
    /** デフォルト値でReviewSettingsを生成する */
-@@ -48,6 +57,7 @@ export class ReviewSettings {
-       concurrentReviewCount: null,
+@@ -58,6 +69,7 @@ export class ReviewSettings {
        commentFormat: DEFAULT_COMMENT_FORMAT,
        ratings: DEFAULT_RATINGS,
-+      hiddenRatingLabels: [],
+       hiddenRatingLabels: [],
++      qualityGate: QualityGate.none(),
      });
    }
  }
 diff --git a/src/domain/reviewSettings/__tests__/ReviewSettings.test.ts b/src/domain/reviewSettings/__tests__/ReviewSettings.test.ts
-index a66f5a5..2537283 100644
+index 2537283..2501969 100644
 --- a/src/domain/reviewSettings/__tests__/ReviewSettings.test.ts
 +++ b/src/domain/reviewSettings/__tests__/ReviewSettings.test.ts
-@@ -10,11 +10,13 @@ describe('ReviewSettings', () => {
+@@ -1,22 +1,26 @@
+ import { describe, it, expect } from 'vitest';
+ import { ReviewSettings } from '../ReviewSettings.js';
+ import { Rating } from '../../rating/index.js';
++import { QualityGate } from '../../qualityGate/index.js';
+ 
+ describe('ReviewSettings', () => {
+   it('全てのフィールドを指定して生成できる', () => {
+     const ratings = [new Rating('A', '完全に満たしている'), new Rating('B', '概ね満たしている')];
++    const qualityGate = new QualityGate([{ ratingLabel: 'B', threshold: 2 }]);
+     const settings = new ReviewSettings({
+       additionalInstructions: '追加指示',
        concurrentReviewCount: 3,
        commentFormat: '{comment}',
        ratings,
-+      hiddenRatingLabels: ['A'],
+       hiddenRatingLabels: ['A'],
++      qualityGate,
      });
      expect(settings.additionalInstructions).toBe('追加指示');
      expect(settings.concurrentReviewCount).toBe(3);
      expect(settings.commentFormat).toBe('{comment}');
      expect(settings.ratings).toEqual(ratings);
-+    expect(settings.hiddenRatingLabels).toEqual(['A']);
+     expect(settings.hiddenRatingLabels).toEqual(['A']);
++    expect(settings.qualityGate).toBe(qualityGate);
    });
  
    it('concurrentReviewCountがnullの場合は正常に生成できる', () => {
-@@ -23,6 +25,7 @@ describe('ReviewSettings', () => {
-       concurrentReviewCount: null,
+@@ -26,6 +30,7 @@ describe('ReviewSettings', () => {
        commentFormat: '{comment}',
        ratings: [new Rating('A', 'def')],
-+      hiddenRatingLabels: [],
+       hiddenRatingLabels: [],
++      qualityGate: QualityGate.none(),
      });
      expect(settings.concurrentReviewCount).toBeNull();
    });
-@@ -33,6 +36,7 @@ describe('ReviewSettings', () => {
-     expect(settings.concurrentReviewCount).toBeNull();
+@@ -37,6 +42,7 @@ describe('ReviewSettings', () => {
      expect(settings.commentFormat).not.toBe('');
      expect(settings.ratings.length).toBe(3);
-+    expect(settings.hiddenRatingLabels).toEqual([]);
+     expect(settings.hiddenRatingLabels).toEqual([]);
++    expect(settings.qualityGate.failureCriteria).toEqual([]);
    });
  
    it('concurrentReviewCountが0以下の場合はエラーになる', () => {
-@@ -43,6 +47,7 @@ describe('ReviewSettings', () => {
-           concurrentReviewCount: 0,
+@@ -48,6 +54,7 @@ describe('ReviewSettings', () => {
            commentFormat: '{comment}',
            ratings: [new Rating('A', 'def')],
-+          hiddenRatingLabels: [],
+           hiddenRatingLabels: [],
++          qualityGate: QualityGate.none(),
          }),
      ).toThrow();
      expect(
-@@ -52,6 +57,7 @@ describe('ReviewSettings', () => {
-           concurrentReviewCount: -1,
+@@ -58,6 +65,7 @@ describe('ReviewSettings', () => {
            commentFormat: '{comment}',
            ratings: [new Rating('A', 'def')],
-+          hiddenRatingLabels: [],
+           hiddenRatingLabels: [],
++          qualityGate: QualityGate.none(),
          }),
      ).toThrow();
    });
-@@ -64,6 +70,42 @@ describe('ReviewSettings', () => {
-           concurrentReviewCount: 1,
+@@ -71,6 +79,7 @@ describe('ReviewSettings', () => {
            commentFormat: '{comment}',
            ratings: [],
-+          hiddenRatingLabels: [],
+           hiddenRatingLabels: [],
++          qualityGate: QualityGate.none(),
+         }),
+     ).toThrow();
+   });
+@@ -82,6 +91,7 @@ describe('ReviewSettings', () => {
+       commentFormat: '{comment}',
+       ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
+       hiddenRatingLabels: [],
++      qualityGate: QualityGate.none(),
+     });
+     expect(settings.hiddenRatingLabels).toEqual([]);
+   });
+@@ -93,6 +103,7 @@ describe('ReviewSettings', () => {
+       commentFormat: '{comment}',
+       ratings: [new Rating('A', 'def'), new Rating('B', 'def2'), new Rating('C', 'def3')],
+       hiddenRatingLabels: ['A', 'B'],
++      qualityGate: QualityGate.none(),
+     });
+     expect(settings.hiddenRatingLabels).toEqual(['A', 'B']);
+   });
+@@ -106,6 +117,34 @@ describe('ReviewSettings', () => {
+           commentFormat: '{comment}',
+           ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
+           hiddenRatingLabels: ['X'],
++          qualityGate: QualityGate.none(),
 +        }),
 +    ).toThrow();
 +  });
 +
-+  it('hiddenRatingLabelsが空配列で生成できる', () => {
-+    const settings = new ReviewSettings({
-+      additionalInstructions: '',
-+      concurrentReviewCount: null,
-+      commentFormat: '{comment}',
-+      ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
-+      hiddenRatingLabels: [],
-+    });
-+    expect(settings.hiddenRatingLabels).toEqual([]);
-+  });
-+
-+  it('hiddenRatingLabelsにratingsに存在するラベルを指定して生成できる', () => {
++  it('qualityGateのfailureCriteriaにratingsに存在するラベルを指定して生成できる', () => {
++    const qualityGate = new QualityGate([{ ratingLabel: 'C', threshold: 1 }]);
 +    const settings = new ReviewSettings({
 +      additionalInstructions: '',
 +      concurrentReviewCount: null,
 +      commentFormat: '{comment}',
 +      ratings: [new Rating('A', 'def'), new Rating('B', 'def2'), new Rating('C', 'def3')],
-+      hiddenRatingLabels: ['A', 'B'],
++      hiddenRatingLabels: [],
++      qualityGate,
 +    });
-+    expect(settings.hiddenRatingLabels).toEqual(['A', 'B']);
++    expect(settings.qualityGate.failureCriteria).toHaveLength(1);
 +  });
 +
-+  it('hiddenRatingLabelsにratingsに存在しないラベルがある場合エラーになる', () => {
++  it('qualityGateのfailureCriteriaにratingsに存在しないラベルがある場合エラーになる', () => {
 +    expect(
 +      () =>
 +        new ReviewSettings({
@@ -1930,1077 +2244,26 @@ index a66f5a5..2537283 100644
 +          concurrentReviewCount: null,
 +          commentFormat: '{comment}',
 +          ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
-+          hiddenRatingLabels: ['X'],
++          hiddenRatingLabels: [],
++          qualityGate: new QualityGate([{ ratingLabel: 'X', threshold: 1 }]),
          }),
      ).toThrow();
    });
 diff --git a/src/index.ts b/src/index.ts
-index 8b077eb..a781f25 100644
+index a781f25..59c02c2 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -9,8 +9,8 @@ import type {
- } from './application/executeReview/ExecuteReviewService.js';
- import { ExecuteReviewService } from './application/executeReview/ExecuteReviewService.js';
- import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
--import { GitLabMrGateway } from './infrastructure/adapter/gateway/index.js';
--import { GitLabMrCommentGateway } from './infrastructure/adapter/gateway/index.js';
-+import { GitLabMrGateway, LocalGitDiffMrGateway } from './infrastructure/adapter/gateway/index.js';
-+import { GitLabMrDiscussionGateway } from './infrastructure/adapter/gateway/index.js';
- import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/index.js';
- import { mastra } from './mastra/index.js';
- import { ReviewSettings } from './domain/reviewSettings/index.js';
-@@ -143,23 +143,24 @@ async function main(): Promise<void> {
-     const gitlabApiBaseUrl =
-       process.env['GITLAB_API_URL'] ?? process.env['CI_API_V4_URL'] ?? 'https://gitlab.com/api/v4';
- 
-+    // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
-+    const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
+@@ -212,6 +212,13 @@ async function main(): Promise<void> {
+       flushLogger();
+       process.exit(1);
+     }
 +
-     // DI組み立て
-     const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
--    const mrGateway = new GitLabMrGateway(gitlabClient);
--    const mrCommentGateway = new GitLabMrCommentGateway(gitlabClient);
-+    const apiMrGateway = new GitLabMrGateway(gitlabClient);
-+    const mrGateway = new LocalGitDiffMrGateway(projectDir, apiMrGateway, gitlabClient);
-+    const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
-     const workflowRunner = new MastraReviewWorkflowRunner();
-     const treeGateway = new LocalProjectTreeGateway();
- 
-     const service = new ExecuteReviewService(
-       mrGateway,
--      mrCommentGateway,
-+      mrDiscussionGateway,
-       workflowRunner,
-       treeGateway,
-     );
- 
--    // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
--    const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
--
-     // TREE_MAX_DEPTHバリデーション
-     const treeMaxDepthEnv = process.env['TREE_MAX_DEPTH'];
-     let treeMaxDepth: number | undefined;
-diff --git a/src/infrastructure/adapter/gateway/GitLabMrCommentGateway.ts b/src/infrastructure/adapter/gateway/GitLabMrCommentGateway.ts
-deleted file mode 100644
-index 86a2628..0000000
---- a/src/infrastructure/adapter/gateway/GitLabMrCommentGateway.ts
-+++ /dev/null
-@@ -1,48 +0,0 @@
--import type {
--  MrCommentGateway,
--  MrComment,
--} from '../../../application/shared/port/gateway/index.js';
--import type { GitLabApiClient } from '../httpClient/index.js';
--
--/**
-- * GitLab APIから返却されるノート情報の型定義
-- */
--interface GitLabNote {
--  id: number;
--  body: string;
--  created_at: string;
--}
--
--/**
-- * GitLab APIを利用したMrCommentGatewayの実装
-- * MRのコメント（ノート）の取得・投稿を行う
-- */
--export class GitLabMrCommentGateway implements MrCommentGateway {
--  private readonly client: GitLabApiClient;
--
--  constructor(client: GitLabApiClient) {
--    this.client = client;
--  }
--
--  /**
--   * MRのコメント一覧を取得する
--   */
--  async getComments(projectId: string, mrIid: string): Promise<MrComment[]> {
--    const notes = await this.client.getAll<GitLabNote>(
--      `/projects/${projectId}/merge_requests/${mrIid}/notes`,
--    );
--
--    return notes.map((note) => ({
--      id: note.id,
--      body: note.body,
--      createdAt: note.created_at,
--    }));
--  }
--
--  /**
--   * MRにコメントを投稿する
--   */
--  async postComment(projectId: string, mrIid: string, body: string): Promise<void> {
--    await this.client.post(`/projects/${projectId}/merge_requests/${mrIid}/notes`, { body });
--  }
--}
-diff --git a/src/infrastructure/adapter/gateway/GitLabMrDiscussionGateway.ts b/src/infrastructure/adapter/gateway/GitLabMrDiscussionGateway.ts
-new file mode 100644
-index 0000000..33c7a6d
---- /dev/null
-+++ b/src/infrastructure/adapter/gateway/GitLabMrDiscussionGateway.ts
-@@ -0,0 +1,59 @@
-+import type {
-+  MrDiscussionGateway,
-+  MrComment,
-+} from '../../../application/shared/port/gateway/index.js';
-+import type { GitLabApiClient } from '../httpClient/index.js';
-+
-+/**
-+ * GitLab APIから返却されるノート情報の型定義
-+ */
-+interface GitLabNote {
-+  id: number;
-+  body: string;
-+  created_at: string;
-+}
-+
-+/**
-+ * GitLab APIから返却されるディスカッション情報の型定義
-+ */
-+interface GitLabDiscussion {
-+  id: string;
-+  individual_note: boolean;
-+  notes: GitLabNote[];
-+}
-+
-+/**
-+ * GitLab APIを利用したMrDiscussionGatewayの実装
-+ * MRのディスカッションの取得・投稿を行う
-+ */
-+export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
-+  private readonly client: GitLabApiClient;
-+
-+  constructor(client: GitLabApiClient) {
-+    this.client = client;
-+  }
-+
-+  /**
-+   * MRのディスカッション一覧を取得し、各ディスカッションの最初のnoteをMrComment形式で返す
-+   */
-+  async getDiscussions(projectId: string, mrIid: string): Promise<MrComment[]> {
-+    const discussions = await this.client.getAll<GitLabDiscussion>(
-+      `/projects/${projectId}/merge_requests/${mrIid}/discussions`,
-+    );
-+
-+    return discussions
-+      .filter((d) => d.notes.length > 0)
-+      .map((d) => ({
-+        id: d.notes[0].id,
-+        body: d.notes[0].body,
-+        createdAt: d.notes[0].created_at,
-+      }));
-+  }
-+
-+  /**
-+   * MRに新規ディスカッションを投稿する
-+   */
-+  async postDiscussion(projectId: string, mrIid: string, body: string): Promise<void> {
-+    await this.client.post(`/projects/${projectId}/merge_requests/${mrIid}/discussions`, { body });
-+  }
-+}
-diff --git a/src/infrastructure/adapter/gateway/GitLabMrGateway.ts b/src/infrastructure/adapter/gateway/GitLabMrGateway.ts
-index e1fe60e..559f456 100644
---- a/src/infrastructure/adapter/gateway/GitLabMrGateway.ts
-+++ b/src/infrastructure/adapter/gateway/GitLabMrGateway.ts
-@@ -1,6 +1,7 @@
- import { MrContext } from '../../../domain/mrContext/index.js';
- import type { MrGateway } from '../../../application/shared/port/gateway/index.js';
- import type { GitLabApiClient } from '../httpClient/index.js';
-+import { combineDiffs } from './combineDiffs.js';
- 
- /**
-  * GitLab APIから返却されるMR情報の型定義
-@@ -66,13 +67,15 @@ export class GitLabMrGateway implements MrGateway {
-   async getMrContext(projectId: string, mrIid: string): Promise<MrContext> {
-     const [mrInfo, mrChanges, commitsPage] = await Promise.all([
-       this.client.get<GitLabMrInfo>(`/projects/${projectId}/merge_requests/${mrIid}`),
--      this.client.get<GitLabMrChanges>(`/projects/${projectId}/merge_requests/${mrIid}/changes`),
-+      this.client.get<GitLabMrChanges>(
-+        `/projects/${projectId}/merge_requests/${mrIid}/changes?access_raw_diffs=true`,
-+      ),
-       this.client.get<GitLabCommit[]>(
-         `/projects/${projectId}/merge_requests/${mrIid}/commits?per_page=1`,
-       ),
-     ]);
- 
--    const diff = this.combineDiffs(
-+    const diff = combineDiffs(
-       mrChanges.changes.map((c) => ({ oldPath: c.old_path, newPath: c.new_path, diff: c.diff })),
-     );
-     const commitMessage = commitsPage.length > 0 ? commitsPage[0].message.split('\n')[0] : '';
-@@ -128,28 +131,8 @@ export class GitLabMrGateway implements MrGateway {
-       `/projects/${projectId}/repository/compare?from=${sinceCommitHash}&to=${currentCommitHash}`,
-     );
- 
--    return this.combineDiffs(
-+    return combineDiffs(
-       compareResult.diffs.map((d) => ({ oldPath: d.old_path, newPath: d.new_path, diff: d.diff })),
-     );
-   }
--
--  /**
--   * 複数のdiff文字列をファイルパス付きのgit diff形式で結合する
--   */
--  private combineDiffs(diffs: Array<{ oldPath: string; newPath: string; diff: string }>): string {
--    if (diffs.length === 0) {
--      return '';
--    }
--    return diffs
--      .map(({ oldPath, newPath, diff }) => {
--        const header = `diff --git a/${oldPath} b/${newPath}`;
--        // diff内容が既に --- a/ ヘッダーを含む場合はそのまま結合
--        if (diff.startsWith('--- a/')) {
--          return `${header}\n${diff}`;
--        }
--        // --- a/ ヘッダーがない場合は追加
--        return `${header}\n--- a/${oldPath}\n+++ b/${newPath}\n${diff}`;
--      })
--      .join('\n');
--  }
- }
-diff --git a/src/infrastructure/adapter/gateway/LocalGitDiffMrGateway.ts b/src/infrastructure/adapter/gateway/LocalGitDiffMrGateway.ts
-new file mode 100644
-index 0000000..9838bdb
---- /dev/null
-+++ b/src/infrastructure/adapter/gateway/LocalGitDiffMrGateway.ts
-@@ -0,0 +1,160 @@
-+import { execFileSync } from 'node:child_process';
-+import { MrContext } from '../../../domain/mrContext/index.js';
-+import type { MrGateway } from '../../../application/shared/port/gateway/index.js';
-+import type { GitLabApiClient } from '../httpClient/index.js';
-+import { combineDiffs } from './combineDiffs.js';
-+import { getLogger } from '../../../lib/logger.js';
-+
-+/**
-+ * GitLab APIから返却されるMR変更差分の型定義（access_raw_diffs用）
-+ */
-+interface GitLabMrChanges {
-+  changes: Array<{
-+    old_path: string;
-+    new_path: string;
-+    diff: string;
-+  }>;
-+}
-+
-+/**
-+ * execFileSyncの共通オプション（cwdを除く）
-+ */
-+const GIT_EXEC_OPTIONS = {
-+  encoding: 'utf-8' as const,
-+  maxBuffer: 50 * 1024 * 1024,
-+  stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'],
-+};
-+
-+/**
-+ * ローカルgitリポジトリからのdiff取得を優先し、失敗時にAPIにフォールバックするMrGatewayデコレータ
-+ *
-+ * getMrContext: APIでメタデータ取得後、ローカルgit diffを試行。失敗時はAPI(access_raw_diffs=true)にフォールバック
-+ * getDiffSince: ローカルgit diffを試行。失敗時はfallbackGatewayに委譲
-+ * getCommitsSince: fallbackGatewayにそのまま委譲
-+ */
-+export class LocalGitDiffMrGateway implements MrGateway {
-+  constructor(
-+    private readonly projectDir: string,
-+    private readonly fallbackGateway: MrGateway,
-+    private readonly client: GitLabApiClient,
-+  ) {}
-+
-+  async getMrContext(projectId: string, mrIid: string): Promise<MrContext> {
-+    // APIからMRメタデータを取得（title, description, branches, commitHash, commitMessage）
-+    const mrContext = await this.fallbackGateway.getMrContext(projectId, mrIid);
-+
-+    // ローカルgit diffを試行
-+    const localDiff = this.tryLocalMrDiff(mrContext.targetBranch);
-+    if (localDiff !== null) {
-+      getLogger().info('MR diff retrieved from local git repository');
-+      return new MrContext({
-+        title: mrContext.title,
-+        description: mrContext.description,
-+        sourceBranch: mrContext.sourceBranch,
-+        targetBranch: mrContext.targetBranch,
-+        diff: localDiff,
-+        commitHash: mrContext.commitHash,
-+        commitMessage: mrContext.commitMessage,
-+      });
++    // 品質ゲートに抵触した場合、ジョブを失敗として終了する
++    if (!result.qualityGatePassed) {
++      logger.error('Quality gate failed. Exiting with failure.');
++      flushLogger();
++      process.exit(1);
 +    }
-+
-+    // ローカルgit失敗 → API(access_raw_diffs=true)にフォールバック
-+    getLogger().info('Local git diff failed, falling back to API with access_raw_diffs=true');
-+    try {
-+      const mrChanges = await this.client.get<GitLabMrChanges>(
-+        `/projects/${projectId}/merge_requests/${mrIid}/changes?access_raw_diffs=true`,
-+      );
-+      const apiDiff = combineDiffs(
-+        mrChanges.changes.map((c) => ({ oldPath: c.old_path, newPath: c.new_path, diff: c.diff })),
-+      );
-+      getLogger().info('MR diff retrieved from API with access_raw_diffs=true');
-+      return new MrContext({
-+        title: mrContext.title,
-+        description: mrContext.description,
-+        sourceBranch: mrContext.sourceBranch,
-+        targetBranch: mrContext.targetBranch,
-+        diff: apiDiff,
-+        commitHash: mrContext.commitHash,
-+        commitMessage: mrContext.commitMessage,
-+      });
-+    } catch (apiError) {
-+      throw new Error(
-+        `Failed to retrieve MR diff from both local git and API: API error: ${apiError instanceof Error ? apiError.message : String(apiError)}`,
-+        { cause: apiError },
-+      );
-+    }
-+  }
-+
-+  async getDiffSince(
-+    projectId: string,
-+    mrIid: string,
-+    sinceCommitHash: string,
-+    currentCommitHash: string,
-+  ): Promise<string> {
-+    // ローカルgit diffを試行
-+    const localDiff = this.tryLocalDiffBetween(sinceCommitHash, currentCommitHash);
-+    if (localDiff !== null) {
-+      getLogger().info('Incremental diff retrieved from local git repository');
-+      return localDiff;
-+    }
-+
-+    // ローカルgit失敗 → fallbackGatewayに委譲
-+    getLogger().info('Local git diff failed, falling back to API for incremental diff');
-+    return this.fallbackGateway.getDiffSince(projectId, mrIid, sinceCommitHash, currentCommitHash);
-+  }
-+
-+  async getCommitsSince(
-+    projectId: string,
-+    mrIid: string,
-+    sinceCommitHash: string,
-+  ): Promise<string[]> {
-+    return this.fallbackGateway.getCommitsSince(projectId, mrIid, sinceCommitHash);
-+  }
-+
-+  /**
-+   * ローカルgitリポジトリからMR diffを取得する
-+   * 失敗時はnullを返す
-+   */
-+  private tryLocalMrDiff(targetBranch: string): string | null {
-+    try {
-+      // ターゲットブランチをフェッチ
-+      execFileSync('git', ['fetch', 'origin', targetBranch], {
-+        cwd: this.projectDir,
-+        ...GIT_EXEC_OPTIONS,
-+      });
-+
-+      // 3-dot diff: ターゲットブランチとの共通祖先からHEADまでの差分
-+      const diff = execFileSync('git', ['diff', `origin/${targetBranch}...HEAD`], {
-+        cwd: this.projectDir,
-+        ...GIT_EXEC_OPTIONS,
-+      });
-+
-+      return diff;
-+    } catch (error) {
-+      getLogger().warn(
-+        `Failed to get MR diff from local git: ${error instanceof Error ? error.message : String(error)}`,
-+      );
-+      return null;
-+    }
-+  }
-+
-+  /**
-+   * ローカルgitリポジトリから2つのコミット間のdiffを取得する
-+   * 失敗時はnullを返す
-+   */
-+  private tryLocalDiffBetween(fromCommit: string, toCommit: string): string | null {
-+    try {
-+      const diff = execFileSync('git', ['diff', `${fromCommit}..${toCommit}`], {
-+        cwd: this.projectDir,
-+        ...GIT_EXEC_OPTIONS,
-+      });
-+
-+      return diff;
-+    } catch (error) {
-+      getLogger().warn(
-+        `Failed to get diff between commits from local git: ${error instanceof Error ? error.message : String(error)}`,
-+      );
-+      return null;
-+    }
-+  }
-+}
-diff --git a/src/infrastructure/adapter/gateway/__tests__/GitLabMrCommentGateway.test.ts b/src/infrastructure/adapter/gateway/__tests__/GitLabMrCommentGateway.test.ts
-deleted file mode 100644
-index 91104fa..0000000
---- a/src/infrastructure/adapter/gateway/__tests__/GitLabMrCommentGateway.test.ts
-+++ /dev/null
-@@ -1,79 +0,0 @@
--import { describe, it, expect, vi, beforeEach } from 'vitest';
--import { GitLabMrCommentGateway } from '../GitLabMrCommentGateway.js';
--
--/**
-- * GitLabApiClientのモックインターフェース
-- */
--interface MockGitLabApiClient {
--  get: ReturnType<typeof vi.fn>;
--  getAll: ReturnType<typeof vi.fn>;
--  post: ReturnType<typeof vi.fn>;
--}
--
--describe('GitLabMrCommentGateway', () => {
--  let mockClient: MockGitLabApiClient;
--  let gateway: GitLabMrCommentGateway;
--
--  beforeEach(() => {
--    mockClient = {
--      get: vi.fn(),
--      getAll: vi.fn(),
--      post: vi.fn(),
--    };
--    gateway = new GitLabMrCommentGateway(
--      mockClient as unknown as ConstructorParameters<typeof GitLabMrCommentGateway>[0],
--    );
--  });
--
--  describe('getComments', () => {
--    it('ノート一覧をMrComment形式で返す', async () => {
--      const notesResponse = [
--        { id: 1, body: 'First comment', created_at: '2026-03-01T00:00:00Z' },
--        { id: 2, body: 'Second comment', created_at: '2026-03-02T00:00:00Z' },
--      ];
--
--      mockClient.getAll.mockResolvedValueOnce(notesResponse);
--
--      const result = await gateway.getComments('123', '42');
--
--      // API呼び出しの検証
--      expect(mockClient.getAll).toHaveBeenCalledWith('/projects/123/merge_requests/42/notes');
--
--      // マッピング結果の検証
--      expect(result).toEqual([
--        { id: 1, body: 'First comment', createdAt: '2026-03-01T00:00:00Z' },
--        { id: 2, body: 'Second comment', createdAt: '2026-03-02T00:00:00Z' },
--      ]);
--    });
--
--    it('ノートが空の場合は空配列を返す', async () => {
--      mockClient.getAll.mockResolvedValueOnce([]);
--
--      const result = await gateway.getComments('456', '10');
--
--      expect(mockClient.getAll).toHaveBeenCalledWith('/projects/456/merge_requests/10/notes');
--      expect(result).toEqual([]);
--    });
--  });
--
--  describe('postComment', () => {
--    it('POSTリクエストを送信する', async () => {
--      mockClient.post.mockResolvedValueOnce({ id: 99, body: 'New comment' });
--
--      await gateway.postComment('123', '42', 'New comment');
--
--      // API呼び出しの検証
--      expect(mockClient.post).toHaveBeenCalledWith('/projects/123/merge_requests/42/notes', {
--        body: 'New comment',
--      });
--    });
--
--    it('戻り値がvoidであること', async () => {
--      mockClient.post.mockResolvedValueOnce({ id: 100, body: 'Another comment' });
--
--      const result = await gateway.postComment('789', '5', 'Another comment');
--
--      expect(result).toBeUndefined();
--    });
--  });
--});
-diff --git a/src/infrastructure/adapter/gateway/__tests__/GitLabMrDiscussionGateway.test.ts b/src/infrastructure/adapter/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
-new file mode 100644
-index 0000000..1764b47
---- /dev/null
-+++ b/src/infrastructure/adapter/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
-@@ -0,0 +1,113 @@
-+import { describe, it, expect, vi, beforeEach } from 'vitest';
-+import { GitLabMrDiscussionGateway } from '../GitLabMrDiscussionGateway.js';
-+
-+/**
-+ * GitLabApiClientのモックインターフェース
-+ */
-+interface MockGitLabApiClient {
-+  get: ReturnType<typeof vi.fn>;
-+  getAll: ReturnType<typeof vi.fn>;
-+  post: ReturnType<typeof vi.fn>;
-+}
-+
-+describe('GitLabMrDiscussionGateway', () => {
-+  let mockClient: MockGitLabApiClient;
-+  let gateway: GitLabMrDiscussionGateway;
-+
-+  beforeEach(() => {
-+    mockClient = {
-+      get: vi.fn(),
-+      getAll: vi.fn(),
-+      post: vi.fn(),
-+    };
-+    gateway = new GitLabMrDiscussionGateway(
-+      mockClient as unknown as ConstructorParameters<typeof GitLabMrDiscussionGateway>[0],
-+    );
-+  });
-+
-+  describe('getDiscussions', () => {
-+    it('Discussion一覧からnotes[0]を抽出してMrComment形式で返す', async () => {
-+      const discussionsResponse = [
-+        {
-+          id: 'disc-abc123',
-+          individual_note: false,
-+          notes: [
-+            { id: 1, body: 'First discussion body', created_at: '2026-03-01T00:00:00Z' },
-+            { id: 2, body: 'Reply to first', created_at: '2026-03-02T00:00:00Z' },
-+          ],
-+        },
-+        {
-+          id: 'disc-def456',
-+          individual_note: true,
-+          notes: [{ id: 3, body: 'Second discussion body', created_at: '2026-03-03T00:00:00Z' }],
-+        },
-+      ];
-+
-+      mockClient.getAll.mockResolvedValueOnce(discussionsResponse);
-+
-+      const result = await gateway.getDiscussions('123', '42');
-+
-+      // API呼び出しの検証
-+      expect(mockClient.getAll).toHaveBeenCalledWith('/projects/123/merge_requests/42/discussions');
-+
-+      // notes[0]のみ抽出されること
-+      expect(result).toEqual([
-+        { id: 1, body: 'First discussion body', createdAt: '2026-03-01T00:00:00Z' },
-+        { id: 3, body: 'Second discussion body', createdAt: '2026-03-03T00:00:00Z' },
-+      ]);
-+    });
-+
-+    it('notes配列が空のdiscussionはスキップする', async () => {
-+      const discussionsResponse = [
-+        {
-+          id: 'disc-empty',
-+          individual_note: false,
-+          notes: [],
-+        },
-+        {
-+          id: 'disc-valid',
-+          individual_note: false,
-+          notes: [{ id: 5, body: 'Valid discussion', created_at: '2026-03-04T00:00:00Z' }],
-+        },
-+      ];
-+
-+      mockClient.getAll.mockResolvedValueOnce(discussionsResponse);
-+
-+      const result = await gateway.getDiscussions('456', '10');
-+
-+      expect(result).toEqual([
-+        { id: 5, body: 'Valid discussion', createdAt: '2026-03-04T00:00:00Z' },
-+      ]);
-+    });
-+
-+    it('Discussionが空の場合は空配列を返す', async () => {
-+      mockClient.getAll.mockResolvedValueOnce([]);
-+
-+      const result = await gateway.getDiscussions('789', '1');
-+
-+      expect(mockClient.getAll).toHaveBeenCalledWith('/projects/789/merge_requests/1/discussions');
-+      expect(result).toEqual([]);
-+    });
-+  });
-+
-+  describe('postDiscussion', () => {
-+    it('POSTリクエストを/discussionsエンドポイントに送信する', async () => {
-+      mockClient.post.mockResolvedValueOnce({ id: 'disc-new', notes: [{ id: 99 }] });
-+
-+      await gateway.postDiscussion('123', '42', 'New discussion');
-+
-+      // API呼び出しの検証
-+      expect(mockClient.post).toHaveBeenCalledWith('/projects/123/merge_requests/42/discussions', {
-+        body: 'New discussion',
-+      });
-+    });
-+
-+    it('戻り値がvoidであること', async () => {
-+      mockClient.post.mockResolvedValueOnce({ id: 'disc-100' });
-+
-+      const result = await gateway.postDiscussion('789', '5', 'Another discussion');
-+
-+      expect(result).toBeUndefined();
-+    });
-+  });
-+});
-diff --git a/src/infrastructure/adapter/gateway/__tests__/GitLabMrGateway.test.ts b/src/infrastructure/adapter/gateway/__tests__/GitLabMrGateway.test.ts
-index eb45c98..c588ac4 100644
---- a/src/infrastructure/adapter/gateway/__tests__/GitLabMrGateway.test.ts
-+++ b/src/infrastructure/adapter/gateway/__tests__/GitLabMrGateway.test.ts
-@@ -76,7 +76,9 @@ describe('GitLabMrGateway', () => {
- 
-       // API呼び出しの検証
-       expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42');
--      expect(mockClient.get).toHaveBeenCalledWith('/projects/123/merge_requests/42/changes');
-+      expect(mockClient.get).toHaveBeenCalledWith(
-+        '/projects/123/merge_requests/42/changes?access_raw_diffs=true',
-+      );
-       expect(mockClient.get).toHaveBeenCalledWith(
-         '/projects/123/merge_requests/42/commits?per_page=1',
-       );
-diff --git a/src/infrastructure/adapter/gateway/__tests__/LocalGitDiffMrGateway.test.ts b/src/infrastructure/adapter/gateway/__tests__/LocalGitDiffMrGateway.test.ts
-new file mode 100644
-index 0000000..1b51e38
---- /dev/null
-+++ b/src/infrastructure/adapter/gateway/__tests__/LocalGitDiffMrGateway.test.ts
-@@ -0,0 +1,312 @@
-+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-+import * as fs from 'node:fs';
-+import * as path from 'node:path';
-+import * as os from 'node:os';
-+import { execFileSync } from 'node:child_process';
-+import { LocalGitDiffMrGateway } from '../LocalGitDiffMrGateway.js';
-+import { MrContext } from '../../../../domain/mrContext/index.js';
-+import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
-+import type { MrGateway } from '../../../../application/shared/port/gateway/index.js';
-+import type { GitLabApiClient } from '../../../adapter/httpClient/index.js';
-+
-+/**
-+ * テスト用の一時gitリポジトリを作成するヘルパー
-+ * origin（bare）とワーキングリポジトリを作成し、ブランチ構成をシミュレートする
-+ */
-+function createTestRepoWithBranches(): {
-+  workDir: string;
-+  bareDir: string;
-+  targetBranch: string;
-+  baseCommitHash: string;
-+  headCommitHash: string;
-+} {
-+  const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'aikata-git-diff-test-'));
-+  const bareDir = path.join(tmpBase, 'origin.git');
-+  const workDir = path.join(tmpBase, 'work');
-+
-+  // bareリポジトリ作成（originとして使用）
-+  fs.mkdirSync(bareDir);
-+  execFileSync('git', ['init', '--bare'], { cwd: bareDir, stdio: 'pipe' });
-+
-+  // ワーキングリポジトリ作成
-+  execFileSync('git', ['clone', bareDir, workDir], { stdio: 'pipe' });
-+  execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: workDir, stdio: 'pipe' });
-+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: workDir, stdio: 'pipe' });
-+
-+  // mainブランチに初期コミット
-+  fs.writeFileSync(path.join(workDir, 'base.txt'), 'base content\n');
-+  execFileSync('git', ['add', 'base.txt'], { cwd: workDir, stdio: 'pipe' });
-+  execFileSync('git', ['commit', '-m', 'initial commit'], { cwd: workDir, stdio: 'pipe' });
-+  execFileSync('git', ['push', 'origin', 'HEAD:main'], { cwd: workDir, stdio: 'pipe' });
-+
-+  const baseCommitHash = execFileSync('git', ['rev-parse', 'HEAD'], {
-+    cwd: workDir,
-+    encoding: 'utf-8',
-+  }).trim();
-+
-+  // featureブランチに変更を追加
-+  execFileSync('git', ['checkout', '-b', 'feature/test'], { cwd: workDir, stdio: 'pipe' });
-+  fs.writeFileSync(path.join(workDir, 'new-file.ts'), 'export const hello = "world";\n');
-+  execFileSync('git', ['add', 'new-file.ts'], { cwd: workDir, stdio: 'pipe' });
-+  execFileSync('git', ['commit', '-m', 'add new file'], { cwd: workDir, stdio: 'pipe' });
-+  execFileSync('git', ['push', 'origin', 'feature/test'], { cwd: workDir, stdio: 'pipe' });
-+
-+  const headCommitHash = execFileSync('git', ['rev-parse', 'HEAD'], {
-+    cwd: workDir,
-+    encoding: 'utf-8',
-+  }).trim();
-+
-+  return { workDir, bareDir, targetBranch: 'main', baseCommitHash, headCommitHash };
-+}
-+
-+/**
-+ * 一時ディレクトリを再帰削除するヘルパー
-+ */
-+function cleanupDir(dir: string): void {
-+  const parentDir = path.dirname(dir);
-+  if (parentDir.includes('aikata-git-diff-test-')) {
-+    fs.rmSync(parentDir, { recursive: true, force: true });
-+  } else {
-+    fs.rmSync(dir, { recursive: true, force: true });
-+  }
-+}
-+
-+/**
-+ * テスト用ゲートウェイ生成ヘルパー
-+ */
-+function createGateway(
-+  projectDir: string,
-+  fallbackGateway: Record<string, ReturnType<typeof vi.fn>>,
-+  client: Record<string, ReturnType<typeof vi.fn>>,
-+): LocalGitDiffMrGateway {
-+  return new LocalGitDiffMrGateway(
-+    projectDir,
-+    fallbackGateway as unknown as MrGateway,
-+    client as unknown as GitLabApiClient,
-+  );
-+}
-+
-+describe('LocalGitDiffMrGateway', () => {
-+  let mockFallbackGateway: {
-+    getMrContext: ReturnType<typeof vi.fn>;
-+    getCommitsSince: ReturnType<typeof vi.fn>;
-+    getDiffSince: ReturnType<typeof vi.fn>;
-+  };
-+  let mockClient: {
-+    get: ReturnType<typeof vi.fn>;
-+    getAll: ReturnType<typeof vi.fn>;
-+    post: ReturnType<typeof vi.fn>;
-+  };
-+
-+  beforeEach(() => {
-+    resetLogger();
-+    initializeLogger({ userId: 'test-user', level: 'silent' });
-+    mockFallbackGateway = {
-+      getMrContext: vi.fn(),
-+      getCommitsSince: vi.fn(),
-+      getDiffSince: vi.fn(),
-+    };
-+    mockClient = {
-+      get: vi.fn(),
-+      getAll: vi.fn(),
-+      post: vi.fn(),
-+    };
-+  });
-+
-+  afterEach(() => {
-+    resetLogger();
-+  });
-+
-+  describe('getMrContext', () => {
-+    it('ローカルgit diffが成功する場合、ローカルdiffが使用される', async () => {
-+      const repo = createTestRepoWithBranches();
-+
-+      try {
-+        const apiMrContext = new MrContext({
-+          title: 'feat: test',
-+          description: 'test description',
-+          sourceBranch: 'feature/test',
-+          targetBranch: 'main',
-+          diff: 'api-diff-should-be-replaced',
-+          commitHash: repo.headCommitHash,
-+          commitMessage: 'add new file',
-+        });
-+        mockFallbackGateway.getMrContext.mockResolvedValueOnce(apiMrContext);
-+
-+        const gateway = createGateway(repo.workDir, mockFallbackGateway, mockClient);
-+        const result = await gateway.getMrContext('123', '42');
-+
-+        // メタデータはAPIから取得される
-+        expect(result.title).toBe('feat: test');
-+        expect(result.description).toBe('test description');
-+        expect(result.sourceBranch).toBe('feature/test');
-+        expect(result.targetBranch).toBe('main');
-+        expect(result.commitHash).toBe(repo.headCommitHash);
-+        expect(result.commitMessage).toBe('add new file');
-+
-+        // diffはローカルgitから取得される（APIのdiffではない）
-+        expect(result.diff).not.toBe('api-diff-should-be-replaced');
-+        expect(result.diff).toContain('new-file.ts');
-+        expect(result.diff).toContain('export const hello = "world"');
-+
-+        // APIのaccess_raw_diffsは呼ばれない
-+        expect(mockClient.get).not.toHaveBeenCalled();
-+      } finally {
-+        cleanupDir(repo.workDir);
-+      }
-+    });
-+
-+    it('ローカルgit diffが失敗し、API access_raw_diffs=trueが成功する場合', async () => {
-+      const nonExistentDir = '/tmp/aikata-non-existent-repo-dir';
-+
-+      const apiMrContext = new MrContext({
-+        title: 'feat: test',
-+        description: 'test description',
-+        sourceBranch: 'feature/test',
-+        targetBranch: 'main',
-+        diff: 'api-diff-original',
-+        commitHash: 'abc123',
-+        commitMessage: 'add new file',
-+      });
-+      mockFallbackGateway.getMrContext.mockResolvedValueOnce(apiMrContext);
-+
-+      // API access_raw_diffs=trueのレスポンス
-+      mockClient.get.mockResolvedValueOnce({
-+        changes: [
-+          {
-+            old_path: 'file.ts',
-+            new_path: 'file.ts',
-+            diff: '@@ -1 +1 @@\n-old\n+new\n',
-+          },
-+        ],
-+      });
-+
-+      const gateway = createGateway(nonExistentDir, mockFallbackGateway, mockClient);
-+      const result = await gateway.getMrContext('123', '42');
-+
-+      // API access_raw_diffs=trueが呼ばれる
-+      expect(mockClient.get).toHaveBeenCalledWith(
-+        '/projects/123/merge_requests/42/changes?access_raw_diffs=true',
-+      );
-+
-+      // diffはAPIのaccess_raw_diffsから取得される
-+      expect(result.diff).toContain('file.ts');
-+      expect(result.diff).toContain('-old');
-+      expect(result.diff).toContain('+new');
-+    });
-+
-+    it('両方失敗する場合、エラーがスローされる', async () => {
-+      const nonExistentDir = '/tmp/aikata-non-existent-repo-dir';
-+
-+      const apiMrContext = new MrContext({
-+        title: 'feat: test',
-+        description: 'test description',
-+        sourceBranch: 'feature/test',
-+        targetBranch: 'main',
-+        diff: 'api-diff-original',
-+        commitHash: 'abc123',
-+        commitMessage: 'add new file',
-+      });
-+      mockFallbackGateway.getMrContext.mockResolvedValueOnce(apiMrContext);
-+
-+      // API access_raw_diffs=trueも失敗
-+      mockClient.get.mockRejectedValueOnce(new Error('API error'));
-+
-+      const gateway = createGateway(nonExistentDir, mockFallbackGateway, mockClient);
-+
-+      await expect(gateway.getMrContext('123', '42')).rejects.toThrow(
-+        'Failed to retrieve MR diff from both local git and API',
-+      );
-+    });
-+
-+    it('MRメタデータはAPIから取得される', async () => {
-+      const repo = createTestRepoWithBranches();
-+
-+      try {
-+        const apiMrContext = new MrContext({
-+          title: 'original title',
-+          description: 'original description',
-+          sourceBranch: 'feature/test',
-+          targetBranch: 'main',
-+          diff: 'api-diff',
-+          commitHash: repo.headCommitHash,
-+          commitMessage: 'original commit message',
-+        });
-+        mockFallbackGateway.getMrContext.mockResolvedValueOnce(apiMrContext);
-+
-+        const gateway = createGateway(repo.workDir, mockFallbackGateway, mockClient);
-+        const result = await gateway.getMrContext('123', '42');
-+
-+        expect(result).toBeInstanceOf(MrContext);
-+        expect(result.title).toBe('original title');
-+        expect(result.description).toBe('original description');
-+        expect(result.commitHash).toBe(repo.headCommitHash);
-+        expect(result.commitMessage).toBe('original commit message');
-+      } finally {
-+        cleanupDir(repo.workDir);
-+      }
-+    });
-+  });
-+
-+  describe('getDiffSince', () => {
-+    it('ローカルgit diffが成功する場合', async () => {
-+      const repo = createTestRepoWithBranches();
-+
-+      try {
-+        const gateway = createGateway(repo.workDir, mockFallbackGateway, mockClient);
-+        const result = await gateway.getDiffSince(
-+          '123',
-+          '42',
-+          repo.baseCommitHash,
-+          repo.headCommitHash,
-+        );
-+
-+        expect(result).toContain('new-file.ts');
-+        expect(result).toContain('export const hello = "world"');
-+        expect(mockFallbackGateway.getDiffSince).not.toHaveBeenCalled();
-+      } finally {
-+        cleanupDir(repo.workDir);
-+      }
-+    });
-+
-+    it('ローカルgit diffが失敗し、フォールバックが成功する場合', async () => {
-+      const nonExistentDir = '/tmp/aikata-non-existent-repo-dir';
-+      mockFallbackGateway.getDiffSince.mockResolvedValueOnce('fallback-diff-content');
-+
-+      const gateway = createGateway(nonExistentDir, mockFallbackGateway, mockClient);
-+      const result = await gateway.getDiffSince('123', '42', 'fromHash', 'toHash');
-+
-+      expect(result).toBe('fallback-diff-content');
-+      expect(mockFallbackGateway.getDiffSince).toHaveBeenCalledWith(
-+        '123',
-+        '42',
-+        'fromHash',
-+        'toHash',
-+      );
-+    });
-+
-+    it('両方失敗する場合、エラーがスローされる', async () => {
-+      const nonExistentDir = '/tmp/aikata-non-existent-repo-dir';
-+      mockFallbackGateway.getDiffSince.mockRejectedValueOnce(new Error('API error'));
-+
-+      const gateway = createGateway(nonExistentDir, mockFallbackGateway, mockClient);
-+
-+      await expect(gateway.getDiffSince('123', '42', 'fromHash', 'toHash')).rejects.toThrow(
-+        'API error',
-+      );
-+    });
-+  });
-+
-+  describe('getCommitsSince', () => {
-+    it('fallbackGatewayにそのまま委譲される', async () => {
-+      const expectedCommits = ['commit message 1', 'commit message 2'];
-+      mockFallbackGateway.getCommitsSince.mockResolvedValueOnce(expectedCommits);
-+
-+      const gateway = createGateway('/tmp/any-dir', mockFallbackGateway, mockClient);
-+      const result = await gateway.getCommitsSince('123', '42', 'sinceHash');
-+
-+      expect(result).toEqual(expectedCommits);
-+      expect(mockFallbackGateway.getCommitsSince).toHaveBeenCalledWith('123', '42', 'sinceHash');
-+    });
-+  });
-+});
-diff --git a/src/infrastructure/adapter/gateway/__tests__/combineDiffs.test.ts b/src/infrastructure/adapter/gateway/__tests__/combineDiffs.test.ts
-new file mode 100644
-index 0000000..533b24b
---- /dev/null
-+++ b/src/infrastructure/adapter/gateway/__tests__/combineDiffs.test.ts
-@@ -0,0 +1,64 @@
-+import { describe, it, expect } from 'vitest';
-+import { combineDiffs } from '../combineDiffs.js';
-+
-+describe('combineDiffs', () => {
-+  it('複数のdiffをgit diff形式のヘッダー付きで結合する', () => {
-+    const diffs = [
-+      {
-+        oldPath: 'file1.ts',
-+        newPath: 'file1.ts',
-+        diff: '@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n',
-+      },
-+      {
-+        oldPath: 'file2.ts',
-+        newPath: 'file2.ts',
-+        diff: '@@ -10,3 +10,5 @@\n+export const baz = 1;\n',
-+      },
-+    ];
-+
-+    const result = combineDiffs(diffs);
-+
-+    expect(result).toBe(
-+      'diff --git a/file1.ts b/file1.ts\n--- a/file1.ts\n+++ b/file1.ts\n@@ -1,3 +1,4 @@\n+import { foo } from "bar";\n' +
-+        '\n' +
-+        'diff --git a/file2.ts b/file2.ts\n--- a/file2.ts\n+++ b/file2.ts\n@@ -10,3 +10,5 @@\n+export const baz = 1;\n',
-+    );
-+  });
-+
-+  it('空のdiff配列の場合は空文字列を返す', () => {
-+    const result = combineDiffs([]);
-+    expect(result).toBe('');
-+  });
-+
-+  it('既に --- a/ ヘッダーが含まれるdiffに対して重複ヘッダーを追加しない', () => {
-+    const diffs = [
-+      {
-+        oldPath: 'file.ts',
-+        newPath: 'file.ts',
-+        diff: '--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n',
-+      },
-+    ];
-+
-+    const result = combineDiffs(diffs);
-+
-+    expect(result).toBe(
-+      'diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n',
-+    );
-+  });
-+
-+  it('リネームされたファイルのdiffにold_pathとnew_pathが反映される', () => {
-+    const diffs = [
-+      {
-+        oldPath: 'old/file.ts',
-+        newPath: 'new/file.ts',
-+        diff: '@@ -1 +1 @@\n-old\n+new\n',
-+      },
-+    ];
-+
-+    const result = combineDiffs(diffs);
-+
-+    expect(result).toBe(
-+      'diff --git a/old/file.ts b/new/file.ts\n--- a/old/file.ts\n+++ b/new/file.ts\n@@ -1 +1 @@\n-old\n+new\n',
-+    );
-+  });
-+});
-diff --git a/src/infrastructure/adapter/gateway/combineDiffs.ts b/src/infrastructure/adapter/gateway/combineDiffs.ts
-new file mode 100644
-index 0000000..9dc28f4
---- /dev/null
-+++ b/src/infrastructure/adapter/gateway/combineDiffs.ts
-@@ -0,0 +1,21 @@
-+/**
-+ * 複数のdiff文字列をファイルパス付きのgit diff形式で結合する
-+ */
-+export function combineDiffs(
-+  diffs: Array<{ oldPath: string; newPath: string; diff: string }>,
-+): string {
-+  if (diffs.length === 0) {
-+    return '';
-+  }
-+  return diffs
-+    .map(({ oldPath, newPath, diff }) => {
-+      const header = `diff --git a/${oldPath} b/${newPath}`;
-+      // diff内容が既に --- a/ ヘッダーを含む場合はそのまま結合
-+      if (diff.startsWith('--- a/')) {
-+        return `${header}\n${diff}`;
-+      }
-+      // --- a/ ヘッダーがない場合は追加
-+      return `${header}\n--- a/${oldPath}\n+++ b/${newPath}\n${diff}`;
-+    })
-+    .join('\n');
-+}
-diff --git a/src/infrastructure/adapter/gateway/index.ts b/src/infrastructure/adapter/gateway/index.ts
-index d2a5532..1fc266b 100644
---- a/src/infrastructure/adapter/gateway/index.ts
-+++ b/src/infrastructure/adapter/gateway/index.ts
-@@ -1,3 +1,4 @@
- export { GitLabMrGateway } from './GitLabMrGateway.js';
--export { GitLabMrCommentGateway } from './GitLabMrCommentGateway.js';
-+export { LocalGitDiffMrGateway } from './LocalGitDiffMrGateway.js';
-+export { GitLabMrDiscussionGateway } from './GitLabMrDiscussionGateway.js';
- export { LocalProjectTreeGateway } from './LocalProjectTreeGateway.js';
-diff --git a/src/mastra/requestContext.ts b/src/mastra/requestContext.ts
-index a4ba5a1..62f083d 100644
---- a/src/mastra/requestContext.ts
-+++ b/src/mastra/requestContext.ts
-@@ -88,12 +88,12 @@ export function sanitizeForLog(ctx: Record<string, any>): Record<string, unknown
-   if ('aiApiKey' in sanitized) {
-     sanitized.aiApiKey = '***';
-   }
--  if ('mrDiff' in sanitized && typeof sanitized.mrDiff === 'string') {
--    sanitized.mrDiff = `[${(sanitized.mrDiff as string).length} chars]`;
--  }
--  if ('omittedFileDiffs' in sanitized && sanitized.omittedFileDiffs instanceof Map) {
--    sanitized.omittedFileDiffs = `[Map with ${(sanitized.omittedFileDiffs as Map<string, string>).size} entries]`;
--  }
-+  // if ('mrDiff' in sanitized && typeof sanitized.mrDiff === 'string') {
-+  //   sanitized.mrDiff = `[${(sanitized.mrDiff as string).length} chars]`;
-+  // }
-+  // if ('omittedFileDiffs' in sanitized && sanitized.omittedFileDiffs instanceof Map) {
-+  //   sanitized.omittedFileDiffs = `[Map with ${(sanitized.omittedFileDiffs as Map<string, string>).size} entries]`;
-+  // }
-   return sanitized;
- }
- 
-diff --git a/src/mastra/workflows/steps/reviewExecution.ts b/src/mastra/workflows/steps/reviewExecution.ts
-index 34b4faf..a7412ff 100644
---- a/src/mastra/workflows/steps/reviewExecution.ts
-+++ b/src/mastra/workflows/steps/reviewExecution.ts
-@@ -199,6 +199,7 @@ async function executeWithErrorRecovery(params: {
-       await agent.generate(prompt, {
-         requestContext,
-         memory: memoryOption,
-+        maxSteps: 50,
-         prepareStep: buildPrepareStepForImageInjection(requestContext),
-         ...buildGenerateOptions(requestContext.all as WorkflowRequestContext),
-       });
+   } catch (error) {
+     const userId = options.userId ?? 'unknown';
+     if (error instanceof Error) {
