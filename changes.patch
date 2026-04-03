@@ -1,62 +1,70 @@
-diff --git a/PBI.md b/PBI.md
-index 5e3eae7..b6d296c 100644
---- a/PBI.md
-+++ b/PBI.md
-@@ -8,18 +8,3 @@
- - 注意事項
- - 指摘事項（in progressの場合のみ）
- ```
--
--# ID: 1
--- PBI名: 品質ゲートの導入
--- ステータス: done
--- 背景
--  - このジョブを入れる動機としては、異常がないかパイプラインでチェックして、もし異常があればパイプラインを失敗としてストップ
--- 受け入れ基準
--  - チェック失敗の基準を設定できる（任意、デフォルトは基準なし）
--    - チェック失敗の基準は、評定とその評定がいくつ以上で異常終了とするかのペアを複数リストで保持できる
--      - or条件で判定
--  - チェック失敗基準に抵触し終了する場合でもコメントにチェック結果が送信されている
--    - 基準に抵触したかどうか、コメントを見ればわかる様になっている
--  - ユーザガイドが更新されている
--- 注意事項
--- 指摘事項（in progressの場合のみ）
-diff --git a/src/application/shared/parser/ReviewSettingsParser.ts b/src/application/shared/parser/ReviewSettingsParser.ts
-index 43bcc6b..b51e471 100644
---- a/src/application/shared/parser/ReviewSettingsParser.ts
-+++ b/src/application/shared/parser/ReviewSettingsParser.ts
-@@ -8,7 +8,7 @@ import { QualityGate } from '../../../domain/qualityGate/index.js';
-  */
- const reviewSettingsSchema = z.object({
-   additionalInstructions: z.string().optional(),
--  concurrentReviewCount: z.number().int().optional(),
-+  concurrentReviewCount: z.number().int().nullable().optional(),
-   commentFormat: z.string().optional(),
-   ratings: z
-     .array(
-@@ -61,7 +61,8 @@ export class ReviewSettingsParser {
+diff --git a/src/application/shared/prompt/UserPromptTemplate.ts b/src/application/shared/prompt/UserPromptTemplate.ts
+index fbd3410..ff9bb0d 100644
+--- a/src/application/shared/prompt/UserPromptTemplate.ts
++++ b/src/application/shared/prompt/UserPromptTemplate.ts
+@@ -32,19 +32,19 @@ export function buildUserPromptTemplate(params: UserPromptParams): string {
+       .join('\n');
  
-     // 未設定または1未満の場合はnull（分割しない）に変換
-     const rawCount = data.concurrentReviewCount;
--    const concurrentReviewCount = rawCount === undefined || rawCount < 1 ? null : rawCount;
-+    const concurrentReviewCount =
-+      rawCount === undefined || rawCount === null || rawCount < 1 ? null : rawCount;
+     priorReviewSection = `
+-## Prior Review Context
++## Prior Review Context (Reference Only)
  
-     // 品質ゲートの構築
-     const qualityGate = data.qualityGate
-diff --git a/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts b/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
-index 6128081..754b41a 100644
---- a/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
-+++ b/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
-@@ -72,6 +72,11 @@ describe('ReviewSettingsParser', () => {
-     expect(settings.concurrentReviewCount).toBeNull();
+-The following items were reviewed previously. Focus your analysis on changes since the prior review.
++A prior review was conducted for this MR. The information below is provided as supplementary reference only. You MUST still review the entire MR comprehensively based on the full Merge Request Diff above. Do not skip or shortcut any check item based on prior conclusions.
+ 
+ ### Commits Since Prior Review
+ ${commitsText}
+ 
+-### Changes Since Prior Review
++### Diff Since Prior Review
+ \`\`\`
+ ${params.priorReviewContext.diffSincePrior}
+ \`\`\`
+ 
+-### Previous Results
++### Previous Review Results
+ ${previousResultsText}
+ 
+ `;
+diff --git a/src/application/shared/prompt/__tests__/UserPromptTemplate.test.ts b/src/application/shared/prompt/__tests__/UserPromptTemplate.test.ts
+index 6e6c0ae..a64280a 100644
+--- a/src/application/shared/prompt/__tests__/UserPromptTemplate.test.ts
++++ b/src/application/shared/prompt/__tests__/UserPromptTemplate.test.ts
+@@ -79,6 +79,24 @@ describe('buildUserPromptTemplate', () => {
+     expect(result).toContain('Good performance');
    });
  
-+  it('concurrentReviewCountがnullの場合はnullに変換される', () => {
-+    const settings = ReviewSettingsParser.parse(JSON.stringify({ concurrentReviewCount: null }));
-+    expect(settings.concurrentReviewCount).toBeNull();
++  it('priorReviewContextがある場合、前回結果は参照情報として扱われ、差分集中指示がない', () => {
++    const params = createTestParams({
++      priorReviewContext: {
++        results: [
++          { checkItemContent: 'security check', ratingLabel: 'B', comment: 'Needs improvement' },
++        ],
++        commitMessages: ['fix: update auth logic'],
++        diffSincePrior: '+ new cached response',
++      },
++    });
++
++    const result = buildUserPromptTemplate(params);
++
++    expect(result).toContain('Reference Only');
++    expect(result).toContain('review the entire MR comprehensively');
++    expect(result).not.toContain('Focus your analysis on changes since the prior review');
 +  });
 +
-   it('hiddenRatingLabelsを含むJSONをパースできる', () => {
-     const json = JSON.stringify({
-       ratings: [
+   it('フォルダツリーが含まれる', () => {
+     const params = createTestParams({
+       folderTree: 'src/\n  domain/\n    CheckItem.ts\nREADME.md',
+diff --git a/src/mastra/agents/reviewAgent.ts b/src/mastra/agents/reviewAgent.ts
+index 6a2c801..346633b 100644
+--- a/src/mastra/agents/reviewAgent.ts
++++ b/src/mastra/agents/reviewAgent.ts
+@@ -94,7 +94,7 @@ Before using any tool(s), explain to users the reasoning behind why you are usin
+ 
+ ## Efficiency Guidelines
+ 
+-- If prior review results are provided, focus your analysis on what changed since the prior review. Reuse prior conclusions for unchanged aspects.
++- If prior review results are provided, still review the entire MR comprehensively based on the full diff. Use prior results only as reference context — they may inform your analysis, but do not skip or shortcut any check item based on prior conclusions.
+ - When multiple check items relate to the same code area, investigate once and apply findings across all relevant items.
+ - Most check items can be evaluated from the diff alone. Only investigate when you have genuine uncertainty that affects your rating.
+ 
