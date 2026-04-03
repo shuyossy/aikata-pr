@@ -99,4 +99,71 @@ describe('ReviewSettingsParser', () => {
     });
     expect(() => ReviewSettingsParser.parse(json)).toThrow();
   });
+
+  it('qualityGateを含むJSONをパースできる', () => {
+    const json = JSON.stringify({
+      ratings: [
+        { label: 'A', definition: '完全に満たしている' },
+        { label: 'C', definition: '満たしていない' },
+      ],
+      qualityGate: {
+        failureCriteria: [{ ratingLabel: 'C', threshold: 1 }],
+      },
+    });
+
+    const settings = ReviewSettingsParser.parse(json);
+
+    expect(settings.qualityGate.failureCriteria).toEqual([{ ratingLabel: 'C', threshold: 1 }]);
+  });
+
+  it('qualityGate未指定の場合はデフォルト（基準なし）が適用される', () => {
+    const settings = ReviewSettingsParser.parse(JSON.stringify({}));
+    expect(settings.qualityGate.failureCriteria).toEqual([]);
+  });
+
+  it('qualityGateに複数の基準を指定できる', () => {
+    const json = JSON.stringify({
+      ratings: [
+        { label: 'B', definition: '概ね満たしている' },
+        { label: 'C', definition: '満たしていない' },
+      ],
+      qualityGate: {
+        failureCriteria: [
+          { ratingLabel: 'C', threshold: 1 },
+          { ratingLabel: 'B', threshold: 3 },
+        ],
+      },
+    });
+
+    const settings = ReviewSettingsParser.parse(json);
+    expect(settings.qualityGate.failureCriteria).toHaveLength(2);
+  });
+
+  it('qualityGateのthresholdが0以下の場合はエラーになる', () => {
+    const json = JSON.stringify({
+      qualityGate: {
+        failureCriteria: [{ ratingLabel: 'C', threshold: 0 }],
+      },
+    });
+    expect(() => ReviewSettingsParser.parse(json)).toThrow();
+  });
+
+  it('qualityGateのratingLabelが空文字の場合はエラーになる', () => {
+    const json = JSON.stringify({
+      qualityGate: {
+        failureCriteria: [{ ratingLabel: '', threshold: 1 }],
+      },
+    });
+    expect(() => ReviewSettingsParser.parse(json)).toThrow();
+  });
+
+  it('qualityGateのratingLabelがratingsに存在しない場合はエラーになる', () => {
+    const json = JSON.stringify({
+      ratings: [{ label: 'A', definition: '完全に満たしている' }],
+      qualityGate: {
+        failureCriteria: [{ ratingLabel: 'X', threshold: 1 }],
+      },
+    });
+    expect(() => ReviewSettingsParser.parse(json)).toThrow();
+  });
 });

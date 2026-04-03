@@ -9,4 +9,6 @@ export interface ExecuteReviewDto {
   commentPosted: boolean;
   /** 全てのレビュー結果がエラーかどうか */
   allResultsAreErrors: boolean;
+  /** 品質ゲートを通過したかどうか */
+  qualityGatePassed: boolean;
 }

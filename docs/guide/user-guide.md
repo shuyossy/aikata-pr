@@ -158,6 +158,7 @@ GitLabプロジェクトの **設定 > CI/CD > 変数** から以下の変数を
 | `commentFormat` | string | `"{comment}"` | レビューコメントのフォーマット。`{comment}`がAIのコメントに置換される |
 | `ratings` | array | 下記参照 | 評定基準のリスト |
 | `hiddenRatingLabels` | string[] | `[]` | コメントに表示しない評定のラベルリスト。指定されたラベルの結果はメタデータに格納される |
+| `qualityGate` | object | なし | 品質ゲート設定。詳細は[3.5 品質ゲートの設定](#35-品質ゲートの設定任意)を参照 |
 
 **`ratings`のデフォルト値:**
 
@@ -195,6 +196,52 @@ GitLabプロジェクトの **設定 > CI/CD > 変数** から以下の変数を
   ]
 }
 ```
+
+### 3.5 品質ゲートの設定（任意）
+
+品質ゲートを使用すると、レビュー結果に基づいてパイプラインを失敗させることができます。レビュー設定ファイル内の`qualityGate`フィールドで設定します。
+
+**例: 評定Cが1件以上の場合にパイプラインを失敗させる**
+
+```json
+{
+  "qualityGate": {
+    "failureCriteria": [
+      { "ratingLabel": "C", "threshold": 1 }
+    ]
+  }
+}
+```
+
+**例: 複数の基準を設定する（OR条件）**
+
+```json
+{
+  "qualityGate": {
+    "failureCriteria": [
+      { "ratingLabel": "C", "threshold": 1 },
+      { "ratingLabel": "B", "threshold": 5 }
+    ]
+  }
+}
+```
+
+この例では、C評定が1件以上 **または** B評定が5件以上の場合にパイプラインが失敗します。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| `qualityGate` | object | 品質ゲート設定（任意） |
+| `qualityGate.failureCriteria` | array | 失敗基準のリスト |
+| `qualityGate.failureCriteria[].ratingLabel` | string | 評定ラベル（`ratings`に定義されたラベルと一致する必要がある） |
+| `qualityGate.failureCriteria[].threshold` | number | しきい値（1以上の整数。この数以上の該当評定があると失敗） |
+
+**動作仕様:**
+- 品質ゲートに抵触した場合でも、レビュー結果はコメントとして投稿されます
+- コメントの末尾に警告メッセージが表示され、どの基準に抵触したかがわかります
+- パイプラインはexit code 1で失敗します
+- エラー結果（AIの処理エラー等）は品質ゲートの評価対象外です
+- `hiddenRatingLabels`で非表示にした評定も品質ゲートの評価対象に含まれます
+- 未設定の場合、品質ゲートは適用されません（デフォルト）
 
 ---
 

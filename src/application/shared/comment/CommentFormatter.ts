@@ -1,5 +1,6 @@
 import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/reviewResult/index.js';
 import { Rating } from '../../../domain/rating/index.js';
+import type { QualityGateResult } from '../../../domain/qualityGate/index.js';
 
 /** aikataレビューコメント識別用マーカー */
 export const REVIEW_MARKER = '<!-- aikata-review -->';
@@ -26,7 +27,8 @@ export class CommentFormatter {
     ratings: Rating[],
     commitHash: string,
     commitMessage: string,
-    hiddenRatingLabels: string[] = [],
+    hiddenRatingLabels: string[],
+    qualityGateResult: QualityGateResult,
   ): string {
     // 表示/非表示に分割（エラー結果は常に表示）
     const visibleResults = results.filter(
@@ -59,6 +61,15 @@ export class CommentFormatter {
     lines.push('');
     lines.push('## AIKATA-PR レビュー結果');
     lines.push(`レビュー時最新コミット: ${commitMessage}`);
+
+    // 品質ゲート警告（テーブルの上に表示）
+    if (!qualityGateResult.passed) {
+      lines.push('');
+      lines.push('> **⚠ Quality Gate Failed**');
+      for (const v of qualityGateResult.violations) {
+        lines.push(`> - Rating "${v.ratingLabel}" : ${v.actualCount} (threshold: ${v.threshold})`);
+      }
+    }
 
     if (visibleResults.length === 0) {
       // 全ての非エラー結果が非表示の場合

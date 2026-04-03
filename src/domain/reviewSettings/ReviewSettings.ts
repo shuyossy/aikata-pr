@@ -1,4 +1,5 @@
 import { Rating } from '../rating/index.js';
+import { QualityGate } from '../qualityGate/index.js';
 
 /** デフォルトのコメントフォーマット */
 const DEFAULT_COMMENT_FORMAT = '{comment}';
@@ -17,6 +18,7 @@ interface ReviewSettingsParams {
   commentFormat: string;
   ratings: Rating[];
   hiddenRatingLabels: string[];
+  qualityGate: QualityGate;
 }
 
 /**
@@ -29,6 +31,7 @@ export class ReviewSettings {
   readonly commentFormat: string;
   readonly ratings: Rating[];
   readonly hiddenRatingLabels: string[];
+  readonly qualityGate: QualityGate;
 
   constructor(params: ReviewSettingsParams) {
     if (params.concurrentReviewCount !== null && params.concurrentReviewCount < 1) {
@@ -43,11 +46,19 @@ export class ReviewSettings {
         throw new Error(`hiddenRatingLabels contains unknown label: ${label}`);
       }
     }
+    for (const criterion of params.qualityGate.failureCriteria) {
+      if (!ratingLabels.has(criterion.ratingLabel)) {
+        throw new Error(
+          `qualityGate failureCriteria contains unknown rating label: ${criterion.ratingLabel}`,
+        );
+      }
+    }
     this.additionalInstructions = params.additionalInstructions;
     this.concurrentReviewCount = params.concurrentReviewCount;
     this.commentFormat = params.commentFormat;
     this.ratings = params.ratings;
     this.hiddenRatingLabels = params.hiddenRatingLabels;
+    this.qualityGate = params.qualityGate;
   }
 
   /** デフォルト値でReviewSettingsを生成する */
@@ -58,6 +69,7 @@ export class ReviewSettings {
       commentFormat: DEFAULT_COMMENT_FORMAT,
       ratings: DEFAULT_RATINGS,
       hiddenRatingLabels: [],
+      qualityGate: QualityGate.none(),
     });
   }
 }

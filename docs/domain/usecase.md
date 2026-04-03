@@ -26,7 +26,7 @@
     - AI APIキーとエンドポイントが有効
     - チェックリストが提供済み
   - 入力: ExecuteReviewCommand（userId, projectId, mrIid, checklist, reviewSettings, skillsPaths, aiApiKey, aiApiEndpointUrl, aiModelName, gitlabToken）
-  - 出力: ExecuteReviewDto（results, commitHash, commentPosted）
+  - 出力: ExecuteReviewDto（results, commitHash, commentPosted, allResultsAreErrors, qualityGatePassed）
   - メインフロー
     1. MRコンテキストを取得（MrGateway）
        - MR diffはローカルgitリポジトリから優先取得し、失敗時はGitLab API（access_raw_diffs=true）にフォールバック
@@ -38,8 +38,9 @@
        - 再レビュー対象がない場合は前回結果をそのまま投稿して終了
        - 再レビュー結果と保持結果をマージしてコメント投稿
     4. レビューワークフローを実行（チェックリスト分割→レビュー実行）
-    5. レビュー結果をMarkdownコメントとして整形
-    6. MRにコメントを投稿
+    5. 品質ゲートを評価（QualityGate.evaluate）
+    6. レビュー結果をMarkdownコメントとして整形（品質ゲート結果を含む）
+    7. MRにコメントを投稿
   - 例外
     - パターン1: GitLab API認証エラー
       - エラーをスロー
@@ -55,5 +56,7 @@
       - 未完了チェック項目のレビュー結果に「予期せぬエラー（実行ログを確認してください）」を表示する
     - パターン5: 全てのレビュー結果がエラー
       - レビュー結果コメントをMRに投稿した後、ジョブを失敗（exit code 1）として終了する
+    - パターン6: 品質ゲートに抵触
+      - レビュー結果コメント（警告メッセージ付き）をMRに投稿した後、ジョブを失敗（exit code 1）として終了する
   - 事後処理
     - なし

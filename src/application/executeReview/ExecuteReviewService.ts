@@ -155,6 +155,9 @@ export class ExecuteReviewService {
 
       const results = this.convertToReviewResults(workflowResult, command);
 
+      // 品質ゲート評価
+      const qualityGateResult = command.reviewSettings.qualityGate.evaluate(results);
+
       // 全エラーの場合はコメントを投稿しない
       const allErrors = ReviewResult.allAreErrors(results);
       if (!allErrors) {
@@ -164,6 +167,7 @@ export class ExecuteReviewService {
           mrContext.commitHash,
           mrContext.commitMessage,
           command.reviewSettings.hiddenRatingLabels,
+          qualityGateResult,
         );
         await this.mrDiscussionGateway.postDiscussion(
           command.projectId,
@@ -177,6 +181,7 @@ export class ExecuteReviewService {
         commitHash: mrContext.commitHash,
         commentPosted: !allErrors,
         allResultsAreErrors: allErrors,
+        qualityGatePassed: qualityGateResult.passed,
       };
     } finally {
       this.cleanupTempFiles(resultFilePath);
@@ -212,12 +217,14 @@ export class ExecuteReviewService {
 
     // 再レビュー対象なし → 前回結果をそのまま投稿
     if (itemsToReview.length === 0) {
+      const qualityGateResult = command.reviewSettings.qualityGate.evaluate(keptResults);
       const commentBody = CommentFormatter.formatComment(
         keptResults,
         command.reviewSettings.ratings,
         mrContext.commitHash,
         mrContext.commitMessage,
         command.reviewSettings.hiddenRatingLabels,
+        qualityGateResult,
       );
       await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
       return {
@@ -225,6 +232,7 @@ export class ExecuteReviewService {
         commitHash: mrContext.commitHash,
         commentPosted: true,
         allResultsAreErrors: ReviewResult.allAreErrors(keptResults),
+        qualityGatePassed: qualityGateResult.passed,
       };
     }
 
@@ -265,6 +273,9 @@ export class ExecuteReviewService {
         throw new Error(`Result not found for item: ${item.content}`);
       });
 
+      // 品質ゲート評価
+      const qualityGateResult = command.reviewSettings.qualityGate.evaluate(mergedResults);
+
       // 全エラーの場合はコメントを投稿しない
       const allErrors = ReviewResult.allAreErrors(mergedResults);
       if (!allErrors) {
@@ -274,6 +285,7 @@ export class ExecuteReviewService {
           mrContext.commitHash,
           mrContext.commitMessage,
           command.reviewSettings.hiddenRatingLabels,
+          qualityGateResult,
         );
         await this.mrDiscussionGateway.postDiscussion(
           command.projectId,
@@ -287,6 +299,7 @@ export class ExecuteReviewService {
         commitHash: mrContext.commitHash,
         commentPosted: !allErrors,
         allResultsAreErrors: allErrors,
+        qualityGatePassed: qualityGateResult.passed,
       };
     } finally {
       this.cleanupTempFiles(resultFilePath);

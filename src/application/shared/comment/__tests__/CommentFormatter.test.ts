@@ -9,6 +9,10 @@ import {
 import { ReviewResult } from '../../../../domain/reviewResult/index.js';
 import { CheckItem } from '../../../../domain/checkItem/index.js';
 import { Rating } from '../../../../domain/rating/index.js';
+import type { QualityGateResult } from '../../../../domain/qualityGate/index.js';
+
+/** 品質ゲート通過時のデフォルト結果 */
+const PASSED_GATE: QualityGateResult = { passed: true, violations: [] };
 
 describe('CommentFormatter', () => {
   const ratings = [
@@ -45,7 +49,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       // テーブルヘッダの確認
       expect(output).toContain('| チェック項目 | 評定 | コメント |');
@@ -64,7 +75,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('## AIKATA-PR レビュー結果');
     });
@@ -83,6 +101,8 @@ describe('CommentFormatter', () => {
         ratings,
         commitHash,
         'feat: implement login',
+        [],
+        PASSED_GATE,
       );
 
       expect(output).toContain('レビュー時最新コミット: feat: implement login');
@@ -97,7 +117,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain(REVIEW_MARKER);
     });
@@ -111,7 +138,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       // メタデータマーカーの存在確認
       expect(output).toContain(REVIEW_DATA_PREFIX);
@@ -138,7 +172,14 @@ describe('CommentFormatter', () => {
         ReviewResult.error(new CheckItem('エラーのチェック項目'), 'Timeout occurred'),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('| エラーのチェック項目 | エラー | Timeout occurred |');
     });
@@ -146,7 +187,14 @@ describe('CommentFormatter', () => {
     it('15項目超の場合は折りたたみ形式になる', () => {
       const results = createResults(FOLD_THRESHOLD + 1);
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('<details>');
       expect(output).toContain('<summary>');
@@ -157,7 +205,14 @@ describe('CommentFormatter', () => {
     it('15項目以下の場合は折りたたみにならない', () => {
       const results = createResults(FOLD_THRESHOLD);
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).not.toContain('<details>');
       expect(output).not.toContain('<summary>');
@@ -173,7 +228,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('| 条件A \\| 条件B の確認 | A | 問題ありません |');
     });
@@ -187,7 +249,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('| 可読性 | A | if (a \\| b) のパターンに注意 |');
     });
@@ -197,7 +266,14 @@ describe('CommentFormatter', () => {
         ReviewResult.success(new CheckItem('A|B'), new Rating('A', '完全に満たしている'), 'X|Y|Z'),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
     });
@@ -211,7 +287,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('| 可読性 | A | 1行目<br>2行目<br>3行目 |');
       // 改行がそのまま残っていないことを確認（テーブル行内）
@@ -228,7 +311,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
     });
@@ -249,7 +339,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('| チェック項目1 | A | コメント1 |');
       expect(output).toContain('| チェック項目2 | B | コメント2 |');
@@ -269,9 +366,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-        'A',
-      ]);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        ['A'],
+        PASSED_GATE,
+      );
 
       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
       expect(output).toContain('| チェック項目2 | B | コメント2 |');
@@ -291,9 +393,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-        'A',
-      ]);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        ['A'],
+        PASSED_GATE,
+      );
 
       // メタデータのJSON部分を抽出してパース
       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
@@ -316,9 +423,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-        'A',
-      ]);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        ['A'],
+        PASSED_GATE,
+      );
 
       expect(output).toContain('| エラー項目 | エラー | タイムアウト |');
       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
@@ -333,9 +445,14 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-        'A',
-      ]);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        ['A'],
+        PASSED_GATE,
+      );
 
       expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
@@ -356,6 +473,7 @@ describe('CommentFormatter', () => {
         commitHash,
         commitMessage,
         [],
+        PASSED_GATE,
       );
 
       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
@@ -376,12 +494,141 @@ describe('CommentFormatter', () => {
       });
 
       // Aを非表示にすると、visible件数が減って折りたたみ閾値以下になる
-      const output = CommentFormatter.formatComment(results, ratings, commitHash, commitMessage, [
-        'A',
-      ]);
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        ['A'],
+        PASSED_GATE,
+      );
 
       // A評定の結果が非表示になるため、visible件数はFOLD_THRESHOLD以下
       expect(output).not.toContain('<details>');
+    });
+  });
+
+  describe('qualityGateResult', () => {
+    it('品質ゲート通過時は警告メッセージが表示されない', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
+
+      expect(output).not.toContain('Quality Gate Failed');
+    });
+
+    it('品質ゲート失敗時に警告メッセージが表示される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('C', '満たしていない'),
+          'コメント1',
+        ),
+      ];
+
+      const gateResult: QualityGateResult = {
+        passed: false,
+        violations: [{ ratingLabel: 'C', threshold: 1, actualCount: 1 }],
+      };
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        gateResult,
+      );
+
+      expect(output).toContain('> **⚠ Quality Gate Failed**');
+      expect(output).toContain('> - Rating "C" : 1 (threshold: 1)');
+    });
+
+    it('品質ゲート失敗時に複数のviolationが表示される', () => {
+      const results = createResults(4);
+
+      const gateResult: QualityGateResult = {
+        passed: false,
+        violations: [
+          { ratingLabel: 'C', threshold: 1, actualCount: 2 },
+          { ratingLabel: 'B', threshold: 1, actualCount: 1 },
+        ],
+      };
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        gateResult,
+      );
+
+      expect(output).toContain('> - Rating "C" : 2 (threshold: 1)');
+      expect(output).toContain('> - Rating "B" : 1 (threshold: 1)');
+    });
+
+    it('折りたたみ時に警告メッセージがdetailsの前に表示される', () => {
+      const results = createResults(FOLD_THRESHOLD + 1);
+
+      const gateResult: QualityGateResult = {
+        passed: false,
+        violations: [{ ratingLabel: 'C', threshold: 1, actualCount: 1 }],
+      };
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        gateResult,
+      );
+
+      // 警告がdetails開始タグの前に表示される
+      const warningStart = output.indexOf('> **⚠ Quality Gate Failed**');
+      const detailsStart = output.indexOf('<details>');
+      expect(warningStart).toBeLessThan(detailsStart);
+    });
+
+    it('全ての結果が非表示でも品質ゲート警告は表示される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+      ];
+
+      const gateResult: QualityGateResult = {
+        passed: false,
+        violations: [{ ratingLabel: 'A', threshold: 1, actualCount: 1 }],
+      };
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        ['A'],
+        gateResult,
+      );
+
+      expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
+      expect(output).toContain('> **⚠ Quality Gate Failed**');
     });
   });
 });

@@ -11,6 +11,7 @@ import { Checklist } from '../../../domain/checklist/index.js';
 import { Rating } from '../../../domain/rating/index.js';
 import { ReviewSettings } from '../../../domain/reviewSettings/index.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
+import { QualityGate } from '../../../domain/qualityGate/index.js';
 import { CommentFormatter } from '../../shared/comment/index.js';
 
 // ヘルパー: テスト用のMrContextを生成
@@ -46,6 +47,7 @@ function createCommand(overrides?: Partial<ExecuteReviewCommand>): ExecuteReview
         new Rating('C', '満たしていない'),
       ],
       hiddenRatingLabels: [],
+      qualityGate: QualityGate.none(),
     }),
     skillsPaths: [],
     projectDir: '/test/project',
@@ -112,6 +114,7 @@ function createAikataComment(
     commitHash,
     'test commit',
     hiddenRatingLabels,
+    { passed: true, violations: [] },
   );
   return { id: 1, body, createdAt };
 }
@@ -1278,6 +1281,7 @@ describe('ExecuteReviewService', () => {
             new Rating('C', '満たしていない'),
           ],
           hiddenRatingLabels: ['A'],
+          qualityGate: QualityGate.none(),
         }),
       });
       const mrContext = createMrContext();
@@ -1368,6 +1372,187 @@ describe('ExecuteReviewService', () => {
       expect(postedBody).toContain('| テストカバレッジ | B | テストを追加してください |');
       // hiddenResultsはメタデータに含まれない
       expect(postedBody).not.toContain('"hiddenResults"');
+    });
+  });
+
+  describe('品質ゲート', () => {
+    it('品質ゲート未設定の場合、qualityGatePassedがtrueになる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      expect(result.qualityGatePassed).toBe(true);
+    });
+
+    it('品質ゲートに抵触した場合、コメントは投稿されqualityGatePassedがfalseになる', async () => {
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: [
+            new Rating('A', '完全に満たしている'),
+            new Rating('B', '概ね満たしている'),
+            new Rating('C', '満たしていない'),
+          ],
+          hiddenRatingLabels: [],
+          qualityGate: new QualityGate([{ ratingLabel: 'B', threshold: 1 }]),
+        }),
+      });
+      const mrContext = createMrContext();
+      // ワークフロー結果にB評定が含まれる
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      // コメントは投稿される
+      expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+      expect(result.commentPosted).toBe(true);
+      // 品質ゲートはfail
+      expect(result.qualityGatePassed).toBe(false);
+    });
+
+    it('品質ゲートに抵触した場合、コメントに警告が含まれる', async () => {
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: [
+            new Rating('A', '完全に満たしている'),
+            new Rating('B', '概ね満たしている'),
+            new Rating('C', '満たしていない'),
+          ],
+          hiddenRatingLabels: [],
+          qualityGate: new QualityGate([{ ratingLabel: 'B', threshold: 1 }]),
+        }),
+      });
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      const postedBody = vi.mocked(mrDiscussionGateway.postDiscussion).mock.calls[0][2];
+      expect(postedBody).toContain('Quality Gate Failed');
+    });
+
+    it('全エラーの場合、品質ゲートは評価されるがコメントは投稿されない', async () => {
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: [
+            new Rating('A', '完全に満たしている'),
+            new Rating('B', '概ね満たしている'),
+            new Rating('C', '満たしていない'),
+          ],
+          hiddenRatingLabels: [],
+          qualityGate: new QualityGate([{ ratingLabel: 'C', threshold: 1 }]),
+        }),
+      });
+      const mrContext = createMrContext();
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'コードの可読性',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: '',
+            isError: true,
+            errorMessage: 'Error',
+          },
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: '',
+            isError: true,
+            errorMessage: 'Error',
+          },
+        ],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      const result = await service.execute(command);
+
+      expect(result.allResultsAreErrors).toBe(true);
+      expect(result.commentPosted).toBe(false);
+      // 全エラー時は非エラー結果がないので品質ゲートはpass
+      expect(result.qualityGatePassed).toBe(true);
+    });
+
+    it('リトライフローでも品質ゲートが評価される', async () => {
+      const ratingsArr = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+        new Rating('C', '満たしていない'),
+      ];
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: ratingsArr,
+          hiddenRatingLabels: [],
+          qualityGate: new QualityGate([{ ratingLabel: 'C', threshold: 1 }]),
+        }),
+      });
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+
+      // 前回の結果にC評定あり
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'C',
+            ratingDefinition: '満たしていない',
+            comment: '問題あり',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+          },
+        ],
+        'same-hash',
+        ratingsArr,
+        '2026-01-01T00:00:00Z',
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      const result = await service.execute(command);
+
+      // リトライで全て保持 → workflowは呼ばれない
+      expect(workflowRunner.run).not.toHaveBeenCalled();
+      // C評定1件で品質ゲート失敗
+      expect(result.qualityGatePassed).toBe(false);
+      // コメントは投稿される
+      expect(result.commentPosted).toBe(true);
     });
   });
 });

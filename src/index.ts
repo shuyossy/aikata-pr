@@ -212,6 +212,13 @@ async function main(): Promise<void> {
       flushLogger();
       process.exit(1);
     }
+
+    // 品質ゲートに抵触した場合、ジョブを失敗として終了する
+    if (!result.qualityGatePassed) {
+      logger.error('Quality gate failed. Exiting with failure.');
+      flushLogger();
+      process.exit(1);
+    }
   } catch (error) {
     const userId = options.userId ?? 'unknown';
     if (error instanceof Error) {

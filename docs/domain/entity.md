@@ -51,6 +51,22 @@
     - success(静的ファクトリ): 成功結果を生成
     - error(静的ファクトリ): エラー結果を生成
 
+- 品質ゲート
+  - 識別子: QualityGate
+  - 種類: 値オブジェクト
+  - 不変条件
+    - failureCriteriaの各要素のratingLabelが空文字でないこと
+    - failureCriteriaの各要素のthresholdが1以上であること
+  - 属性
+    - failureCriteria (FailureCriterion[])
+      - FailureCriterion: { ratingLabel: string, threshold: number }
+  - 振る舞い
+    - evaluate(results: ReviewResult[]): QualityGateResult - 品質ゲートの評価
+    - none(静的ファクトリ): 基準なしの品質ゲートを生成
+  - 関連型
+    - QualityGateResult: { passed: boolean, violations: QualityGateViolation[] }
+    - QualityGateViolation: { ratingLabel: string, threshold: number, actualCount: number }
+
 - レビュー設定
   - 識別子: ReviewSettings
   - 種類: 値オブジェクト
@@ -58,12 +74,14 @@
     - concurrentReviewCountがnullまたは1以上
     - ratingsが空でないこと
     - hiddenRatingLabelsの各ラベルがratingsに存在すること
+    - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること
   - 属性
     - additionalInstructions (string)
     - concurrentReviewCount (number | null)
     - commentFormat (string)
     - ratings (Rating[])
     - hiddenRatingLabels (string[])
+    - qualityGate (QualityGate)
   - 振る舞い
     - default(静的ファクトリ): デフォルト設定を生成
 

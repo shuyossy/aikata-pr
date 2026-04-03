@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ReviewSettings } from '../../../domain/reviewSettings/index.js';
 import { Rating } from '../../../domain/rating/index.js';
+import { QualityGate } from '../../../domain/qualityGate/index.js';
 
 /**
  * レビュー設定JSONのバリデーションスキーマ
@@ -19,6 +20,16 @@ const reviewSettingsSchema = z.object({
     .min(1)
     .optional(),
   hiddenRatingLabels: z.array(z.string().min(1)).optional(),
+  qualityGate: z
+    .object({
+      failureCriteria: z.array(
+        z.object({
+          ratingLabel: z.string().min(1),
+          threshold: z.number().int().min(1),
+        }),
+      ),
+    })
+    .optional(),
 });
 
 /**
@@ -52,6 +63,11 @@ export class ReviewSettingsParser {
     const rawCount = data.concurrentReviewCount;
     const concurrentReviewCount = rawCount === undefined || rawCount < 1 ? null : rawCount;
 
+    // 品質ゲートの構築
+    const qualityGate = data.qualityGate
+      ? new QualityGate(data.qualityGate.failureCriteria)
+      : QualityGate.none();
+
     return new ReviewSettings({
       additionalInstructions: data.additionalInstructions ?? defaults.additionalInstructions,
       concurrentReviewCount,
@@ -60,6 +76,7 @@ export class ReviewSettingsParser {
         ? data.ratings.map((r) => new Rating(r.label, r.definition))
         : defaults.ratings,
       hiddenRatingLabels: data.hiddenRatingLabels ?? [],
+      qualityGate,
     });
   }
 }
