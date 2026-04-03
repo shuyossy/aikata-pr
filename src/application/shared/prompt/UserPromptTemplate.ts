@@ -32,19 +32,19 @@ export function buildUserPromptTemplate(params: UserPromptParams): string {
       .join('\n');
 
     priorReviewSection = `
-## Prior Review Context
+## Prior Review Context (Reference Only)
 
-The following items were reviewed previously. Focus your analysis on changes since the prior review.
+A prior review was conducted for this MR. The information below is provided as supplementary reference only. You MUST still review the entire MR comprehensively based on the full Merge Request Diff above. Do not skip or shortcut any check item based on prior conclusions.
 
 ### Commits Since Prior Review
 ${commitsText}
 
-### Changes Since Prior Review
+### Diff Since Prior Review
 \`\`\`
 ${params.priorReviewContext.diffSincePrior}
 \`\`\`
 
-### Previous Results
+### Previous Review Results
 ${previousResultsText}
 
 `;

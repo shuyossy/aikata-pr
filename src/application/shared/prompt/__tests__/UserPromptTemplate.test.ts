@@ -79,6 +79,24 @@ describe('buildUserPromptTemplate', () => {
     expect(result).toContain('Good performance');
   });
 
+  it('priorReviewContextがある場合、前回結果は参照情報として扱われ、差分集中指示がない', () => {
+    const params = createTestParams({
+      priorReviewContext: {
+        results: [
+          { checkItemContent: 'security check', ratingLabel: 'B', comment: 'Needs improvement' },
+        ],
+        commitMessages: ['fix: update auth logic'],
+        diffSincePrior: '+ new cached response',
+      },
+    });
+
+    const result = buildUserPromptTemplate(params);
+
+    expect(result).toContain('Reference Only');
+    expect(result).toContain('review the entire MR comprehensively');
+    expect(result).not.toContain('Focus your analysis on changes since the prior review');
+  });
+
   it('フォルダツリーが含まれる', () => {
     const params = createTestParams({
       folderTree: 'src/\n  domain/\n    CheckItem.ts\nREADME.md',

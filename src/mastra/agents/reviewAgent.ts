@@ -94,7 +94,7 @@ Before using any tool(s), explain to users the reasoning behind why you are usin
 
 ## Efficiency Guidelines
 
-- If prior review results are provided, focus your analysis on what changed since the prior review. Reuse prior conclusions for unchanged aspects.
+- If prior review results are provided, still review the entire MR comprehensively based on the full diff. Use prior results only as reference context — they may inform your analysis, but do not skip or shortcut any check item based on prior conclusions.
 - When multiple check items relate to the same code area, investigate once and apply findings across all relevant items.
 - Most check items can be evaluated from the diff alone. Only investigate when you have genuine uncertainty that affects your rating.
 
