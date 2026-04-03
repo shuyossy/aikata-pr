@@ -12,7 +12,7 @@ include:
 stages:
   - review
 
-ai-review:
+aikata-pr-review:
   stage: review
   image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
   rules:
