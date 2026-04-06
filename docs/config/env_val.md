@@ -13,6 +13,8 @@
 | GitLab | GITLAB_PROJECT_ID | Yes | - | GitLabプロジェクトID | --project-id | - |
 | GitLab | GITLAB_MR_IID | Yes | - | マージリクエストIID | --mr-iid | - |
 | 入力 | CHECKLIST_PATH | Yes | - | チェックリストファイルパス | --checklist | - |
+| 入力 | CHECKLIST_COLUMNS | No | - | チェックリストCSVの抽出列番号（カンマ区切り、1始まり）。未指定時は全列を抽出 | --checklist-columns | - |
+| 入力 | CHECKLIST_NO_HEADER | No | false | 抽出列が1列の場合にヘッダを除外するか | --checklist-no-header | - |
 | 入力 | REVIEW_SETTINGS_PATH | No | - | レビュー設定ファイルパス | --review-settings | - |
 | 入力 | SKILLS_PATH | No | - | skillsパス | --skills | - |
 | 動作設定 | USER_ID | Yes | - | 実行ユーザID | --user-id | - |

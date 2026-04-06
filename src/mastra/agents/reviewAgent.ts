@@ -60,8 +60,8 @@ export function buildInstructions(
 
   const ratingsText = ctx.ratings.map((r) => `- ${r.label}: ${r.definition}`).join('\n');
   const checkItemsText = ctx.checkItems
-    .map((item) => `[ID: ${item.id}] ${item.content}`)
-    .join('\n');
+    .map((item) => `[ID: ${item.id}]\n${item.content}`)
+    .join('\n\n');
 
   const additionalInstructionsSection = ctx.additionalInstructions
     ? `## User-Specified Review Instructions (HIGHEST PRIORITY)\n\nThe following instructions were provided by the user as review requirements. You MUST follow these instructions with the highest priority.\n\n${ctx.additionalInstructions}\n\n`
@@ -99,6 +99,19 @@ Before using any tool(s), explain to users the reasoning behind why you are usin
 - Most check items can be evaluated from the diff alone. Only investigate when you have genuine uncertainty that affects your rating.
 
 ## Check Items to Review
+
+Each check item is identified by a prefix [ID: N]. When calling storeReviewResult, use this ID number.
+
+Check items may use a structured multi-column format. In this format, each column is presented as:
+
+<header>:
+---
+<value>
+---
+
+Multiple columns within a single check item are separated by blank lines. Treat all columns together as one cohesive review criterion — the header provides context (e.g., category, description) and the value provides the specific content for that column.
+
+Some check items may instead appear as plain text without the structured format. Review these in the same way.
 
 ${checkItemsText}
 

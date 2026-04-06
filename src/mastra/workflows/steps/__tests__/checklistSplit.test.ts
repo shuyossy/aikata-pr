@@ -293,9 +293,9 @@ describe('splitChecklist', () => {
       await splitChecklist(items, 2, agentContext);
 
       const prompt = generateFn.mock.calls[0][0] as string;
-      expect(prompt).toContain('[ID: 1] security check');
-      expect(prompt).toContain('[ID: 2] auth check');
-      expect(prompt).toContain('[ID: 3] perf check');
+      expect(prompt).toContain('[ID: 1]\nsecurity check');
+      expect(prompt).toContain('[ID: 2]\nauth check');
+      expect(prompt).toContain('[ID: 3]\nperf check');
     });
   });
 

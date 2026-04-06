@@ -35,6 +35,8 @@
     - `--project-id` / `GITLAB_PROJECT_ID`: GitLabプロジェクトID
     - `--mr-iid` / `GITLAB_MR_IID`: MR IID
     - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス
+    - `--checklist-columns` / `CHECKLIST_COLUMNS`: チェックリストCSVの抽出列番号（カンマ区切り、1始まり）
+    - `--checklist-no-header` / `CHECKLIST_NO_HEADER`: 抽出列が1列の場合にヘッダを除外するか（デフォルト: `false`）
     - `--review-settings` / `REVIEW_SETTINGS_PATH`: レビュー設定ファイルパス
     - `--skills` / `SKILLS_PATH`: skillsパス
     - `--aikata-pr-gitlab-token` / `AIKATA_PR_GITLAB_TOKEN`: GitLab APIトークン

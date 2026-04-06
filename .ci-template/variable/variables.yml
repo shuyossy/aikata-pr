@@ -12,6 +12,8 @@ variables:
   GITLAB_MR_IID: "$CI_MERGE_REQUEST_IID"
   # Input
   CHECKLIST_PATH: ""
+  CHECKLIST_COLUMNS: ""
+  CHECKLIST_NO_HEADER: "false"
   REVIEW_SETTINGS_PATH: ""
   SKILLS_PATH: ""
   # Feature Toggle

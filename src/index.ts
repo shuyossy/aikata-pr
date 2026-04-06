@@ -1,4 +1,4 @@
-import { parseCliOptions, type CliOptions } from './lib/cli.js';
+import { parseCliOptions, buildChecklistParseOptions, type CliOptions } from './lib/cli.js';
 import { initializeLogger, getLogger, flushLogger } from './lib/logger.js';
 import { ChecklistParser } from './application/shared/parser/index.js';
 import { ReviewSettingsParser } from './application/shared/parser/index.js';
@@ -133,7 +133,8 @@ async function main(): Promise<void> {
 
     // 入力ファイル読み込み
     const checklistCsv = fs.readFileSync(validated.checklistPath, 'utf-8');
-    const checklist = ChecklistParser.parse(checklistCsv);
+    const checklistParseOptions = buildChecklistParseOptions(options);
+    const checklist = ChecklistParser.parse(checklistCsv, checklistParseOptions);
 
     const reviewSettings = options.reviewSettings
       ? ReviewSettingsParser.parse(fs.readFileSync(options.reviewSettings, 'utf-8'))

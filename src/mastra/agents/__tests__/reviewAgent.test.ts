@@ -95,8 +95,27 @@ describe('buildInstructions', () => {
 
     const result = buildInstructions(requestContext);
 
-    expect(result).toContain('[ID: 1] security check');
-    expect(result).toContain('[ID: 2] performance check');
+    expect(result).toContain('[ID: 1]\nsecurity check');
+    expect(result).toContain('[ID: 2]\nperformance check');
+  });
+
+  it('チェック項目の構造化フォーマット説明がsystemプロンプトに含まれる', () => {
+    const requestContext = createTestRequestContext({
+      checkItems: [
+        {
+          id: 1,
+          content:
+            'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
+        },
+      ],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('structured multi-column format');
+    expect(result).toContain('<header>:');
+    expect(result).toContain('<value>');
+    expect(result).toContain('plain text');
   });
 
   it('評定基準がsystemプロンプトに含まれる', () => {

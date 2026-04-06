@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCliOptions } from '../cli.js';
+import { parseCliOptions, buildChecklistParseOptions } from '../cli.js';
 
 describe('parseCliOptions', () => {
   it('--user-idオプションをパースできる', () => {
@@ -49,6 +49,9 @@ describe('parseCliOptions', () => {
       'my-token',
       '--checklist',
       '/path/to/checklist.csv',
+      '--checklist-columns',
+      '1,3',
+      '--checklist-no-header',
       '--review-settings',
       '/path/to/settings.json',
       '--skills',
@@ -66,6 +69,8 @@ describe('parseCliOptions', () => {
     expect(result.mrIid).toBe('42');
     expect(result.gitlabToken).toBe('my-token');
     expect(result.checklist).toBe('/path/to/checklist.csv');
+    expect(result.checklistColumns).toBe('1,3');
+    expect(result.checklistNoHeader).toBe(true);
     expect(result.reviewSettings).toBe('/path/to/settings.json');
     expect(result.skills).toBe('/path/to/skills');
     expect(result.aiModelName).toBe('openai/gpt-4');
@@ -168,5 +173,146 @@ describe('parseCliOptions', () => {
   it('prettyPrintのデフォルト値はtrueである', () => {
     const result = parseCliOptions([], {});
     expect(result.prettyPrint).toBe(true);
+  });
+
+  it('--checklist-columnsオプションをパースできる', () => {
+    const result = parseCliOptions(['--checklist-columns', '2,3']);
+    expect(result.checklistColumns).toBe('2,3');
+  });
+
+  it('CHECKLIST_COLUMNS環境変数からchecklistColumnsを取得できる', () => {
+    const result = parseCliOptions([], { CHECKLIST_COLUMNS: '1,2' });
+    expect(result.checklistColumns).toBe('1,2');
+  });
+
+  it('--checklist-columnsがCHECKLIST_COLUMNS環境変数より優先される', () => {
+    const result = parseCliOptions(['--checklist-columns', '3'], {
+      CHECKLIST_COLUMNS: '1,2',
+    });
+    expect(result.checklistColumns).toBe('3');
+  });
+
+  it('checklistColumnsの未指定時はundefinedである', () => {
+    const result = parseCliOptions([], {});
+    expect(result.checklistColumns).toBeUndefined();
+  });
+
+  it('--checklist-no-headerオプションをパースできる', () => {
+    const result = parseCliOptions(['--checklist-no-header']);
+    expect(result.checklistNoHeader).toBe(true);
+  });
+
+  it('CHECKLIST_NO_HEADER環境変数からchecklistNoHeaderを取得できる（true）', () => {
+    const result = parseCliOptions([], { CHECKLIST_NO_HEADER: 'true' });
+    expect(result.checklistNoHeader).toBe(true);
+  });
+
+  it('CHECKLIST_NO_HEADER環境変数がfalseの場合はchecklistNoHeaderがfalseになる', () => {
+    const result = parseCliOptions([], { CHECKLIST_NO_HEADER: 'false' });
+    expect(result.checklistNoHeader).toBe(false);
+  });
+
+  it('--checklist-no-headerがCHECKLIST_NO_HEADER環境変数より優先される', () => {
+    const result = parseCliOptions(['--checklist-no-header'], {
+      CHECKLIST_NO_HEADER: 'false',
+    });
+    expect(result.checklistNoHeader).toBe(true);
+  });
+
+  it('checklistNoHeaderのデフォルト値はfalseである', () => {
+    const result = parseCliOptions([], {});
+    expect(result.checklistNoHeader).toBe(false);
+  });
+});
+
+describe('buildChecklistParseOptions', () => {
+  it('checklistColumnsが未指定の場合はcolumnsがnullになる', () => {
+    const result = buildChecklistParseOptions({
+      checklistNoHeader: false,
+      logLevel: 'info',
+      commentLanguage: 'Japanese',
+      prettyPrint: true,
+    });
+    expect(result.columns).toBeNull();
+    expect(result.noHeader).toBe(false);
+  });
+
+  it('checklistColumnsからnumber[]に変換される', () => {
+    const result = buildChecklistParseOptions({
+      checklistColumns: '1,3',
+      checklistNoHeader: false,
+      logLevel: 'info',
+      commentLanguage: 'Japanese',
+      prettyPrint: true,
+    });
+    expect(result.columns).toEqual([1, 3]);
+  });
+
+  it('空白を含む列番号が正しくトリムされる', () => {
+    const result = buildChecklistParseOptions({
+      checklistColumns: ' 2 , 4 ',
+      checklistNoHeader: false,
+      logLevel: 'info',
+      commentLanguage: 'Japanese',
+      prettyPrint: true,
+    });
+    expect(result.columns).toEqual([2, 4]);
+  });
+
+  it('noHeaderがtrueの場合そのまま渡される', () => {
+    const result = buildChecklistParseOptions({
+      checklistNoHeader: true,
+      logLevel: 'info',
+      commentLanguage: 'Japanese',
+      prettyPrint: true,
+    });
+    expect(result.noHeader).toBe(true);
+  });
+
+  it('不正な列番号（非整数）でエラーになる', () => {
+    expect(() =>
+      buildChecklistParseOptions({
+        checklistColumns: '1.5',
+        checklistNoHeader: false,
+        logLevel: 'info',
+        commentLanguage: 'Japanese',
+        prettyPrint: true,
+      }),
+    ).toThrow('Invalid column number');
+  });
+
+  it('不正な列番号（0以下）でエラーになる', () => {
+    expect(() =>
+      buildChecklistParseOptions({
+        checklistColumns: '0',
+        checklistNoHeader: false,
+        logLevel: 'info',
+        commentLanguage: 'Japanese',
+        prettyPrint: true,
+      }),
+    ).toThrow('Invalid column number');
+  });
+
+  it('不正な列番号（文字列）でエラーになる', () => {
+    expect(() =>
+      buildChecklistParseOptions({
+        checklistColumns: 'abc',
+        checklistNoHeader: false,
+        logLevel: 'info',
+        commentLanguage: 'Japanese',
+        prettyPrint: true,
+      }),
+    ).toThrow('Invalid column number');
+  });
+
+  it('空白のみのchecklistColumnsはcolumnsがnullになる', () => {
+    const result = buildChecklistParseOptions({
+      checklistColumns: '  ',
+      checklistNoHeader: false,
+      logLevel: 'info',
+      commentLanguage: 'Japanese',
+      prettyPrint: true,
+    });
+    expect(result.columns).toBeNull();
   });
 });

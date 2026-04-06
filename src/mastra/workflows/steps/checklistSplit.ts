@@ -87,7 +87,7 @@ async function callAgent(
   items: IndexedCheckItem[],
   concurrentReviewCount: number,
 ): Promise<IndexedCheckItem[][]> {
-  const itemTexts = items.map((item) => `[ID: ${item.id}] ${item.content}`).join('\n');
+  const itemTexts = items.map((item) => `[ID: ${item.id}]\n${item.content}`).join('\n\n');
 
   const logger = getLogger();
   logger.debug(

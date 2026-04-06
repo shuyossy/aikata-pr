@@ -17,8 +17,8 @@ export function buildSummarizationInstructions(
   const ctx = requestContext.all;
 
   const checkItemsText = ctx.checkItems
-    .map((item) => `[ID: ${item.id}] ${item.content}`)
-    .join('\n');
+    .map((item) => `[ID: ${item.id}]\n${item.content}`)
+    .join('\n\n');
 
   return `You are a conversation summarization specialist for an MR code review process.
 
@@ -28,6 +28,8 @@ A review agent was evaluating merge request changes against a set of check items
 
 The review agent was reviewing the following check items:
 ${checkItemsText}
+
+Note: Check items may use a structured format with headers and values delimited by \`---\`, or may appear as plain text. The [ID: N] prefix identifies each item.
 
 The review was being performed against a merge request:
 - MR Title: ${ctx.mrTitle}

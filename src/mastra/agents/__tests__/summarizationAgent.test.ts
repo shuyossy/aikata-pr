@@ -42,12 +42,22 @@ describe('buildSummarizationInstructions', () => {
 
     const instructions = buildSummarizationInstructions(ctx);
 
-    expect(instructions).toContain('[ID: 1] security check');
-    expect(instructions).toContain('[ID: 2] performance check');
-    expect(instructions).toContain('[ID: 3] code quality check');
+    expect(instructions).toContain('[ID: 1]\nsecurity check');
+    expect(instructions).toContain('[ID: 2]\nperformance check');
+    expect(instructions).toContain('[ID: 3]\ncode quality check');
   });
 
-  it('MR情報が含まれる', () => {
+  it('チェック項目のフォーマット補足ノートが含まれる', () => {
+    const ctx = createTestContext();
+
+    const instructions = buildSummarizationInstructions(ctx);
+
+    expect(instructions).toContain('structured format');
+    expect(instructions).toContain('`---`');
+    expect(instructions).toContain('plain text');
+  });
+
+  it('MR情報が含ま���る', () => {
     const ctx = createTestContext({
       mrTitle: 'Fix authentication bug',
       mrSourceBranch: 'fix/auth',

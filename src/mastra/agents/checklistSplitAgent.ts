@@ -24,6 +24,8 @@ export const checklistSplitAgent = new Agent<
 
 Given a list of check items with IDs in [ID: N] format, organize them into groups where each group contains items that are thematically similar or logically connected.
 
+Check items may use a structured multi-column format where each column is presented as a header followed by its value enclosed between \`---\` delimiters. Use the content from all columns to determine thematic similarity.
+
 Rules:
 - Every input item must appear in exactly one group.
 - Do not add or remove any items.

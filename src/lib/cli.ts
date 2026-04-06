@@ -1,3 +1,5 @@
+import type { ChecklistParseOptions } from '../application/shared/parser/index.js';
+
 /**
  * CLIオプションの型定義
  */
@@ -7,6 +9,8 @@ export interface CliOptions {
   mrIid?: string;
   gitlabToken?: string;
   checklist?: string;
+  checklistColumns?: string;
+  checklistNoHeader: boolean;
   reviewSettings?: string;
   skills?: string;
   logLevel: string;
@@ -46,6 +50,12 @@ export function parseCliOptions(
       case '--checklist':
         parsed['checklist'] = args[++i]!;
         break;
+      case '--checklist-columns':
+        parsed['checklistColumns'] = args[++i]!;
+        break;
+      case '--checklist-no-header':
+        parsed['checklistNoHeader'] = true;
+        break;
       case '--review-settings':
         parsed['reviewSettings'] = args[++i]!;
         break;
@@ -79,6 +89,13 @@ export function parseCliOptions(
     mrIid: (parsed['mrIid'] as string) ?? env['GITLAB_MR_IID'],
     gitlabToken: (parsed['gitlabToken'] as string) ?? env['AIKATA_PR_GITLAB_TOKEN'],
     checklist: (parsed['checklist'] as string) ?? env['CHECKLIST_PATH'],
+    checklistColumns: (parsed['checklistColumns'] as string) ?? env['CHECKLIST_COLUMNS'],
+    checklistNoHeader:
+      parsed['checklistNoHeader'] !== undefined
+        ? (parsed['checklistNoHeader'] as boolean)
+        : env['CHECKLIST_NO_HEADER'] !== undefined
+          ? env['CHECKLIST_NO_HEADER'] === 'true'
+          : false,
     reviewSettings: (parsed['reviewSettings'] as string) ?? env['REVIEW_SETTINGS_PATH'],
     skills: (parsed['skills'] as string) ?? env['SKILLS_PATH'],
     logLevel: (parsed['logLevel'] as string) ?? env['AIKATA_LOG_LEVEL'] ?? 'info',
@@ -90,5 +107,27 @@ export function parseCliOptions(
         : env['PRETTY_PRINT'] !== undefined
           ? env['PRETTY_PRINT'] === 'true'
           : true,
+  };
+}
+
+/**
+ * CLIオプションからChecklistParseOptionsを構築する
+ */
+export function buildChecklistParseOptions(options: CliOptions): ChecklistParseOptions {
+  let columns: number[] | null = null;
+
+  if (options.checklistColumns?.trim()) {
+    columns = options.checklistColumns.split(',').map((s) => {
+      const n = Number(s.trim());
+      if (!Number.isInteger(n) || n < 1) {
+        throw new Error(`Invalid column number: ${s.trim()}`);
+      }
+      return n;
+    });
+  }
+
+  return {
+    columns,
+    noHeader: options.checklistNoHeader,
   };
 }
