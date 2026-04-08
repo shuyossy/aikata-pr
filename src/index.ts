@@ -6,7 +6,7 @@ import type {
   ReviewWorkflowRunner,
   ReviewWorkflowParams,
   ReviewWorkflowResult,
-} from './application/executeReview/ExecuteReviewService.js';
+} from './application/shared/port/workflow/index.js';
 import { ExecuteReviewService } from './application/executeReview/ExecuteReviewService.js';
 import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
 import { GitLabMrGateway, LocalGitDiffMrGateway } from './infrastructure/adapter/gateway/index.js';

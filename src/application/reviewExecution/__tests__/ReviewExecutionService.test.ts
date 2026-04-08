@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ReviewExecutionService } from '../ReviewExecutionService.js';
-import type { ReviewWorkflowRunner, ReviewWorkflowResult } from '../ReviewExecutionService.js';
+import type {
+  ReviewWorkflowRunner,
+  ReviewWorkflowResult,
+} from '../../shared/port/workflow/index.js';
 import type { ReviewExecutionCommand } from '../ReviewExecutionCommand.js';
 import type { MrGateway } from '../../shared/port/gateway/index.js';
 import type { MrDiscussionGateway, MrComment } from '../../shared/port/gateway/index.js';
@@ -36,6 +39,7 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
     userId: 'test-user',
     projectId: 'project-1',
     mrIid: '42',
+    gitlabToken: 'test-gitlab-token',
     checklist: new Checklist([new CheckItem('コードの可読性'), new CheckItem('テストカバレッジ')]),
     reviewSettings: new ReviewSettings({
       additionalInstructions: '',

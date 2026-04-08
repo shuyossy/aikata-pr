@@ -2,6 +2,11 @@ import * as fs from 'node:fs';
 import type { MrGateway } from '../shared/port/gateway/index.js';
 import type { MrDiscussionGateway } from '../shared/port/gateway/index.js';
 import type { ProjectTreeGateway } from '../shared/port/gateway/index.js';
+import type {
+  ReviewWorkflowParams,
+  ReviewWorkflowResult,
+  ReviewWorkflowRunner,
+} from '../shared/port/workflow/index.js';
 import { CommentParser } from '../shared/comment/index.js';
 import type { ReviewExecutionCommand } from './ReviewExecutionCommand.js';
 import type { ReviewExecutionDto } from './ReviewExecutionDto.js';
@@ -11,66 +16,6 @@ import type { MrContext } from '../../domain/mrContext/index.js';
 import { compressDiffIfNeeded } from '../shared/diffCompression/index.js';
 import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
 import { buildUserPromptTemplate } from '../shared/prompt/index.js';
-
-/**
- * ワークフロー実行のパラメータ
- */
-export interface ReviewWorkflowParams {
-  checkItemContents: string[];
-  concurrentReviewCount: number | null;
-  ratings: Array<{ label: string; definition: string }>;
-  commentFormat: string;
-  additionalInstructions: string;
-  mrTitle: string;
-  mrDescription: string;
-  mrSourceBranch: string;
-  mrTargetBranch: string;
-  mrDiff: string;
-  mrCommitHash: string;
-  priorReviewResults: Array<{
-    checkItemContent: string;
-    ratingLabel: string;
-    ratingDefinition: string;
-    comment: string;
-  }> | null;
-  priorCommitMessages: string[] | null;
-  priorDiffSincePrior: string | null;
-  userId: string;
-  aiApiKey: string;
-  aiApiEndpointUrl: string;
-  aiModelName: string;
-  projectDir: string;
-  skillsPaths: string[];
-  resultFilePath: string;
-  folderTree: string;
-  commentLanguage: string;
-  openaiReasoningEffort: string | undefined;
-  omittedFileDiffs: Record<string, string> | null;
-  allDiffFilePaths: string[] | null;
-  diffCompressed: boolean;
-  folderTreeRemovedByCompression: boolean;
-}
-
-/**
- * ワークフロー実行の結果
- */
-export interface ReviewWorkflowResult {
-  results: Array<{
-    checkItemContent: string;
-    ratingLabel: string;
-    ratingDefinition: string;
-    comment: string;
-    isError: boolean;
-    errorMessage?: string;
-  }>;
-}
-
-/**
- * ワークフロー実行のインターフェース（Mastra Workflowの実行をラップ）
- */
-export interface ReviewWorkflowRunner {
-  run(params: ReviewWorkflowParams): Promise<ReviewWorkflowResult>;
-}
 
 /**
  * buildPriorContextの返り値型

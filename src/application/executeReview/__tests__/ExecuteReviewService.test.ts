@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ExecuteReviewService } from '../ExecuteReviewService.js';
-import type { ReviewWorkflowRunner, ReviewWorkflowResult } from '../ExecuteReviewService.js';
+import type {
+  ReviewWorkflowRunner,
+  ReviewWorkflowResult,
+} from '../../shared/port/workflow/index.js';
 import type { ExecuteReviewCommand } from '../ExecuteReviewCommand.js';
 import type { MrGateway } from '../../shared/port/gateway/index.js';
 import type { MrDiscussionGateway, MrComment } from '../../shared/port/gateway/index.js';

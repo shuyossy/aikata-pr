@@ -9,6 +9,7 @@ export interface ReviewExecutionCommand {
   userId: string;
   projectId: string;
   mrIid: string;
+  gitlabToken: string;
   checklist: Checklist;
   reviewSettings: ReviewSettings;
   skillsPaths: string[];
