@@ -7,7 +7,9 @@ import type {
   ReviewWorkflowParams,
   ReviewWorkflowResult,
 } from './application/shared/port/workflow/index.js';
-import { ExecuteReviewService } from './application/executeReview/ExecuteReviewService.js';
+import { ReviewExecutionService } from './application/reviewExecution/index.js';
+import { CommentPostingService } from './application/commentPosting/index.js';
+import { ReviewResult } from './domain/reviewResult/index.js';
 import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
 import { GitLabMrGateway, LocalGitDiffMrGateway } from './infrastructure/adapter/gateway/index.js';
 import { GitLabMrDiscussionGateway } from './infrastructure/adapter/gateway/index.js';
@@ -155,12 +157,13 @@ async function main(): Promise<void> {
     const workflowRunner = new MastraReviewWorkflowRunner();
     const treeGateway = new LocalProjectTreeGateway();
 
-    const service = new ExecuteReviewService(
+    const reviewService = new ReviewExecutionService(
       mrGateway,
       mrDiscussionGateway,
       workflowRunner,
       treeGateway,
     );
+    const commentService = new CommentPostingService(mrDiscussionGateway);
 
     // TREE_MAX_DEPTHバリデーション
     const treeMaxDepthEnv = process.env['TREE_MAX_DEPTH'];
@@ -184,7 +187,8 @@ async function main(): Promise<void> {
       }
     }
 
-    const result = await service.execute({
+    // AIレビュー実行
+    const reviewResult = await reviewService.execute({
       userId: validated.userId,
       projectId: validated.projectId,
       mrIid: validated.mrIid,
@@ -202,20 +206,40 @@ async function main(): Promise<void> {
       maxContextLength,
     });
 
+    // 全てのレビュー結果がエラーかどうか判定
+    const allResultsAreErrors = ReviewResult.allAreErrors(reviewResult.results);
+
+    // 品質ゲート評価
+    const qualityGateResult = reviewSettings.qualityGate.evaluate(reviewResult.results);
+
+    // エラーでない場合はコメント投稿
+    if (!allResultsAreErrors) {
+      await commentService.execute({
+        projectId: validated.projectId,
+        mrIid: validated.mrIid,
+        results: reviewResult.results,
+        ratings: reviewSettings.ratings,
+        commitHash: reviewResult.commitHash,
+        commitMessage: reviewResult.commitMessage,
+        hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
+        qualityGateResult,
+      });
+    }
+
     logger.info(
-      { resultCount: result.results.length, commentPosted: result.commentPosted },
+      { resultCount: reviewResult.results.length, commentPosted: !allResultsAreErrors },
       'Review completed',
     );
 
     // 全てのレビュー結果がエラーの場合、ジョブを失敗として終了する
-    if (result.allResultsAreErrors) {
+    if (allResultsAreErrors) {
       logger.error('All review results are errors. Exiting with failure.');
       flushLogger();
       process.exit(1);
     }
 
     // 品質ゲートに抵触した場合、ジョブを失敗として終了する
-    if (!result.qualityGatePassed) {
+    if (!qualityGateResult.passed) {
       logger.error('Quality gate failed. Exiting with failure.');
       flushLogger();
       process.exit(1);
