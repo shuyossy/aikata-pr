@@ -5,7 +5,6 @@ import type { RateLimiterPort } from '../../application/shared/port/rateLimiter/
 import type { ReviewWorkflowRunner } from '../../application/shared/port/workflow/index.js';
 import type { ReviewExecutionDto } from '../../application/reviewExecution/index.js';
 import { ReviewExecutionService } from '../../application/reviewExecution/index.js';
-import { CommentPostingService } from '../../application/commentPosting/index.js';
 import { GitLabApiClient } from '../../infrastructure/adapter/httpClient/index.js';
 import {
   GitLabMrGateway,
@@ -13,14 +12,13 @@ import {
   GitLabMrDiscussionGateway,
   LocalProjectTreeGateway,
 } from '../../infrastructure/adapter/gateway/index.js';
-import { ReviewResult } from '../../domain/reviewResult/index.js';
 import { ReviewSettings } from '../../domain/reviewSettings/index.js';
 import { Rating } from '../../domain/rating/index.js';
 import { QualityGate } from '../../domain/qualityGate/index.js';
 import { Checklist } from '../../domain/checklist/index.js';
 import { CheckItem } from '../../domain/checkItem/index.js';
 import type { ReviewExecutionCommand } from '../../application/reviewExecution/index.js';
-import type { CommentPostingCommand } from '../../application/commentPosting/index.js';
+import type { ReviewApiResponse } from '../../infrastructure/adapter/apiClient/ReviewApiClient.js';
 import { getLogger } from '../../lib/logger.js';
 
 /**
@@ -99,13 +97,6 @@ export interface ReviewExecutor {
 }
 
 /**
- * コメント投稿サービスインターフェース（テスト時にモック可能）
- */
-export interface CommentPoster {
-  execute(command: CommentPostingCommand): Promise<void>;
-}
-
-/**
  * Per-requestサービスのファクトリ
  * クローン後にprojectDir等を使ってサービスを組み立てる
  */
@@ -117,7 +108,6 @@ export interface PerRequestServiceFactory {
   ): {
     mrInfoFetcher: MrInfoFetcher;
     reviewExecutor: ReviewExecutor;
-    commentPoster: CommentPoster;
   };
 }
 
@@ -148,7 +138,6 @@ export class DefaultPerRequestServiceFactory implements PerRequestServiceFactory
   ): {
     mrInfoFetcher: MrInfoFetcher;
     reviewExecutor: ReviewExecutor;
-    commentPoster: CommentPoster;
   } {
     const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, gitlabToken);
     const apiMrGateway = new GitLabMrGateway(gitlabClient);
@@ -171,9 +160,7 @@ export class DefaultPerRequestServiceFactory implements PerRequestServiceFactory
       treeGateway,
     );
 
-    const commentPoster = new CommentPostingService(mrDiscussionGateway);
-
-    return { mrInfoFetcher, reviewExecutor, commentPoster };
+    return { mrInfoFetcher, reviewExecutor };
   }
 }
 
@@ -285,43 +272,27 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
         maxContextLength: request.options?.maxContextLength ?? undefined,
       });
 
-      // 11. 品質ゲート評価
-      const allResultsAreErrors = ReviewResult.allAreErrors(reviewResult.results);
-      const qualityGateResult = reviewSettings.qualityGate.evaluate(reviewResult.results);
+      // 11. ReviewApiResponse形式でレビュー結果を構築
+      const apiResponse: ReviewApiResponse = {
+        results: reviewResult.results.map((r) => ({
+          checkItemContent: r.checkItem.content,
+          ratingLabel: r.rating.label,
+          ratingDefinition: r.rating.definition,
+          comment: r.comment,
+          isError: r.isError,
+          errorMessage: r.errorMessage ?? undefined,
+        })),
+        commitHash: reviewResult.commitHash,
+        commitMessage: reviewResult.commitMessage,
+      };
 
-      // 12. SSE: コメント投稿中
-      await stream.writeSSE({
-        event: 'progress',
-        data: JSON.stringify({ status: 'posting_comment', message: 'Posting review comment' }),
-      });
-
-      // 13. コメント投稿（全エラーでない場合）
-      if (!allResultsAreErrors) {
-        await services.commentPoster.execute({
-          projectId: request.projectId,
-          mrIid: request.mrIid,
-          results: reviewResult.results,
-          ratings: reviewSettings.ratings,
-          commitHash: reviewResult.commitHash,
-          commitMessage: reviewResult.commitMessage,
-          hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
-          qualityGateResult,
-        });
-      }
-
-      // 14. SSE: 結果送信
+      // 12. SSE: 結果送信（コメント投稿・品質ゲート評価はCLI側の責務）
       await stream.writeSSE({
         event: 'result',
-        data: JSON.stringify({
-          resultCount: reviewResult.results.length,
-          commitHash: reviewResult.commitHash,
-          allResultsAreErrors,
-          qualityGatePassed: qualityGateResult.passed,
-          qualityGateViolations: qualityGateResult.violations,
-        }),
+        data: JSON.stringify(apiResponse),
       });
 
-      // 15. SSE: 完了通知
+      // 13. SSE: 完了通知
       await stream.writeSSE({
         event: 'done',
         data: JSON.stringify({ status: 'completed', message: 'Review completed successfully' }),

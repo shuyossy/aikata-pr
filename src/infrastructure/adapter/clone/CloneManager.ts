@@ -63,6 +63,7 @@ export class CloneManager implements CloneManagerPort {
     private readonly maxDiskMb: number = 1024,
     private readonly maxConcurrentClones: number = 5,
     private readonly baseTmpDir: string = '/tmp/aikata-pr-clones',
+    private readonly semaphoreTimeoutMs: number = 600_000,
   ) {}
 
   /**
@@ -203,6 +204,7 @@ export class CloneManager implements CloneManagerPort {
   /**
    * セマフォを取得する（同時実行数制御）
    * 現在のクローン数が上限に達している場合は、空きが出るまで待機する
+   * タイムアウト（semaphoreTimeoutMs）を超えた場合はエラーをスローする
    */
   private async acquireSemaphore(): Promise<void> {
     if (this.currentClones < this.maxConcurrentClones) {
@@ -210,9 +212,31 @@ export class CloneManager implements CloneManagerPort {
       return;
     }
 
-    // 上限に達している場合は待機キューに追加
+    // 上限に達している場合は待機キューに追加（タイムアウト付き）
     return new Promise<void>((resolve, reject) => {
-      this.waitQueue.push({ resolve, reject });
+      const entry = { resolve, reject };
+      this.waitQueue.push(entry);
+
+      const timer = setTimeout(() => {
+        // タイムアウト時: 待機キューからエントリを削除しエラーで拒否
+        const index = this.waitQueue.indexOf(entry);
+        if (index !== -1) {
+          this.waitQueue.splice(index, 1);
+          reject(new Error('Clone semaphore timeout: all slots occupied'));
+        }
+      }, this.semaphoreTimeoutMs);
+
+      // 元のresolve/rejectをラップしてタイマーをクリアする
+      const originalResolve = entry.resolve;
+      const originalReject = entry.reject;
+      entry.resolve = () => {
+        clearTimeout(timer);
+        originalResolve();
+      };
+      entry.reject = (err: Error) => {
+        clearTimeout(timer);
+        originalReject(err);
+      };
     });
   }
 

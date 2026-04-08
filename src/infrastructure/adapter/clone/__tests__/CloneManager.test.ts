@@ -405,6 +405,39 @@ describe('CloneManager', () => {
       await result2.cleanup();
     });
 
+    it('異常系: セマフォ取得がタイムアウトした場合にエラーがスローされる', async () => {
+      // maxConcurrentClones=1, semaphoreTimeoutMs=100（短いタイムアウト）
+      const manager = new CloneManager(300_000, 1024, 1, '/tmp/aikata-test-clones', 100);
+
+      // 1つ目のクローン用
+      mockGitLabProjectResponse();
+      setupExecFileSequence([{ stdout: '' }, { stdout: '' }, { stdout: '' }, DU_OK]);
+
+      // 1つ目のクローンでセマフォを占有
+      const result1 = await manager.clone(
+        defaultToken,
+        defaultApiBaseUrl,
+        defaultProjectId,
+        'branch1',
+        defaultTargetBranch,
+      );
+
+      // 2つ目はセマフォ待機でタイムアウトする（cleanupしないのでスロットが空かない）
+      // セマフォ取得前にタイムアウトするため、fetchモックやexecFileモックは不要
+      await expect(
+        manager.clone(
+          defaultToken,
+          defaultApiBaseUrl,
+          defaultProjectId,
+          'branch2',
+          defaultTargetBranch,
+        ),
+      ).rejects.toThrow('Clone semaphore timeout: all slots occupied');
+
+      // 1つ目のクリーンアップ
+      await result1.cleanup();
+    });
+
     it('正常系: エラー時にもセマフォが解放される', async () => {
       const manager = new CloneManager(300_000, 1024, 1, '/tmp/aikata-test-clones');
 

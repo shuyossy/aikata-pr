@@ -7,7 +7,6 @@ import type {
   PerRequestServiceFactory,
   MrInfoFetcher,
   ReviewExecutor,
-  CommentPoster,
 } from '../reviewHandler.js';
 import type {
   CloneManagerPort,
@@ -84,7 +83,6 @@ function createMockCloneManager(): CloneManagerPort & {
 function createMockServiceFactory(overrides?: {
   mrInfoFetcher?: Partial<MrInfoFetcher>;
   reviewExecutor?: Partial<ReviewExecutor>;
-  commentPoster?: Partial<CommentPoster>;
 }): PerRequestServiceFactory {
   const mrInfoFetcher: MrInfoFetcher = {
     fetchBranchInfo: vi
@@ -98,16 +96,10 @@ function createMockServiceFactory(overrides?: {
     ...overrides?.reviewExecutor,
   };
 
-  const commentPoster: CommentPoster = {
-    execute: vi.fn<CommentPoster['execute']>().mockResolvedValue(undefined),
-    ...overrides?.commentPoster,
-  };
-
   return {
     create: vi.fn().mockReturnValue({
       mrInfoFetcher,
       reviewExecutor,
-      commentPoster,
     }),
   };
 }
@@ -359,13 +351,18 @@ describe('reviewRoute', () => {
       const text = await res.text();
       const events = parseSSEEvents(text);
 
-      // resultイベントが含まれること
+      // resultイベントがReviewApiResponse形式で含まれること
       const resultEvents = events.filter((e) => e.event === 'result');
       expect(resultEvents.length).toBe(1);
       const resultData = JSON.parse(resultEvents[0].data);
-      expect(resultData.resultCount).toBe(1);
+      expect(resultData.results).toHaveLength(1);
+      expect(resultData.results[0].checkItemContent).toBe('Check item 1');
+      expect(resultData.results[0].ratingLabel).toBe('A');
+      expect(resultData.results[0].ratingDefinition).toBe('Good');
+      expect(resultData.results[0].comment).toBe('All good');
+      expect(resultData.results[0].isError).toBe(false);
       expect(resultData.commitHash).toBe('abc123');
-      expect(resultData.qualityGatePassed).toBe(true);
+      expect(resultData.commitMessage).toBe('Test commit');
 
       // doneイベントが含まれること
       const doneEvents = events.filter((e) => e.event === 'done');
@@ -395,19 +392,18 @@ describe('reviewRoute', () => {
       expect(progressStatuses).toContain('fetching_mr_info');
       expect(progressStatuses).toContain('cloning');
       expect(progressStatuses).toContain('reviewing');
-      expect(progressStatuses).toContain('posting_comment');
+      // コメント投稿はCLI側の責務のためposting_commentイベントは送信されない
+      expect(progressStatuses).not.toContain('posting_comment');
 
       // 順序の確認
       const startedIdx = progressStatuses.indexOf('started');
       const fetchingIdx = progressStatuses.indexOf('fetching_mr_info');
       const cloningIdx = progressStatuses.indexOf('cloning');
       const reviewingIdx = progressStatuses.indexOf('reviewing');
-      const postingIdx = progressStatuses.indexOf('posting_comment');
 
       expect(startedIdx).toBeLessThan(fetchingIdx);
       expect(fetchingIdx).toBeLessThan(cloningIdx);
       expect(cloningIdx).toBeLessThan(reviewingIdx);
-      expect(reviewingIdx).toBeLessThan(postingIdx);
     });
 
     it('CloneManagerでエラー発生時にerrorイベントがストリームに含まれること', async () => {
@@ -548,8 +544,7 @@ describe('reviewRoute', () => {
       expect(errorData.error).toContain('GitLab API error');
     });
 
-    it('全結果がエラーの場合、コメント投稿がスキップされること', async () => {
-      const commentExecute = vi.fn<CommentPoster['execute']>().mockResolvedValue(undefined);
+    it('全結果がエラーの場合でもレビュー結果がReviewApiResponse形式で返ること', async () => {
       const mockServiceFactory = createMockServiceFactory({
         reviewExecutor: {
           execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue({
@@ -557,9 +552,6 @@ describe('reviewRoute', () => {
             commitHash: 'abc123',
             commitMessage: 'Test commit',
           }),
-        },
-        commentPoster: {
-          execute: commentExecute,
         },
       });
       const app = createTestApp({ serviceFactory: mockServiceFactory });
@@ -574,19 +566,21 @@ describe('reviewRoute', () => {
       const text = await res.text();
       const events = parseSSEEvents(text);
 
-      // コメント投稿がスキップされること
-      expect(commentExecute).not.toHaveBeenCalled();
-
-      // resultイベントにallResultsAreErrors=trueが含まれること
+      // resultイベントにエラー結果がReviewApiResponse形式で含まれること
       const resultEvents = events.filter((e) => e.event === 'result');
       expect(resultEvents.length).toBe(1);
       const resultData = JSON.parse(resultEvents[0].data);
-      expect(resultData.allResultsAreErrors).toBe(true);
+      expect(resultData.results).toHaveLength(1);
+      expect(resultData.results[0].isError).toBe(true);
+      expect(resultData.results[0].errorMessage).toBe('AI error occurred');
+      expect(resultData.results[0].checkItemContent).toBe('Check item 1');
+      expect(resultData.commitHash).toBe('abc123');
+      expect(resultData.commitMessage).toBe('Test commit');
     });
   });
 
-  describe('POST /review - 品質ゲート', () => {
-    it('品質ゲート違反時にresultイベントにviolations情報が含まれること', async () => {
+  describe('POST /review - resultイベントのReviewApiResponse形式', () => {
+    it('resultイベントが品質ゲート情報を含まず、レビュー結果のみ返すこと', async () => {
       const mockServiceFactory = createMockServiceFactory({
         reviewExecutor: {
           execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue({
@@ -628,9 +622,18 @@ describe('reviewRoute', () => {
       const resultEvents = events.filter((e) => e.event === 'result');
       expect(resultEvents.length).toBe(1);
       const resultData = JSON.parse(resultEvents[0].data);
-      expect(resultData.qualityGatePassed).toBe(false);
-      expect(resultData.qualityGateViolations.length).toBe(1);
-      expect(resultData.qualityGateViolations[0].ratingLabel).toBe('C');
+      // ReviewApiResponse形式で返ること（品質ゲート情報は含まない）
+      expect(resultData.results).toHaveLength(1);
+      expect(resultData.results[0].checkItemContent).toBe('Check item 1');
+      expect(resultData.results[0].ratingLabel).toBe('C');
+      expect(resultData.results[0].ratingDefinition).toBe('Bad');
+      expect(resultData.results[0].comment).toBe('Issues found');
+      expect(resultData.results[0].isError).toBe(false);
+      expect(resultData.commitHash).toBe('abc123');
+      expect(resultData.commitMessage).toBe('Test commit');
+      // 品質ゲート関連のフィールドは含まれないこと
+      expect(resultData.qualityGatePassed).toBeUndefined();
+      expect(resultData.qualityGateViolations).toBeUndefined();
     });
   });
 });

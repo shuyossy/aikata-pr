@@ -13,5 +13,4 @@ export type {
   PerRequestServiceFactory,
   MrInfoFetcher,
   ReviewExecutor,
-  CommentPoster,
 } from './reviewHandler.js';

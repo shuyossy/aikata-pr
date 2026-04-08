@@ -72,26 +72,35 @@ function requireEnv(name: string): string {
 }
 
 /**
+ * JWT認証設定
+ */
+export interface JwtConfig {
+  jwksUrl: string;
+  audience: string;
+  issuer: string;
+}
+
+/**
  * APIサーバーのHonoアプリを組み立てる
  * テスト時にも利用可能なようにapp生成を関数化
  */
-export function createApp(deps: ReviewHandlerDeps): Hono<JwtAuthEnv & ReviewRouteEnv> {
+export function createApp(
+  deps: ReviewHandlerDeps,
+  jwtConfig?: JwtConfig,
+): Hono<JwtAuthEnv & ReviewRouteEnv> {
   const app = new Hono<JwtAuthEnv & ReviewRouteEnv>();
 
   // ヘルスチェック（認証不要）
   app.get('/health', (c) => c.json({ status: 'ok' }));
 
   // JWT認証ミドルウェア
-  const jwtJwksUrl = process.env['JWT_JWKS_URL'];
-  const jwtAudience = process.env['JWT_AUDIENCE'];
-  const jwtIssuer = process.env['JWT_ISSUER'];
-  if (jwtJwksUrl && jwtAudience && jwtIssuer) {
+  if (jwtConfig) {
     app.use(
       '/api/*',
       createJwtAuthMiddleware({
-        jwksUrl: jwtJwksUrl,
-        audience: jwtAudience,
-        issuer: jwtIssuer,
+        jwksUrl: jwtConfig.jwksUrl,
+        audience: jwtConfig.audience,
+        issuer: jwtConfig.issuer,
       }),
     );
   }
@@ -146,7 +155,28 @@ export async function startServer(): Promise<void> {
     defaultAiModelName,
   };
 
-  const app = createApp(deps);
+  // JWT認証設定の構築
+  const jwtJwksUrl = process.env['JWT_JWKS_URL'];
+  const jwtAudience = process.env['JWT_AUDIENCE'];
+  const jwtIssuer = process.env['JWT_ISSUER'];
+
+  let jwtConfig: JwtConfig | undefined;
+  if (jwtJwksUrl && jwtAudience && jwtIssuer) {
+    jwtConfig = { jwksUrl: jwtJwksUrl, audience: jwtAudience, issuer: jwtIssuer };
+  } else {
+    // 本番環境ではJWT認証が必須
+    const nodeEnv = process.env['NODE_ENV'] ?? '';
+    if (nodeEnv === 'production') {
+      throw new Error(
+        'JWT authentication is required in production. Set JWT_JWKS_URL, JWT_AUDIENCE, and JWT_ISSUER environment variables.',
+      );
+    }
+    logger.warn(
+      'JWT authentication is NOT configured. API routes are unauthenticated. Set JWT_JWKS_URL, JWT_AUDIENCE, and JWT_ISSUER to enable authentication.',
+    );
+  }
+
+  const app = createApp(deps, jwtConfig);
 
   // サーバー起動
   const port = Number(process.env['API_PORT'] ?? '3000');
@@ -157,8 +187,12 @@ export async function startServer(): Promise<void> {
   });
 }
 
-// エントリーポイント（直接実行時のみ起動）
-startServer().catch((error) => {
-  console.error('Failed to start API server:', error);
-  process.exit(1);
-});
+// エントリーポイント（直接実行時のみ起動、テストやimport時には起動しない）
+const isMainModule =
+  process.argv[1]?.endsWith('server.js') || process.argv[1]?.endsWith('server.ts');
+if (isMainModule) {
+  startServer().catch((error) => {
+    console.error('Failed to start API server:', error);
+    process.exit(1);
+  });
+}
