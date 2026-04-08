@@ -10,10 +10,12 @@ import type {
 import { ReviewExecutionService } from './application/reviewExecution/index.js';
 import { CommentPostingService } from './application/commentPosting/index.js';
 import { ReviewResult } from './domain/reviewResult/index.js';
+import { Rating } from './domain/rating/index.js';
 import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
 import { GitLabMrGateway, LocalGitDiffMrGateway } from './infrastructure/adapter/gateway/index.js';
 import { GitLabMrDiscussionGateway } from './infrastructure/adapter/gateway/index.js';
 import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/index.js';
+import { ReviewApiClient } from './infrastructure/adapter/apiClient/index.js';
 import { mastra } from './mastra/index.js';
 import { ReviewSettings } from './domain/reviewSettings/index.js';
 import { RequestContext } from '@mastra/core/request-context';
@@ -73,13 +75,14 @@ interface ValidatedParams {
   mrIid: string;
   gitlabToken: string;
   checklistPath: string;
-  aiApiKey: string;
-  aiApiEndpointUrl: string;
-  aiModelName: string;
+  aiApiKey?: string;
+  aiApiEndpointUrl?: string;
+  aiModelName?: string;
 }
 
 /**
  * 必須パラメータの存在をバリデーションする
+ * APIモード時はAI関連パラメータを不要とする
  */
 function validateRequiredParams(
   options: CliOptions,
@@ -91,9 +94,13 @@ function validateRequiredParams(
   if (!options.mrIid) missing.push('--mr-iid or GITLAB_MR_IID');
   if (!options.gitlabToken) missing.push('--aikata-pr-gitlab-token or AIKATA_PR_GITLAB_TOKEN');
   if (!options.checklist) missing.push('--checklist or CHECKLIST_PATH');
-  if (!options.aiModelName) missing.push('--ai-model-name or AI_MODEL_NAME');
-  if (!env['AI_API_KEY']) missing.push('AI_API_KEY');
-  if (!env['AI_API_ENDPOINT_URL']) missing.push('AI_API_ENDPOINT_URL');
+
+  // ローカルモードの場合のみAI関連パラメータを必須とする
+  if (!options.aikataApiUrl) {
+    if (!options.aiModelName) missing.push('--ai-model-name or AI_MODEL_NAME');
+    if (!env['AI_API_KEY']) missing.push('AI_API_KEY');
+    if (!env['AI_API_ENDPOINT_URL']) missing.push('AI_API_ENDPOINT_URL');
+  }
 
   if (missing.length > 0) {
     throw new Error(`Missing required parameters: ${missing.join(', ')}`);
@@ -105,9 +112,9 @@ function validateRequiredParams(
     mrIid: options.mrIid!,
     gitlabToken: options.gitlabToken!,
     checklistPath: options.checklist!,
-    aiModelName: options.aiModelName!,
-    aiApiKey: env['AI_API_KEY']!,
-    aiApiEndpointUrl: env['AI_API_ENDPOINT_URL']!,
+    aiModelName: options.aiModelName,
+    aiApiKey: env['AI_API_KEY'],
+    aiApiEndpointUrl: env['AI_API_ENDPOINT_URL'],
   };
 }
 
@@ -142,29 +149,6 @@ async function main(): Promise<void> {
       ? ReviewSettingsParser.parse(fs.readFileSync(options.reviewSettings, 'utf-8'))
       : ReviewSettings.default();
 
-    // GitLab APIベースURLを環境変数から取得（CI環境では CI_API_V4_URL を使用）
-    const gitlabApiBaseUrl =
-      process.env['GITLAB_API_URL'] ?? process.env['CI_API_V4_URL'] ?? 'https://gitlab.com/api/v4';
-
-    // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
-    const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
-
-    // DI組み立て
-    const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
-    const apiMrGateway = new GitLabMrGateway(gitlabClient);
-    const mrGateway = new LocalGitDiffMrGateway(projectDir, apiMrGateway, gitlabClient);
-    const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
-    const workflowRunner = new MastraReviewWorkflowRunner();
-    const treeGateway = new LocalProjectTreeGateway();
-
-    const reviewService = new ReviewExecutionService(
-      mrGateway,
-      mrDiscussionGateway,
-      workflowRunner,
-      treeGateway,
-    );
-    const commentService = new CommentPostingService(mrDiscussionGateway);
-
     // TREE_MAX_DEPTHバリデーション
     const treeMaxDepthEnv = process.env['TREE_MAX_DEPTH'];
     let treeMaxDepth: number | undefined;
@@ -187,62 +171,200 @@ async function main(): Promise<void> {
       }
     }
 
-    // AIレビュー実行
-    const reviewResult = await reviewService.execute({
-      userId: validated.userId,
-      projectId: validated.projectId,
-      mrIid: validated.mrIid,
-      checklist,
-      reviewSettings,
-      skillsPaths: options.skills ? [options.skills] : [],
-      projectDir,
-      aiApiKey: validated.aiApiKey,
-      aiApiEndpointUrl: validated.aiApiEndpointUrl,
-      aiModelName: validated.aiModelName,
-      gitlabToken: validated.gitlabToken,
-      treeMaxDepth,
-      commentLanguage: options.commentLanguage,
-      openaiReasoningEffort: process.env['OPENAI_REASONING_EFFORT'],
-      maxContextLength,
-    });
+    if (options.aikataApiUrl) {
+      // === APIモード ===
+      // JWT tokenはAPIモードで必須
+      const jwtToken = options.aikataJwt;
+      if (!jwtToken) {
+        throw new Error(
+          'Missing AIKATA_JWT environment variable. Required when AIKATA_API_URL is set.',
+        );
+      }
 
-    // 全てのレビュー結果がエラーかどうか判定
-    const allResultsAreErrors = ReviewResult.allAreErrors(reviewResult.results);
+      const client = new ReviewApiClient(options.aikataApiUrl, jwtToken);
 
-    // 品質ゲート評価
-    const qualityGateResult = reviewSettings.qualityGate.evaluate(reviewResult.results);
+      const apiResult = await client.executeReview(
+        {
+          gitlabToken: validated.gitlabToken,
+          projectId: validated.projectId,
+          mrIid: validated.mrIid,
+          checklist: checklist.items.map((i) => i.content),
+          reviewSettings: {
+            additionalInstructions: reviewSettings.additionalInstructions,
+            concurrentReviewCount: reviewSettings.concurrentReviewCount,
+            commentFormat: reviewSettings.commentFormat,
+            ratings: reviewSettings.ratings.map((r) => ({
+              label: r.label,
+              definition: r.definition,
+            })),
+            hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
+            qualityGate: {
+              failureCriteria: reviewSettings.qualityGate.failureCriteria.map((c) => ({
+                ratingLabel: c.ratingLabel,
+                threshold: c.threshold,
+              })),
+            },
+          },
+          options: {
+            commentLanguage: options.commentLanguage,
+            skillsPaths: options.skills ? [options.skills] : [],
+            treeMaxDepth,
+            maxContextLength,
+          },
+        },
+        (event) => {
+          logger.info(
+            { status: event.status },
+            event.message ?? `Review progress: ${event.status}`,
+          );
+        },
+      );
 
-    // エラーでない場合はコメント投稿
-    if (!allResultsAreErrors) {
-      await commentService.execute({
+      // APIレスポンスをReviewResult[]に変換
+      const results = apiResult.results.map((r) => {
+        const checkItem = checklist.items.find((i) => i.content === r.checkItemContent);
+        if (!checkItem) {
+          throw new Error(`Check item not found in local checklist: ${r.checkItemContent}`);
+        }
+        if (r.isError) {
+          return ReviewResult.error(checkItem, r.errorMessage ?? 'Unknown error');
+        }
+        return ReviewResult.success(
+          checkItem,
+          new Rating(r.ratingLabel, r.ratingDefinition),
+          r.comment,
+        );
+      });
+
+      // 全てのレビュー結果がエラーかどうか判定
+      const allResultsAreErrors = ReviewResult.allAreErrors(results);
+
+      // 品質ゲート評価
+      const qualityGateResult = reviewSettings.qualityGate.evaluate(results);
+
+      // エラーでない場合はコメント投稿
+      if (!allResultsAreErrors) {
+        const gitlabApiBaseUrl =
+          process.env['GITLAB_API_URL'] ??
+          process.env['CI_API_V4_URL'] ??
+          'https://gitlab.com/api/v4';
+        const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
+        const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
+        const commentService = new CommentPostingService(mrDiscussionGateway);
+
+        await commentService.execute({
+          projectId: validated.projectId,
+          mrIid: validated.mrIid,
+          results,
+          ratings: reviewSettings.ratings,
+          commitHash: apiResult.commitHash,
+          commitMessage: apiResult.commitMessage,
+          hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
+          qualityGateResult,
+        });
+      }
+
+      // 終了処理
+      logger.info(
+        { resultCount: results.length, commentPosted: !allResultsAreErrors },
+        'Review completed',
+      );
+
+      if (allResultsAreErrors) {
+        logger.error('All review results are errors. Exiting with failure.');
+        flushLogger();
+        process.exit(1);
+      }
+
+      if (!qualityGateResult.passed) {
+        logger.error('Quality gate failed. Exiting with failure.');
+        flushLogger();
+        process.exit(1);
+      }
+    } else {
+      // === ローカルモード（既存動作） ===
+      // GitLab APIベースURLを環境変数から取得（CI環境では CI_API_V4_URL を使用）
+      const gitlabApiBaseUrl =
+        process.env['GITLAB_API_URL'] ??
+        process.env['CI_API_V4_URL'] ??
+        'https://gitlab.com/api/v4';
+
+      // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
+      const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
+
+      // DI組み立て
+      const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
+      const apiMrGateway = new GitLabMrGateway(gitlabClient);
+      const mrGateway = new LocalGitDiffMrGateway(projectDir, apiMrGateway, gitlabClient);
+      const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
+      const workflowRunner = new MastraReviewWorkflowRunner();
+      const treeGateway = new LocalProjectTreeGateway();
+
+      const reviewService = new ReviewExecutionService(
+        mrGateway,
+        mrDiscussionGateway,
+        workflowRunner,
+        treeGateway,
+      );
+      const commentService = new CommentPostingService(mrDiscussionGateway);
+
+      // AIレビュー実行
+      const reviewResult = await reviewService.execute({
+        userId: validated.userId,
         projectId: validated.projectId,
         mrIid: validated.mrIid,
-        results: reviewResult.results,
-        ratings: reviewSettings.ratings,
-        commitHash: reviewResult.commitHash,
-        commitMessage: reviewResult.commitMessage,
-        hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
-        qualityGateResult,
+        checklist,
+        reviewSettings,
+        skillsPaths: options.skills ? [options.skills] : [],
+        projectDir,
+        aiApiKey: validated.aiApiKey!,
+        aiApiEndpointUrl: validated.aiApiEndpointUrl!,
+        aiModelName: validated.aiModelName!,
+        gitlabToken: validated.gitlabToken,
+        treeMaxDepth,
+        commentLanguage: options.commentLanguage,
+        openaiReasoningEffort: process.env['OPENAI_REASONING_EFFORT'],
+        maxContextLength,
       });
-    }
 
-    logger.info(
-      { resultCount: reviewResult.results.length, commentPosted: !allResultsAreErrors },
-      'Review completed',
-    );
+      // 全てのレビュー結果がエラーかどうか判定
+      const allResultsAreErrors = ReviewResult.allAreErrors(reviewResult.results);
 
-    // 全てのレビュー結果がエラーの場合、ジョブを失敗として終了する
-    if (allResultsAreErrors) {
-      logger.error('All review results are errors. Exiting with failure.');
-      flushLogger();
-      process.exit(1);
-    }
+      // 品質ゲート評価
+      const qualityGateResult = reviewSettings.qualityGate.evaluate(reviewResult.results);
 
-    // 品質ゲートに抵触した場合、ジョブを失敗として終了する
-    if (!qualityGateResult.passed) {
-      logger.error('Quality gate failed. Exiting with failure.');
-      flushLogger();
-      process.exit(1);
+      // エラーでない場合はコメント投稿
+      if (!allResultsAreErrors) {
+        await commentService.execute({
+          projectId: validated.projectId,
+          mrIid: validated.mrIid,
+          results: reviewResult.results,
+          ratings: reviewSettings.ratings,
+          commitHash: reviewResult.commitHash,
+          commitMessage: reviewResult.commitMessage,
+          hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
+          qualityGateResult,
+        });
+      }
+
+      logger.info(
+        { resultCount: reviewResult.results.length, commentPosted: !allResultsAreErrors },
+        'Review completed',
+      );
+
+      // 全てのレビュー結果がエラーの場合、ジョブを失敗として終了する
+      if (allResultsAreErrors) {
+        logger.error('All review results are errors. Exiting with failure.');
+        flushLogger();
+        process.exit(1);
+      }
+
+      // 品質ゲートに抵触した場合、ジョブを失敗として終了する
+      if (!qualityGateResult.passed) {
+        logger.error('Quality gate failed. Exiting with failure.');
+        flushLogger();
+        process.exit(1);
+      }
     }
   } catch (error) {
     const userId = options.userId ?? 'unknown';

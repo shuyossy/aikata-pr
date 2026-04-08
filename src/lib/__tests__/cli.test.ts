@@ -223,6 +223,44 @@ describe('parseCliOptions', () => {
     const result = parseCliOptions([], {});
     expect(result.checklistNoHeader).toBe(false);
   });
+
+  it('--aikata-api-urlオプションをパースできる', () => {
+    const result = parseCliOptions(['--aikata-api-url', 'https://api.example.com']);
+    expect(result.aikataApiUrl).toBe('https://api.example.com');
+  });
+
+  it('AIKATA_API_URL環境変数からaikataApiUrlを取得できる', () => {
+    const result = parseCliOptions([], { AIKATA_API_URL: 'https://env-api.example.com' });
+    expect(result.aikataApiUrl).toBe('https://env-api.example.com');
+  });
+
+  it('--aikata-api-urlがAIKATA_API_URL環境変数より優先される', () => {
+    const result = parseCliOptions(['--aikata-api-url', 'https://cli-api.example.com'], {
+      AIKATA_API_URL: 'https://env-api.example.com',
+    });
+    expect(result.aikataApiUrl).toBe('https://cli-api.example.com');
+  });
+
+  it('aikataApiUrlの未指定時はundefinedである', () => {
+    const result = parseCliOptions([], {});
+    expect(result.aikataApiUrl).toBeUndefined();
+  });
+
+  it('AIKATA_JWT環境変数からaikataJwtを取得できる', () => {
+    const result = parseCliOptions([], { AIKATA_JWT: 'jwt-token-value' });
+    expect(result.aikataJwt).toBe('jwt-token-value');
+  });
+
+  it('aikataJwtの未指定時はundefinedである', () => {
+    const result = parseCliOptions([], {});
+    expect(result.aikataJwt).toBeUndefined();
+  });
+
+  it('aikataJwtはCLIオプションからは設定できない（環境変数のみ）', () => {
+    // aikataJwtにはCLIフラグがないため、環境変数からのみ取得される
+    const result = parseCliOptions([], { AIKATA_JWT: 'env-jwt' });
+    expect(result.aikataJwt).toBe('env-jwt');
+  });
 });
 
 describe('buildChecklistParseOptions', () => {

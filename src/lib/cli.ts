@@ -17,6 +17,8 @@ export interface CliOptions {
   aiModelName?: string;
   commentLanguage: string;
   prettyPrint: boolean;
+  aikataApiUrl?: string;
+  aikataJwt?: string;
 }
 
 /**
@@ -80,6 +82,9 @@ export function parseCliOptions(
       case '--no-pretty-print':
         parsed['prettyPrint'] = false;
         break;
+      case '--aikata-api-url':
+        parsed['aikataApiUrl'] = args[++i]!;
+        break;
     }
   }
 
@@ -107,6 +112,8 @@ export function parseCliOptions(
         : env['PRETTY_PRINT'] !== undefined
           ? env['PRETTY_PRINT'] === 'true'
           : true,
+    aikataApiUrl: (parsed['aikataApiUrl'] as string) ?? env['AIKATA_API_URL'],
+    aikataJwt: env['AIKATA_JWT'],
   };
 }
 
