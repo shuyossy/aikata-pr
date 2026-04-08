@@ -26,6 +26,8 @@ variables:
   TREE_MAX_DEPTH: ""
   # Context Length
   MAX_CONTEXT_LENGTH: ""
+  # API Mode
+  AIKATA_API_URL: ""
   # Container Image（Docker方式用）
   AIKATA_IMAGE: ""
   AIKATA_IMAGE_TAG: "latest"
