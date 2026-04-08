@@ -1,0 +1,24 @@
+services:
+  aikata-pr-api:
+    build:
+      context: ../..
+      dockerfile: docker/prod/Dockerfile
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      - AI_API_KEY
+      - AI_API_ENDPOINT_URL
+      - AI_MODEL_NAME
+      - JWT_JWKS_URL
+      - JWT_AUDIENCE
+      - JWT_ISSUER
+      - AI_API_RATE_LIMIT_PER_MIN
+      - MAX_CONCURRENT_CLONES
+      - CLONE_TIMEOUT_MS
+      - REVIEW_TIMEOUT_MS
+      - CLONE_MAX_DISK_MB
+      - AIKATA_LOG_LEVEL
+      - GITLAB_API_URL
+    volumes:
+      - /tmp/aikata-pr-clones:/tmp/aikata-pr-clones
+    restart: unless-stopped
