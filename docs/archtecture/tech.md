@@ -13,7 +13,9 @@
 チェックロジックに必要な環境変数やファイルを用意し、チェックロジックを本プロジェクトの`dist`よりダウンロードし実行する
 
 ## チェックロジック
-チェックの実行からMRのコメント投稿まで実行する。
+2つのモードで動作する:
+- **APIモード**: `AIKATA_API_URL`設定時。CLIは外部APIサーバーにレビュー実行を委譲し、コメント投稿・品質ゲート評価はCLI側で実行する
+- **ローカルモード**: `AIKATA_API_URL`未設定時。CLIが全処理をローカルで実行する（開発用・後方互換）
 
 一般的なクリーンアーキテクチャに従う。
 用語集(`docs/domain`)と整合するよう注意すること。
@@ -26,9 +28,16 @@
       - 入力: ~Command
       - 出力: ~Dto
     - 入力時のオプションはoptions?引数として一括管理
+  - 主要サービス
+    - ReviewExecutionService: AIレビュー実行（MRコンテキスト取得→Workflow実行→結果返却）。APIサーバー側で使用
+    - CommentPostingService: コメント投稿（結果整形→GitLab投稿）。CLI側で使用
 - インフラ層
 - プレゼンテーション層
   - CLIインターフェース: `node dist/index.js [options]`
+  - APIサーバーインターフェース: `node dist/server.js`
+    - Honoフレームワーク
+    - `POST /api/v1/review` — SSEストリーミングレスポンス
+    - JWT認証ミドルウェア（GitLab CI/CD `id_tokens`を検証）
   - 全パラメータはCLIオプションと環境変数の両方で指定可能（優先順位: CLIオプション > 環境変数 > デフォルト値）
   - CLIオプション（環境変数フォールバック付き）
     - `--user-id` / `USER_ID`: 実行ユーザID
@@ -43,9 +52,11 @@
     - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
     - `--log-level` / `AIKATA_LOG_LEVEL`: ログレベル
     - `--comment-language` / `COMMENT_LANGUAGE`: レビューコメントの言語（デフォルト: `Japanese`）
+    - `--aikata-api-url` / `AIKATA_API_URL`: APIサーバーURL（設定時はAPIモードで動作）
   - 環境変数のみ（秘密情報・環境固有）
-    - `AI_API_KEY`: AI APIキー
-    - `AI_API_ENDPOINT_URL`: AI APIエンドポイントURL
+    - `AI_API_KEY`: AI APIキー（ローカルモード時のみ必要、APIモード時はAPIサーバー側で管理）
+    - `AI_API_ENDPOINT_URL`: AI APIエンドポイントURL（同上）
+    - `AIKATA_JWT`: GitLab CI/CDのid_tokensで自動生成されるJWTトークン（APIモード時に使用）
 
 # CI/CD設計
 このセクションは本プロジェクトで利用するCI/CDパイプラインに関するものなので注意。

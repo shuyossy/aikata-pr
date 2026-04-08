@@ -19,14 +19,14 @@
 
 ---
 
-- レビュー実行
-  - 識別子: ExecuteReviewService
+- AIレビュー実行
+  - 識別子: ReviewExecutionService
   - 前提条件
     - GitLab APIトークンが有効
     - AI APIキーとエンドポイントが有効
     - チェックリストが提供済み
-  - 入力: ExecuteReviewCommand（userId, projectId, mrIid, checklist, reviewSettings, skillsPaths, aiApiKey, aiApiEndpointUrl, aiModelName, gitlabToken）
-  - 出力: ExecuteReviewDto（results, commitHash, commentPosted, allResultsAreErrors, qualityGatePassed）
+  - 入力: ReviewExecutionCommand（userId, projectId, mrIid, gitlabToken, checklist, reviewSettings, skillsPaths, projectDir, aiApiKey, aiApiEndpointUrl, aiModelName, treeMaxDepth, commentLanguage, openaiReasoningEffort, maxContextLength）
+  - 出力: ReviewExecutionDto（results, commitHash, commitMessage）
   - メインフロー
     1. MRコンテキストを取得（MrGateway）
        - MR diffはローカルgitリポジトリから優先取得し、失敗時はGitLab API（access_raw_diffs=true）にフォールバック
@@ -35,14 +35,10 @@
     3.5. 前回レビューのコミットハッシュと今回のコミットハッシュが一致する場合（パイプラインリトライ）:
        - 前回の成功結果をそのまま保持する
        - エラー項目＋前回結果にない項目のみレビューワークフローで再レビュー
-       - 再レビュー対象がない場合は前回結果をそのまま投稿して終了
-       - 再レビュー結果と保持結果をマージしてコメント投稿
+       - 再レビュー対象がない場合は前回結果をそのまま返却して終了
+       - 再レビュー結果と保持結果をマージして返却
     4. レビューワークフローを実行（チェックリスト分割→レビュー実行）
-    5. 品質ゲートを評価（QualityGate.evaluate）
-    6. レビュー結果をMarkdownコメントとして整形（品質ゲート結果を含む）
-    7. MRにコメントを投稿
-       - 全結果が非表示評定ラベルに該当する場合はノート（通常コメント）として投稿
-       - それ以外はディスカッションとして投稿
+    5. レビュー結果を返却（コメント投稿・品質ゲート評価はこのサービスの責務外）
   - 例外
     - パターン1: GitLab API認証エラー
       - エラーをスロー
@@ -56,9 +52,24 @@
     - パターン4: その他のエラー
       - 既にストア済みの成功結果は保持する
       - 未完了チェック項目のレビュー結果に「予期せぬエラー（実行ログを確認してください）」を表示する
-    - パターン5: 全てのレビュー結果がエラー
-      - レビュー結果コメントをMRに投稿した後、ジョブを失敗（exit code 1）として終了する
-    - パターン6: 品質ゲートに抵触
-      - レビュー結果コメント（警告メッセージ付き）をMRに投稿した後、ジョブを失敗（exit code 1）として終了する
   - 事後処理
     - なし
+
+- コメント投稿
+  - 識別子: CommentPostingService
+  - 前提条件
+    - レビュー結果が存在すること
+  - 入力: CommentPostingCommand（projectId, mrIid, results, ratings, commitHash, commitMessage, hiddenRatingLabels, qualityGateResult）
+  - 出力: void
+  - メインフロー
+    1. レビュー結果をMarkdownコメントとして整形（品質ゲート結果を含む）
+    2. MRにコメントを投稿
+       - 全結果が非表示評定ラベルに該当する場合はノート（通常コメント）として投稿
+       - それ以外はディスカッションとして投稿
+  - 例外
+    - パターン1: GitLab API認証エラー
+      - エラーをスロー
+  - 事後処理
+    - なし
+  - 備考
+    - 品質ゲート評価（QualityGate.evaluate）およびジョブの成否判定（全エラー時・品質ゲート抵触時のexit code 1）はCLIエントリーポイント（src/index.ts）で実行される

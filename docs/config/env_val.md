@@ -24,3 +24,26 @@
 | 動作設定 | TREE_MAX_DEPTH | No | 無制限 | フォルダツリー走査の最大深度。正の整数を指定。未指定時は深さ制限なし（エントリ数制限のみ適用） | なし（環境変数のみ） | - |
 | 動作設定 | MAX_CONTEXT_LENGTH | No | - | AIモデルのコンテキスト長（トークン数）。設定時、userプロンプトのトークン数がMAX_CONTEXT_LENGTH*0.6を超える場合にdiffを自動圧縮する。未設定時は圧縮しない | なし（環境変数のみ） | - |
 | 環境 | CI_PROJECT_DIR | No | process.cwd() | プロジェクトルートディレクトリ。Workspace（ファイルシステム・サンドボックス）のベースパスとして利用。CI環境では自動設定 | なし（環境変数のみ） | - |
+| APIモード | AIKATA_API_URL | No | - | APIサーバーのURL。設定時はAPIモードで動作（AIレビュー実行を外部APIに委譲） | --aikata-api-url | - |
+| APIモード | AIKATA_JWT | No | - | GitLab CI/CDのid_tokensで自動生成されるJWTトークン。APIモード時に必要 | なし（環境変数のみ） | - |
+
+## APIサーバー専用環境変数
+
+APIサーバー（`docker/prod/docker-compose.yml`）で設定する環境変数。CLI側では不要。
+
+| カテゴリ | 変数名 | 必須 | 既定値 | 主な制御内容 |
+| --- | --- | --- | --- | --- |
+| AI | AI_API_KEY | Yes | - | AI APIキー（APIサーバー側で一元管理） |
+| AI | AI_API_ENDPOINT_URL | Yes | - | AI APIエンドポイントURL |
+| AI | AI_MODEL_NAME | Yes | - | AIモデル名 |
+| JWT | JWT_JWKS_URL | Yes | - | GitLabのJWKSエンドポイントURL |
+| JWT | JWT_AUDIENCE | Yes | - | JWT audience値 |
+| JWT | JWT_ISSUER | Yes | - | JWT issuer値（GitLabインスタンスURL） |
+| レート制限 | AI_API_RATE_LIMIT_PER_MIN | No | 60 | 1分間あたりのAI API発行上限 |
+| クローン | MAX_CONCURRENT_CLONES | No | 5 | 同時クローン数上限 |
+| クローン | CLONE_TIMEOUT_MS | No | 300000 | クローンタイムアウト（ミリ秒） |
+| クローン | CLONE_MAX_DISK_MB | No | 1024 | クローンディスク使用量上限（MB） |
+| タイムアウト | REVIEW_TIMEOUT_MS | No | 3600000 | レビュー全体タイムアウト（ミリ秒） |
+| サーバー | API_PORT | No | 3000 | APIサーバーのリッスンポート |
+| ログ | AIKATA_LOG_LEVEL | No | info | ログレベル |
+| GitLab | GITLAB_API_URL | No | https://gitlab.com/api/v4 | GitLab APIベースURL |

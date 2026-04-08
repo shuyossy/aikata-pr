@@ -56,7 +56,7 @@
     - 前回レビュー以降のコミットとdiffを取得
   - 結果(アクション)
     - PriorReviewContext | null
-  - 関連するユースケースorエンティティ: ExecuteReviewService, CommentParser
+  - 関連するユースケースorエンティティ: ReviewExecutionService, CommentParser
 
 - エラー分類ルール
   - 目的/背景
@@ -95,8 +95,8 @@
     - 前回エラーだった項目 + 今回のチェックリストにあるが前回結果にない項目のみ再レビュー
     - 再レビュー対象が0件の場合、前回の成功結果をそのまま再投稿
   - 結果(アクション)
-    - 保持された結果と新規レビュー結果をチェックリスト順でマージし、コメント投稿
-  - 関連するユースケースorエンティティ: ExecuteReviewService
+    - 保持された結果と新規レビュー結果をチェックリスト順でマージして返却（コメント投稿はCommentPostingServiceが担当）
+  - 関連するユースケースorエンティティ: ReviewExecutionService
 
 - 品質ゲートルール
   - 目的/背景
@@ -110,7 +110,7 @@
   - 結果(アクション)
     - 品質ゲート失敗時: レビューコメントを投稿した後（警告メッセージを付加）、ジョブを失敗（exit code 1）として終了
     - 品質ゲート成功時（または未設定時）: 通常通りジョブ成功として終了
-  - 関連するユースケースorエンティティ: QualityGate, ReviewSettings, ExecuteReviewService
+  - 関連するユースケースorエンティティ: QualityGate, ReviewSettings, CLIエントリーポイント（src/index.ts）
 
 - コメント投稿方法ルール
   - 目的/背景
@@ -121,7 +121,7 @@
     - 該当する場合: GitLab Notes API（通常コメント）として投稿する
     - 該当しない場合: GitLab Discussions API（ディスカッション）として投稿する
     - GitLab Discussions APIはNotes APIで投稿したコメントも返すため、前回レビューコンテキスト構築への影響はない
-  - 関連するユースケースorエンティティ: ReviewResult, ExecuteReviewService, MrDiscussionGateway
+  - 関連するユースケースorエンティティ: ReviewResult, CommentPostingService, MrDiscussionGateway
 
 - 全レビュー結果エラー時のジョブ失敗ルール
   - 目的/背景
@@ -131,7 +131,7 @@
     - 結果が0件の場合はエラーとは見なさない
   - 結果(アクション)
     - コメントを投稿せず、ジョブを失敗（exit code 1）として終了する
-  - 関連するユースケースorエンティティ: ReviewResult, ExecuteReviewService
+  - 関連するユースケースorエンティティ: ReviewResult, CLIエントリーポイント（src/index.ts）
 
 - 画像ファイル読み取りルール
   - 目的/背景
