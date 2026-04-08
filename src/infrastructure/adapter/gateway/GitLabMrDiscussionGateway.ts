@@ -56,4 +56,11 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
   async postDiscussion(projectId: string, mrIid: string, body: string): Promise<void> {
     await this.client.post(`/projects/${projectId}/merge_requests/${mrIid}/discussions`, { body });
   }
+
+  /**
+   * MRにノート（通常コメント）を投稿する
+   */
+  async postNote(projectId: string, mrIid: string, body: string): Promise<void> {
+    await this.client.post(`/projects/${projectId}/merge_requests/${mrIid}/notes`, { body });
+  }
 }

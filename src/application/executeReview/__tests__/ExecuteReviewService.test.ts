@@ -135,6 +135,7 @@ describe('ExecuteReviewService', () => {
     mrDiscussionGateway = {
       getDiscussions: vi.fn(),
       postDiscussion: vi.fn(),
+      postNote: vi.fn(),
     };
     workflowRunner = {
       run: vi.fn(),
@@ -1553,6 +1554,217 @@ describe('ExecuteReviewService', () => {
       expect(result.qualityGatePassed).toBe(false);
       // コメントは投稿される
       expect(result.commentPosted).toBe(true);
+    });
+  });
+
+  describe('コメント投稿方法の分岐', () => {
+    it('全結果がhiddenRatingLabelsに該当する場合、postNoteが呼ばれる', async () => {
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: [new Rating('A', '完全に満たしている'), new Rating('B', '概ね満たしている')],
+          hiddenRatingLabels: ['A'],
+          qualityGate: QualityGate.none(),
+        }),
+      });
+      const mrContext = createMrContext();
+      // 全結果がA評定（hidden）
+      const workflowResult = createWorkflowResult({
+        results: [
+          {
+            checkItemContent: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良いコードです',
+            isError: false,
+          },
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '十分です',
+            isError: false,
+          },
+        ],
+      });
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postNote).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      expect(mrDiscussionGateway.postNote).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.postDiscussion).not.toHaveBeenCalled();
+    });
+
+    it('表示結果がある場合、postDiscussionが呼ばれる', async () => {
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: [new Rating('A', '完全に満たしている'), new Rating('B', '概ね満たしている')],
+          hiddenRatingLabels: ['A'],
+          qualityGate: QualityGate.none(),
+        }),
+      });
+      const mrContext = createMrContext();
+      // A（hidden）+ B（visible）
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.postNote).not.toHaveBeenCalled();
+    });
+
+    it('hiddenRatingLabelsが空の場合、postDiscussionが呼ばれる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postDiscussion).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.postNote).not.toHaveBeenCalled();
+    });
+
+    it('リトライ（再レビュー対象なし）で全結果がhiddenの場合、postNoteが呼ばれる', async () => {
+      const ratingsArr = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+      ];
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: ratingsArr,
+          hiddenRatingLabels: ['A'],
+          qualityGate: QualityGate.none(),
+        }),
+      });
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+      // 前回結果が全てA（hidden）
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良いです',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '十分です',
+          },
+        ],
+        'same-hash',
+        ratingsArr,
+        '2026-01-01T00:00:00Z',
+        ['A'],
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.postNote).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      expect(workflowRunner.run).not.toHaveBeenCalled();
+      expect(mrDiscussionGateway.postNote).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.postDiscussion).not.toHaveBeenCalled();
+    });
+
+    it('リトライ（再レビュー対象あり）でマージ後全結果がhiddenの場合、postNoteが呼ばれる', async () => {
+      const ratingsArr = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+      ];
+      const command = createCommand({
+        checklist: new Checklist([
+          new CheckItem('コードの可読性'),
+          new CheckItem('テストカバレッジ'),
+          new CheckItem('セキュリティ'),
+        ]),
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: ratingsArr,
+          hiddenRatingLabels: ['A'],
+          qualityGate: QualityGate.none(),
+        }),
+      });
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+      // 前回結果: 2つ成功（A評定）、「セキュリティ」はエラーだった
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良いです',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '十分です',
+          },
+          {
+            content: 'セキュリティ',
+            ratingLabel: 'エラー',
+            ratingDefinition: 'エラーが発生しました',
+            comment: 'Timeout',
+            isError: true,
+          },
+        ],
+        'same-hash',
+        ratingsArr,
+        '2026-01-01T00:00:00Z',
+        ['A'],
+      );
+
+      // 再レビュー結果もA評定
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'セキュリティ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '問題なし',
+            isError: false,
+          },
+        ],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+      vi.mocked(mrDiscussionGateway.postNote).mockResolvedValue(undefined);
+
+      await service.execute(command);
+
+      expect(workflowRunner.run).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.postNote).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.postDiscussion).not.toHaveBeenCalled();
     });
   });
 });

@@ -71,8 +71,8 @@ export class CommentFormatter {
       }
     }
 
-    if (visibleResults.length === 0) {
-      // 全ての非エラー結果が非表示の場合
+    if (ReviewResult.allAreHidden(results, hiddenRatingLabels)) {
+      // 全ての結果が非表示評定に該当する場合
       lines.push('');
       lines.push('全てのチェック項目が非表示の評定に該当しました。');
     } else {

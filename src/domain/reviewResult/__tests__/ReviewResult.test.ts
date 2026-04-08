@@ -60,4 +60,65 @@ describe('ReviewResult', () => {
       expect(ReviewResult.allAreErrors(results)).toBe(true);
     });
   });
+
+  describe('allAreHidden', () => {
+    const checkItem2 = new CheckItem('テストカバレッジ');
+    const ratingA = new Rating('A', '完全に満たしている');
+    const ratingB = new Rating('B', '概ね満たしている');
+    const ratingC = new Rating('C', '満たしていない');
+
+    it('全非エラー結果がhiddenRatingLabelsに該当する場合、trueを返す', () => {
+      const results = [
+        ReviewResult.success(checkItem, ratingA, 'Good'),
+        ReviewResult.success(checkItem2, ratingA, 'Also good'),
+      ];
+      expect(ReviewResult.allAreHidden(results, ['A'])).toBe(true);
+    });
+
+    it('複数のhiddenRatingLabelsに該当する場合、trueを返す', () => {
+      const results = [
+        ReviewResult.success(checkItem, ratingA, 'Good'),
+        ReviewResult.success(checkItem2, ratingB, 'OK'),
+      ];
+      expect(ReviewResult.allAreHidden(results, ['A', 'B'])).toBe(true);
+    });
+
+    it('hidden + 非hidden混在の場合、falseを返す', () => {
+      const results = [
+        ReviewResult.success(checkItem, ratingA, 'Good'),
+        ReviewResult.success(checkItem2, ratingC, 'Needs work'),
+      ];
+      expect(ReviewResult.allAreHidden(results, ['A'])).toBe(false);
+    });
+
+    it('hidden + エラー混在の場合、falseを返す', () => {
+      const results = [
+        ReviewResult.success(checkItem, ratingA, 'Good'),
+        ReviewResult.error(checkItem2, 'Error'),
+      ];
+      expect(ReviewResult.allAreHidden(results, ['A'])).toBe(false);
+    });
+
+    it('全エラーの場合、falseを返す', () => {
+      const results = [
+        ReviewResult.error(checkItem, 'Error 1'),
+        ReviewResult.error(checkItem2, 'Error 2'),
+      ];
+      expect(ReviewResult.allAreHidden(results, ['A'])).toBe(false);
+    });
+
+    it('空配列の場合、falseを返す', () => {
+      expect(ReviewResult.allAreHidden([], ['A'])).toBe(false);
+    });
+
+    it('hiddenRatingLabelsが空の場合、falseを返す', () => {
+      const results = [ReviewResult.success(checkItem, ratingA, 'Good')];
+      expect(ReviewResult.allAreHidden(results, [])).toBe(false);
+    });
+
+    it('単一の非表示結果の場合、trueを返す', () => {
+      const results = [ReviewResult.success(checkItem, ratingA, 'Good')];
+      expect(ReviewResult.allAreHidden(results, ['A'])).toBe(true);
+    });
+  });
 });

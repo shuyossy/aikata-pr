@@ -13,4 +13,5 @@ export interface MrComment {
 export interface MrDiscussionGateway {
   getDiscussions(projectId: string, mrIid: string): Promise<MrComment[]>;
   postDiscussion(projectId: string, mrIid: string, body: string): Promise<void>;
+  postNote(projectId: string, mrIid: string, body: string): Promise<void>;
 }

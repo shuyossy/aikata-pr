@@ -110,4 +110,24 @@ describe('GitLabMrDiscussionGateway', () => {
       expect(result).toBeUndefined();
     });
   });
+
+  describe('postNote', () => {
+    it('POSTリクエストを/notesエンドポイントに送信する', async () => {
+      mockClient.post.mockResolvedValueOnce({ id: 99 });
+
+      await gateway.postNote('123', '42', 'Note body');
+
+      expect(mockClient.post).toHaveBeenCalledWith('/projects/123/merge_requests/42/notes', {
+        body: 'Note body',
+      });
+    });
+
+    it('戻り値がvoidであること', async () => {
+      mockClient.post.mockResolvedValueOnce({ id: 100 });
+
+      const result = await gateway.postNote('789', '5', 'Another note');
+
+      expect(result).toBeUndefined();
+    });
+  });
 });

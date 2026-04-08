@@ -48,6 +48,17 @@ export class ReviewResult {
   }
 
   /**
+   * 全てのレビュー結果が非エラーかつ指定された非表示評定ラベルに該当するか判定する
+   * 結果が空の場合はfalseを返す
+   */
+  static allAreHidden(results: ReviewResult[], hiddenRatingLabels: string[]): boolean {
+    return (
+      results.length > 0 &&
+      results.every((r) => !r.isError && hiddenRatingLabels.includes(r.rating.label))
+    );
+  }
+
+  /**
    * エラーのレビュー結果を生成する
    */
   static error(checkItem: CheckItem, errorMessage: string): ReviewResult {

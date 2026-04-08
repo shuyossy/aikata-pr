@@ -158,7 +158,7 @@ export class ExecuteReviewService {
       // 品質ゲート評価
       const qualityGateResult = command.reviewSettings.qualityGate.evaluate(results);
 
-      // 全エラーの場合はコメントを投稿しない
+      // ��エラーの場合はコメ��トを投稿しない
       const allErrors = ReviewResult.allAreErrors(results);
       if (!allErrors) {
         const commentBody = CommentFormatter.formatComment(
@@ -169,10 +169,12 @@ export class ExecuteReviewService {
           command.reviewSettings.hiddenRatingLabels,
           qualityGateResult,
         );
-        await this.mrDiscussionGateway.postDiscussion(
+        await this.postComment(
           command.projectId,
           command.mrIid,
           commentBody,
+          results,
+          command.reviewSettings.hiddenRatingLabels,
         );
       }
 
@@ -215,7 +217,7 @@ export class ExecuteReviewService {
     const keptContents = new Set(keptResults.map((r) => r.checkItem.content));
     const itemsToReview = command.checklist.items.filter((i) => !keptContents.has(i.content));
 
-    // 再レビュー対象なし → 前回結果をそのまま投稿
+    // 再レ��ュー���象なし → 前回結果��そのまま投稿
     if (itemsToReview.length === 0) {
       const qualityGateResult = command.reviewSettings.qualityGate.evaluate(keptResults);
       const commentBody = CommentFormatter.formatComment(
@@ -226,7 +228,13 @@ export class ExecuteReviewService {
         command.reviewSettings.hiddenRatingLabels,
         qualityGateResult,
       );
-      await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, commentBody);
+      await this.postComment(
+        command.projectId,
+        command.mrIid,
+        commentBody,
+        keptResults,
+        command.reviewSettings.hiddenRatingLabels,
+      );
       return {
         results: keptResults,
         commitHash: mrContext.commitHash,
@@ -287,10 +295,12 @@ export class ExecuteReviewService {
           command.reviewSettings.hiddenRatingLabels,
           qualityGateResult,
         );
-        await this.mrDiscussionGateway.postDiscussion(
+        await this.postComment(
           command.projectId,
           command.mrIid,
           commentBody,
+          mergedResults,
+          command.reviewSettings.hiddenRatingLabels,
         );
       }
 
@@ -547,6 +557,23 @@ export class ExecuteReviewService {
         r.comment,
       );
     });
+  }
+
+  /**
+   * 全結果が非表示評定に該当する場合はノート、それ以外はディスカッションとして投稿する
+   */
+  private async postComment(
+    projectId: string,
+    mrIid: string,
+    body: string,
+    results: ReviewResult[],
+    hiddenRatingLabels: string[],
+  ): Promise<void> {
+    if (ReviewResult.allAreHidden(results, hiddenRatingLabels)) {
+      await this.mrDiscussionGateway.postNote(projectId, mrIid, body);
+    } else {
+      await this.mrDiscussionGateway.postDiscussion(projectId, mrIid, body);
+    }
   }
 
   /**

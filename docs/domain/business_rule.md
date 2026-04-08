@@ -112,6 +112,17 @@
     - 品質ゲート成功時（または未設定時）: 通常通りジョブ成功として終了
   - 関連するユースケースorエンティティ: QualityGate, ReviewSettings, ExecuteReviewService
 
+- コメント投稿方法ルール
+  - 目的/背景
+    - 解決すべき指摘がない場合にディスカッション（スレッド）として残るのは不適切なため、投稿方法を分ける
+  - 条件
+    - 全てのレビュー結果が非エラーかつ非表示評定ラベル（hiddenRatingLabels）に該当する場合
+  - 結果(アクション)
+    - 該当する場合: GitLab Notes API（通常コメント）として投稿する
+    - 該当しない場合: GitLab Discussions API（ディスカッション）として投稿する
+    - GitLab Discussions APIはNotes APIで投稿したコメントも返すため、前回レビューコンテキスト構築への影響はない
+  - 関連するユースケースorエンティティ: ReviewResult, ExecuteReviewService, MrDiscussionGateway
+
 - 全レビュー結果エラー時のジョブ失敗ルール
   - 目的/背景
     - CI/CDジョブとしてレビューが全て失敗した場合はジョブ失敗として扱う必要がある
