@@ -27,3 +27,20 @@ await build({
 });
 
 console.log('Build complete: dist/index.js');
+
+await build({
+  entryPoints: ['src/server.ts'],
+  bundle: true,
+  platform: 'node',
+  target: 'node22',
+  format: 'esm',
+  outfile: 'dist/server.js',
+  banner: {
+    js: bannerLines,
+  },
+  packages: 'external',
+  minify: false,
+  sourcemap: true,
+});
+
+console.log('Build complete: dist/server.js');
