@@ -1,0 +1,396 @@
+import type { SSEStreamingApi } from 'hono/streaming';
+import { z } from 'zod';
+import type { CloneManagerPort } from '../../application/shared/port/clone/index.js';
+import type { RateLimiterPort } from '../../application/shared/port/rateLimiter/index.js';
+import type { ReviewWorkflowRunner } from '../../application/shared/port/workflow/index.js';
+import type { ReviewExecutionDto } from '../../application/reviewExecution/index.js';
+import { ReviewExecutionService } from '../../application/reviewExecution/index.js';
+import { CommentPostingService } from '../../application/commentPosting/index.js';
+import { GitLabApiClient } from '../../infrastructure/adapter/httpClient/index.js';
+import {
+  GitLabMrGateway,
+  LocalGitDiffMrGateway,
+  GitLabMrDiscussionGateway,
+  LocalProjectTreeGateway,
+} from '../../infrastructure/adapter/gateway/index.js';
+import { ReviewResult } from '../../domain/reviewResult/index.js';
+import { ReviewSettings } from '../../domain/reviewSettings/index.js';
+import { Rating } from '../../domain/rating/index.js';
+import { QualityGate } from '../../domain/qualityGate/index.js';
+import { Checklist } from '../../domain/checklist/index.js';
+import { CheckItem } from '../../domain/checkItem/index.js';
+import type { ReviewExecutionCommand } from '../../application/reviewExecution/index.js';
+import type { CommentPostingCommand } from '../../application/commentPosting/index.js';
+import { getLogger } from '../../lib/logger.js';
+
+/**
+ * レビューリクエストのバリデーションスキーマ
+ */
+export const reviewRequestSchema = z.object({
+  gitlabToken: z.string().min(1),
+  projectId: z.string().min(1),
+  mrIid: z.string().min(1),
+  checklist: z.array(z.string().min(1)).min(1),
+  reviewSettings: z
+    .object({
+      additionalInstructions: z.string().optional(),
+      concurrentReviewCount: z.number().nullable().optional(),
+      commentFormat: z.string().optional(),
+      ratings: z
+        .array(
+          z.object({
+            label: z.string().min(1),
+            definition: z.string().min(1),
+          }),
+        )
+        .min(1)
+        .optional(),
+      hiddenRatingLabels: z.array(z.string()).optional(),
+      qualityGate: z
+        .object({
+          failureCriteria: z
+            .array(
+              z.object({
+                ratingLabel: z.string().min(1),
+                threshold: z.number().min(1),
+              }),
+            )
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  options: z
+    .object({
+      commentLanguage: z.string().optional(),
+      skillsPaths: z.array(z.string()).optional(),
+      treeMaxDepth: z.number().optional(),
+      maxContextLength: z.number().nullable().optional(),
+      aiModelName: z.string().optional(),
+      openaiReasoningEffort: z.string().optional(),
+    })
+    .optional(),
+});
+
+/** バリデーション済みリクエスト型 */
+export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
+
+/** SSEイベントの型定義 */
+export interface SSEEvent {
+  event: string;
+  data: string;
+}
+
+/**
+ * MR情報取得インターフェース（テスト時にモック可能）
+ */
+export interface MrInfoFetcher {
+  fetchBranchInfo(
+    projectId: string,
+    mrIid: string,
+  ): Promise<{ source_branch: string; target_branch: string }>;
+}
+
+/**
+ * レビュー実行サービスインターフェース（テスト時にモック可能）
+ */
+export interface ReviewExecutor {
+  execute(command: ReviewExecutionCommand): Promise<ReviewExecutionDto>;
+}
+
+/**
+ * コメント投稿サービスインターフェース（テスト時にモック可能）
+ */
+export interface CommentPoster {
+  execute(command: CommentPostingCommand): Promise<void>;
+}
+
+/**
+ * Per-requestサービスのファクトリ
+ * クローン後にprojectDir等を使ってサービスを組み立てる
+ */
+export interface PerRequestServiceFactory {
+  create(
+    gitlabToken: string,
+    gitlabApiBaseUrl: string,
+    projectDir: string,
+  ): {
+    mrInfoFetcher: MrInfoFetcher;
+    reviewExecutor: ReviewExecutor;
+    commentPoster: CommentPoster;
+  };
+}
+
+/**
+ * ReviewHandlerの依存インターフェース
+ */
+export interface ReviewHandlerDeps {
+  cloneManager: CloneManagerPort;
+  serviceFactory: PerRequestServiceFactory;
+  rateLimiter: RateLimiterPort;
+  aiApiKey: string;
+  aiApiEndpointUrl: string;
+  defaultAiModelName: string;
+  gitlabApiBaseUrl: string;
+}
+
+/**
+ * デフォルトのPerRequestServiceFactory実装
+ * 実際のインフラ層クラスを使用してサービスを組み立てる
+ */
+export class DefaultPerRequestServiceFactory implements PerRequestServiceFactory {
+  constructor(private readonly workflowRunner: ReviewWorkflowRunner) {}
+
+  create(
+    gitlabToken: string,
+    gitlabApiBaseUrl: string,
+    projectDir: string,
+  ): {
+    mrInfoFetcher: MrInfoFetcher;
+    reviewExecutor: ReviewExecutor;
+    commentPoster: CommentPoster;
+  } {
+    const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, gitlabToken);
+    const apiMrGateway = new GitLabMrGateway(gitlabClient);
+    const mrGateway = new LocalGitDiffMrGateway(projectDir, apiMrGateway, gitlabClient);
+    const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
+    const treeGateway = new LocalProjectTreeGateway();
+
+    const mrInfoFetcher: MrInfoFetcher = {
+      fetchBranchInfo: async (projectId, mrIid) => {
+        return gitlabClient.get<{ source_branch: string; target_branch: string }>(
+          `/projects/${projectId}/merge_requests/${mrIid}`,
+        );
+      },
+    };
+
+    const reviewExecutor = new ReviewExecutionService(
+      mrGateway,
+      mrDiscussionGateway,
+      this.workflowRunner,
+      treeGateway,
+    );
+
+    const commentPoster = new CommentPostingService(mrDiscussionGateway);
+
+    return { mrInfoFetcher, reviewExecutor, commentPoster };
+  }
+}
+
+/**
+ * レビューリクエストを処理するハンドラを生成するファクトリ
+ *
+ * 共有の依存をクロージャでキャプチャし、リクエストごとに
+ * per-request依存をserviceFactory経由で組み立てる
+ */
+export function createReviewHandler(deps: ReviewHandlerDeps) {
+  return async (request: ReviewRequest, stream: SSEStreamingApi): Promise<void> => {
+    const logger = getLogger();
+    let cleanup: (() => Promise<void>) | null = null;
+
+    // レートリミッターにユーザーを登録（リクエスト単位のユニークIDを生成）
+    const rateLimitUserId = `${request.projectId}-${request.mrIid}-${Date.now()}`;
+    deps.rateLimiter.registerUser(rateLimitUserId);
+
+    // keepaliveインターバル（30秒ごと）
+    const keepaliveInterval = setInterval(async () => {
+      try {
+        await stream.writeSSE({ event: 'keepalive', data: '{}' });
+      } catch {
+        // ストリームが閉じられた場合は無視
+      }
+    }, 30_000);
+
+    try {
+      // 1. SSE: 処理開始通知
+      await stream.writeSSE({
+        event: 'progress',
+        data: JSON.stringify({ status: 'started', message: 'Review process started' }),
+      });
+
+      // 2. MRブランチ情報取得用の一時サービス（クローン前はprojectDir不要な操作のみ）
+      const preCloneServices = deps.serviceFactory.create(
+        request.gitlabToken,
+        deps.gitlabApiBaseUrl,
+        '', // クローン前はprojectDirは空文字（MR情報取得のみ使用）
+      );
+
+      // 3. SSE: MR情報取得中
+      await stream.writeSSE({
+        event: 'progress',
+        data: JSON.stringify({ status: 'fetching_mr_info', message: 'Fetching MR metadata' }),
+      });
+
+      // 4. MRメタデータ取得（ブランチ名を得るため）
+      const mrInfo = await preCloneServices.mrInfoFetcher.fetchBranchInfo(
+        request.projectId,
+        request.mrIid,
+      );
+
+      // 5. SSE: クローン中
+      await stream.writeSSE({
+        event: 'progress',
+        data: JSON.stringify({ status: 'cloning', message: 'Cloning repository' }),
+      });
+
+      // 6. リポジトリクローン
+      const cloneResult = await deps.cloneManager.clone(
+        request.gitlabToken,
+        deps.gitlabApiBaseUrl,
+        request.projectId,
+        mrInfo.source_branch,
+        mrInfo.target_branch,
+      );
+      cleanup = cloneResult.cleanup;
+
+      logger.info(
+        { projectId: request.projectId, projectDir: cloneResult.projectDir },
+        'Repository cloned for API review',
+      );
+
+      // 7. クローン後のper-requestサービスを組み立て
+      const services = deps.serviceFactory.create(
+        request.gitlabToken,
+        deps.gitlabApiBaseUrl,
+        cloneResult.projectDir,
+      );
+
+      // 8. ドメインオブジェクト構築
+      const checklist = new Checklist(request.checklist.map((c) => new CheckItem(c)));
+      const reviewSettings = buildReviewSettings(request.reviewSettings);
+      const aiModelName = request.options?.aiModelName ?? deps.defaultAiModelName;
+
+      // 9. SSE: レビュー実行中
+      await stream.writeSSE({
+        event: 'progress',
+        data: JSON.stringify({ status: 'reviewing', message: 'Executing AI review' }),
+      });
+
+      // 10. AIレビュー実行
+      const reviewResult = await services.reviewExecutor.execute({
+        userId: 'api-server',
+        projectId: request.projectId,
+        mrIid: request.mrIid,
+        gitlabToken: request.gitlabToken,
+        checklist,
+        reviewSettings,
+        skillsPaths: request.options?.skillsPaths ?? [],
+        projectDir: cloneResult.projectDir,
+        aiApiKey: deps.aiApiKey,
+        aiApiEndpointUrl: deps.aiApiEndpointUrl,
+        aiModelName,
+        treeMaxDepth: request.options?.treeMaxDepth,
+        commentLanguage: request.options?.commentLanguage ?? 'Japanese',
+        openaiReasoningEffort: request.options?.openaiReasoningEffort,
+        maxContextLength: request.options?.maxContextLength ?? undefined,
+      });
+
+      // 11. 品質ゲート評価
+      const allResultsAreErrors = ReviewResult.allAreErrors(reviewResult.results);
+      const qualityGateResult = reviewSettings.qualityGate.evaluate(reviewResult.results);
+
+      // 12. SSE: コメント投稿中
+      await stream.writeSSE({
+        event: 'progress',
+        data: JSON.stringify({ status: 'posting_comment', message: 'Posting review comment' }),
+      });
+
+      // 13. コメント投稿（全エラーでない場合）
+      if (!allResultsAreErrors) {
+        await services.commentPoster.execute({
+          projectId: request.projectId,
+          mrIid: request.mrIid,
+          results: reviewResult.results,
+          ratings: reviewSettings.ratings,
+          commitHash: reviewResult.commitHash,
+          commitMessage: reviewResult.commitMessage,
+          hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
+          qualityGateResult,
+        });
+      }
+
+      // 14. SSE: 結果送信
+      await stream.writeSSE({
+        event: 'result',
+        data: JSON.stringify({
+          resultCount: reviewResult.results.length,
+          commitHash: reviewResult.commitHash,
+          allResultsAreErrors,
+          qualityGatePassed: qualityGateResult.passed,
+          qualityGateViolations: qualityGateResult.violations,
+        }),
+      });
+
+      // 15. SSE: 完了通知
+      await stream.writeSSE({
+        event: 'done',
+        data: JSON.stringify({ status: 'completed', message: 'Review completed successfully' }),
+      });
+
+      logger.info(
+        {
+          projectId: request.projectId,
+          mrIid: request.mrIid,
+          resultCount: reviewResult.results.length,
+        },
+        'API review completed',
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error({ err: error }, 'Review handler error');
+
+      try {
+        await stream.writeSSE({
+          event: 'error',
+          data: JSON.stringify({ error: errorMessage }),
+        });
+      } catch {
+        // ストリームへの書き込みに失敗した場合は無視
+      }
+    } finally {
+      clearInterval(keepaliveInterval);
+      // レートリミッターからユーザーを解除
+      deps.rateLimiter.unregisterUser(rateLimitUserId);
+      // クリーンアップ（クローンした一時ディレクトリの削除）
+      if (cleanup) {
+        try {
+          await cleanup();
+        } catch (cleanupError) {
+          logger.warn({ err: cleanupError }, 'Failed to cleanup cloned repository');
+        }
+      }
+    }
+  };
+}
+
+/**
+ * リクエストのreviewSettings部分からドメインオブジェクトを構築する
+ */
+export function buildReviewSettings(settings: ReviewRequest['reviewSettings']): ReviewSettings {
+  if (!settings) {
+    return ReviewSettings.default();
+  }
+
+  const defaults = ReviewSettings.default();
+
+  const ratings = settings.ratings
+    ? settings.ratings.map((r) => new Rating(r.label, r.definition))
+    : defaults.ratings;
+
+  const rawCount = settings.concurrentReviewCount;
+  const concurrentReviewCount =
+    rawCount === undefined || rawCount === null || rawCount < 1 ? null : rawCount;
+
+  const qualityGate = settings.qualityGate?.failureCriteria
+    ? new QualityGate(settings.qualityGate.failureCriteria)
+    : QualityGate.none();
+
+  return new ReviewSettings({
+    additionalInstructions: settings.additionalInstructions ?? defaults.additionalInstructions,
+    concurrentReviewCount,
+    commentFormat: settings.commentFormat ?? defaults.commentFormat,
+    ratings,
+    hiddenRatingLabels: settings.hiddenRatingLabels ?? [],
+    qualityGate,
+  });
+}
