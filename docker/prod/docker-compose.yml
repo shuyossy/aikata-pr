@@ -6,9 +6,11 @@ services:
     ports:
       - "${API_PORT:-3000}:3000"
     environment:
+      - NODE_ENV=production
       - AI_API_KEY
       - AI_API_ENDPOINT_URL
       - AI_MODEL_NAME
+      - OPENAI_REASONING_EFFORT
       - JWT_JWKS_URL
       - JWT_AUDIENCE
       - JWT_ISSUER

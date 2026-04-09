@@ -580,6 +580,61 @@ describe('reviewRoute', () => {
     });
   });
 
+  describe('POST /review - タイムアウト', () => {
+    it('reviewTimeoutMs設定時にタイムアウトするとerrorイベントが返ること', async () => {
+      const mockServiceFactory = createMockServiceFactory({
+        reviewExecutor: {
+          execute: vi
+            .fn<ReviewExecutor['execute']>()
+            .mockImplementation(
+              () =>
+                new Promise((resolve) =>
+                  setTimeout(() => resolve(createDefaultReviewResult()), 5000),
+                ),
+            ),
+        },
+      });
+      const app = createTestApp({
+        serviceFactory: mockServiceFactory,
+        reviewTimeoutMs: 50, // 50msで即タイムアウト
+      });
+      const requestBody = createValidRequestBody();
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      const text = await res.text();
+      const events = parseSSEEvents(text);
+
+      const errorEvents = events.filter((e) => e.event === 'error');
+      expect(errorEvents.length).toBe(1);
+      const errorData = JSON.parse(errorEvents[0].data);
+      expect(errorData.error).toContain('timed out');
+    });
+
+    it('reviewTimeoutMs未設定時はタイムアウトしないこと', async () => {
+      // reviewTimeoutMs未設定のデフォルト動作
+      const app = createTestApp();
+      const requestBody = createValidRequestBody();
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      const text = await res.text();
+      const events = parseSSEEvents(text);
+
+      // 正常完了すること
+      const doneEvents = events.filter((e) => e.event === 'done');
+      expect(doneEvents.length).toBe(1);
+    });
+  });
+
   describe('POST /review - resultイベントのReviewApiResponse形式', () => {
     it('resultイベントが品質ゲート情報を含まず、レビュー結果のみ返すこと', async () => {
       const mockServiceFactory = createMockServiceFactory({

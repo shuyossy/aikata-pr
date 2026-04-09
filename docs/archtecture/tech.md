@@ -32,6 +32,7 @@
     - ReviewExecutionService: AIレビュー実行（MRコンテキスト取得→Workflow実行→結果返却）。APIサーバー側で使用
     - CommentPostingService: コメント投稿（結果整形→GitLab投稿）。CLI側で使用
 - インフラ層
+  - Mastra層（`src/mastra`）についてはAIワークフロー実行基盤としてインフラ層の一種とみなす※ポートは`src/application/shared/port/workflow`
 - プレゼンテーション層
   - CLIインターフェース: `node dist/index.js [options]`
   - APIサーバーインターフェース: `node dist/server.js`

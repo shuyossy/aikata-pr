@@ -133,9 +133,7 @@ export class ReviewApiClient {
               case 'result':
                 return parsed as unknown as ReviewApiResponse;
               case 'error':
-                throw new Error(
-                  `Review API error: ${(parsed.message as string) ?? 'Unknown error'}`,
-                );
+                throw new Error(`Review API error: ${(parsed.error as string) ?? 'Unknown error'}`);
               case 'keepalive':
               case 'done':
                 // 無視

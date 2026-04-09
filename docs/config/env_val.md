@@ -36,6 +36,7 @@ APIサーバー（`docker/prod/docker-compose.yml`）で設定する環境変数
 | AI | AI_API_KEY | Yes | - | AI APIキー（APIサーバー側で一元管理） |
 | AI | AI_API_ENDPOINT_URL | Yes | - | AI APIエンドポイントURL |
 | AI | AI_MODEL_NAME | Yes | - | AIモデル名 |
+| AI | OPENAI_REASONING_EFFORT | No | - | OpenAI reasoningモデルのreasoning effort（low/medium/high） |
 | JWT | JWT_JWKS_URL | Yes | - | GitLabのJWKSエンドポイントURL |
 | JWT | JWT_AUDIENCE | Yes | - | JWT audience値 |
 | JWT | JWT_ISSUER | Yes | - | JWT issuer値（GitLabインスタンスURL） |

@@ -115,7 +115,7 @@ describe('ReviewApiClient', () => {
   it('errorイベントでエラーがスローされること', async () => {
     const sseResponse = createSSEResponse([
       { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
-      { event: 'error', data: JSON.stringify({ code: 'REVIEW_FAILED', message: 'Review failed' }) },
+      { event: 'error', data: JSON.stringify({ error: 'Review failed' }) },
     ]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 

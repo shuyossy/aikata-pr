@@ -2,11 +2,6 @@ import { parseCliOptions, buildChecklistParseOptions, type CliOptions } from './
 import { initializeLogger, getLogger, flushLogger } from './lib/logger.js';
 import { ChecklistParser } from './application/shared/parser/index.js';
 import { ReviewSettingsParser } from './application/shared/parser/index.js';
-import type {
-  ReviewWorkflowRunner,
-  ReviewWorkflowParams,
-  ReviewWorkflowResult,
-} from './application/shared/port/workflow/index.js';
 import { ReviewExecutionService } from './application/reviewExecution/index.js';
 import { CommentPostingService } from './application/commentPosting/index.js';
 import { ReviewResult } from './domain/reviewResult/index.js';
@@ -16,59 +11,11 @@ import { GitLabMrGateway, LocalGitDiffMrGateway } from './infrastructure/adapter
 import { GitLabMrDiscussionGateway } from './infrastructure/adapter/gateway/index.js';
 import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/index.js';
 import { ReviewApiClient } from './infrastructure/adapter/apiClient/index.js';
-import { mastra } from './mastra/index.js';
+import { MastraReviewWorkflowRunner } from './infrastructure/adapter/workflow/index.js';
 import { ReviewSettings } from './domain/reviewSettings/index.js';
-import { RequestContext } from '@mastra/core/request-context';
-import type { WorkflowRequestContext } from './mastra/requestContext.js';
 import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
 import { initializeRateLimiter, resetRateLimiter } from './lib/rateLimiterGlobal.js';
 import fs from 'node:fs';
-
-/**
- * Mastra reviewWorkflowをReviewWorkflowRunnerインターフェースにラップする
- */
-class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
-  async run(params: ReviewWorkflowParams): Promise<ReviewWorkflowResult> {
-    // inputDataからモデル設定・プロジェクト情報を分離
-    const {
-      userId,
-      projectId,
-      aiApiKey,
-      aiApiEndpointUrl,
-      aiModelName,
-      projectDir,
-      openaiReasoningEffort,
-      ...inputData
-    } = params;
-
-    // モデル設定・プロジェクト情報をRequestContextに設定
-    const requestContext = new RequestContext<WorkflowRequestContext>([
-      ['userId', userId],
-      ['projectId', projectId],
-      ['aiApiKey', aiApiKey],
-      ['aiApiEndpointUrl', aiApiEndpointUrl],
-      ['aiModelName', aiModelName],
-      ['projectDir', projectDir],
-      ['openaiReasoningEffort', openaiReasoningEffort],
-    ]);
-
-    const workflow = mastra.getWorkflow('reviewWorkflow');
-    const run = await workflow.createRun();
-    const result = await run.start({ inputData, requestContext });
-
-    if (result.status === 'failed') {
-      throw new Error(`Workflow failed: ${result.error?.message ?? 'Unknown error'}`, {
-        cause: result.error,
-      });
-    }
-
-    if (result.status !== 'success') {
-      throw new Error(`Workflow ended with unexpected status: ${result.status}`);
-    }
-
-    return result.result as ReviewWorkflowResult;
-  }
-}
 
 /**
  * バリデーション済みの必須パラメータ

@@ -21,6 +21,11 @@ aikata-pr-review:
     key: "aikata-pr-v${AIKATA_VERSION}"
     paths:
       - .npm/
+  # JWT生成: AIKATA_API_URLが設定されている場合、GitLabがJWTを発行する
+  # APIモード時のみ有効（ローカル実行モードではJWTは使用されない）
+  id_tokens:
+    AIKATA_JWT:
+      aud: "${AIKATA_API_URL}"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:

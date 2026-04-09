@@ -8,60 +8,9 @@ import type { ReviewHandlerDeps } from './presentation/api/index.js';
 import { DefaultPerRequestServiceFactory } from './presentation/api/index.js';
 import { CloneManager } from './infrastructure/adapter/clone/CloneManager.js';
 import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
+import { MastraReviewWorkflowRunner } from './infrastructure/adapter/workflow/index.js';
 import { initializeRateLimiter } from './lib/rateLimiterGlobal.js';
-import { mastra } from './mastra/index.js';
 import { initializeLogger, getLogger } from './lib/logger.js';
-import type {
-  ReviewWorkflowRunner,
-  ReviewWorkflowParams,
-  ReviewWorkflowResult,
-} from './application/shared/port/workflow/index.js';
-import { RequestContext } from '@mastra/core/request-context';
-import type { WorkflowRequestContext } from './mastra/requestContext.js';
-
-/**
- * Mastra reviewWorkflowをReviewWorkflowRunnerインターフェースにラップする（API用）
- */
-class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
-  async run(params: ReviewWorkflowParams): Promise<ReviewWorkflowResult> {
-    const {
-      userId,
-      projectId,
-      aiApiKey,
-      aiApiEndpointUrl,
-      aiModelName,
-      projectDir,
-      openaiReasoningEffort,
-      ...inputData
-    } = params;
-
-    const requestContext = new RequestContext<WorkflowRequestContext>([
-      ['userId', userId],
-      ['projectId', projectId],
-      ['aiApiKey', aiApiKey],
-      ['aiApiEndpointUrl', aiApiEndpointUrl],
-      ['aiModelName', aiModelName],
-      ['projectDir', projectDir],
-      ['openaiReasoningEffort', openaiReasoningEffort],
-    ]);
-
-    const workflow = mastra.getWorkflow('reviewWorkflow');
-    const run = await workflow.createRun();
-    const result = await run.start({ inputData, requestContext });
-
-    if (result.status === 'failed') {
-      throw new Error(`Workflow failed: ${result.error?.message ?? 'Unknown error'}`, {
-        cause: result.error,
-      });
-    }
-
-    if (result.status !== 'success') {
-      throw new Error(`Workflow ended with unexpected status: ${result.status}`);
-    }
-
-    return result.result as ReviewWorkflowResult;
-  }
-}
 
 /**
  * 必須環境変数を取得し、未設定の場合はエラーをスローする
@@ -151,6 +100,12 @@ export async function startServer(): Promise<void> {
   // レートリミッターをグローバルシングルトンとして登録（ワークフロー内からアクセス可能にする）
   initializeRateLimiter(rateLimiter);
 
+  // レビュータイムアウト
+  const reviewTimeoutMsEnv = process.env['REVIEW_TIMEOUT_MS'];
+  const reviewTimeoutMs = reviewTimeoutMsEnv ? Number(reviewTimeoutMsEnv) : undefined;
+
+  const openaiReasoningEffort = process.env['OPENAI_REASONING_EFFORT'] || undefined;
+
   const deps: ReviewHandlerDeps = {
     cloneManager,
     serviceFactory,
@@ -159,6 +114,8 @@ export async function startServer(): Promise<void> {
     aiApiKey,
     aiApiEndpointUrl,
     defaultAiModelName,
+    openaiReasoningEffort,
+    reviewTimeoutMs,
   };
 
   // JWT認証設定の構築

@@ -38,8 +38,6 @@ describe('reviewRequestSchema', () => {
         skillsPaths: ['/path/to/skills'],
         treeMaxDepth: 5,
         maxContextLength: 50000,
-        aiModelName: 'openai/gpt-4',
-        openaiReasoningEffort: 'high',
       },
     };
 

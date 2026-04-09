@@ -64,8 +64,6 @@ export const reviewRequestSchema = z.object({
       skillsPaths: z.array(z.string()).optional(),
       treeMaxDepth: z.number().optional(),
       maxContextLength: z.number().nullable().optional(),
-      aiModelName: z.string().optional(),
-      openaiReasoningEffort: z.string().optional(),
     })
     .optional(),
 });
@@ -122,6 +120,10 @@ export interface ReviewHandlerDeps {
   aiApiEndpointUrl: string;
   defaultAiModelName: string;
   gitlabApiBaseUrl: string;
+  /** OpenAI reasoningモデルのreasoning effort設定 */
+  openaiReasoningEffort?: string;
+  /** レビュー全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
+  reviewTimeoutMs?: number;
 }
 
 /**
@@ -173,7 +175,8 @@ export class DefaultPerRequestServiceFactory implements PerRequestServiceFactory
 export function createReviewHandler(deps: ReviewHandlerDeps) {
   return async (request: ReviewRequest, stream: SSEStreamingApi): Promise<void> => {
     const logger = getLogger();
-    let cleanup: (() => Promise<void>) | null = null;
+    // オブジェクトに格納してクロージャ内からの代入をTypeScriptの制御フロー解析に追従させる
+    const state: { cleanup: (() => Promise<void>) | null } = { cleanup: null };
 
     // レートリミッターにプロジェクトを登録（参照カウント方式）
     deps.rateLimiter.registerProject(request.projectId);
@@ -187,124 +190,141 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
       }
     }, 30_000);
 
+    // タイムアウト制御
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     try {
-      // 1. SSE: 処理開始通知
-      await stream.writeSSE({
-        event: 'progress',
-        data: JSON.stringify({ status: 'started', message: 'Review process started' }),
-      });
+      // タイムアウト付きのメイン処理をPromise.raceで制御
+      const reviewPromise = async (): Promise<void> => {
+        // 1. SSE: 処理開始通知
+        await stream.writeSSE({
+          event: 'progress',
+          data: JSON.stringify({ status: 'started', message: 'Review process started' }),
+        });
 
-      // 2. MRブランチ情報取得用の一時サービス（クローン前はprojectDir不要な操作のみ）
-      const preCloneServices = deps.serviceFactory.create(
-        request.gitlabToken,
-        deps.gitlabApiBaseUrl,
-        '', // クローン前はprojectDirは空文字（MR情報取得のみ使用）
-      );
+        // 2. MRブランチ情報取得用の一時サービス（クローン前はprojectDir不要な操作のみ）
+        const preCloneServices = deps.serviceFactory.create(
+          request.gitlabToken,
+          deps.gitlabApiBaseUrl,
+          '', // クローン前はprojectDirは空文字（MR情報取得のみ使用）
+        );
 
-      // 3. SSE: MR情報取得中
-      await stream.writeSSE({
-        event: 'progress',
-        data: JSON.stringify({ status: 'fetching_mr_info', message: 'Fetching MR metadata' }),
-      });
+        // 3. SSE: MR情報取得中
+        await stream.writeSSE({
+          event: 'progress',
+          data: JSON.stringify({ status: 'fetching_mr_info', message: 'Fetching MR metadata' }),
+        });
 
-      // 4. MRメタデータ取得（ブランチ名を得るため）
-      const mrInfo = await preCloneServices.mrInfoFetcher.fetchBranchInfo(
-        request.projectId,
-        request.mrIid,
-      );
+        // 4. MRメタデータ取得（ブランチ名を得るため）
+        const mrInfo = await preCloneServices.mrInfoFetcher.fetchBranchInfo(
+          request.projectId,
+          request.mrIid,
+        );
 
-      // 5. SSE: クローン中
-      await stream.writeSSE({
-        event: 'progress',
-        data: JSON.stringify({ status: 'cloning', message: 'Cloning repository' }),
-      });
+        // 5. SSE: クローン中
+        await stream.writeSSE({
+          event: 'progress',
+          data: JSON.stringify({ status: 'cloning', message: 'Cloning repository' }),
+        });
 
-      // 6. リポジトリクローン
-      const cloneResult = await deps.cloneManager.clone(
-        request.gitlabToken,
-        deps.gitlabApiBaseUrl,
-        request.projectId,
-        mrInfo.source_branch,
-        mrInfo.target_branch,
-      );
-      cleanup = cloneResult.cleanup;
+        // 6. リポジトリクローン
+        const cloneResult = await deps.cloneManager.clone(
+          request.gitlabToken,
+          deps.gitlabApiBaseUrl,
+          request.projectId,
+          mrInfo.source_branch,
+          mrInfo.target_branch,
+        );
+        state.cleanup = cloneResult.cleanup;
 
-      logger.info(
-        { projectId: request.projectId, projectDir: cloneResult.projectDir },
-        'Repository cloned for API review',
-      );
+        logger.info(
+          { projectId: request.projectId, projectDir: cloneResult.projectDir },
+          'Repository cloned for API review',
+        );
 
-      // 7. クローン後のper-requestサービスを組み立て
-      const services = deps.serviceFactory.create(
-        request.gitlabToken,
-        deps.gitlabApiBaseUrl,
-        cloneResult.projectDir,
-      );
+        // 7. クローン後のper-requestサービスを組み立て
+        const services = deps.serviceFactory.create(
+          request.gitlabToken,
+          deps.gitlabApiBaseUrl,
+          cloneResult.projectDir,
+        );
 
-      // 8. ドメインオブジェクト構築
-      const checklist = new Checklist(request.checklist.map((c) => new CheckItem(c)));
-      const reviewSettings = buildReviewSettings(request.reviewSettings);
-      const aiModelName = request.options?.aiModelName ?? deps.defaultAiModelName;
+        // 8. ドメインオブジェクト構築
+        const checklist = new Checklist(request.checklist.map((c) => new CheckItem(c)));
+        const reviewSettings = buildReviewSettings(request.reviewSettings);
 
-      // 9. SSE: レビュー実行中
-      await stream.writeSSE({
-        event: 'progress',
-        data: JSON.stringify({ status: 'reviewing', message: 'Executing AI review' }),
-      });
+        // 9. SSE: レビュー実行中
+        await stream.writeSSE({
+          event: 'progress',
+          data: JSON.stringify({ status: 'reviewing', message: 'Executing AI review' }),
+        });
 
-      // 10. AIレビュー実行
-      const reviewResult = await services.reviewExecutor.execute({
-        userId: 'api-server',
-        projectId: request.projectId,
-        mrIid: request.mrIid,
-        gitlabToken: request.gitlabToken,
-        checklist,
-        reviewSettings,
-        skillsPaths: request.options?.skillsPaths ?? [],
-        projectDir: cloneResult.projectDir,
-        aiApiKey: deps.aiApiKey,
-        aiApiEndpointUrl: deps.aiApiEndpointUrl,
-        aiModelName,
-        treeMaxDepth: request.options?.treeMaxDepth,
-        commentLanguage: request.options?.commentLanguage ?? 'Japanese',
-        openaiReasoningEffort: request.options?.openaiReasoningEffort,
-        maxContextLength: request.options?.maxContextLength ?? undefined,
-      });
-
-      // 11. ReviewApiResponse形式でレビュー結果を構築
-      const apiResponse: ReviewApiResponse = {
-        results: reviewResult.results.map((r) => ({
-          checkItemContent: r.checkItem.content,
-          ratingLabel: r.rating.label,
-          ratingDefinition: r.rating.definition,
-          comment: r.comment,
-          isError: r.isError,
-          errorMessage: r.errorMessage ?? undefined,
-        })),
-        commitHash: reviewResult.commitHash,
-        commitMessage: reviewResult.commitMessage,
-      };
-
-      // 12. SSE: 結果送信（コメント投稿・品質ゲート評価はCLI側の責務）
-      await stream.writeSSE({
-        event: 'result',
-        data: JSON.stringify(apiResponse),
-      });
-
-      // 13. SSE: 完了通知
-      await stream.writeSSE({
-        event: 'done',
-        data: JSON.stringify({ status: 'completed', message: 'Review completed successfully' }),
-      });
-
-      logger.info(
-        {
+        // 10. AIレビュー実行
+        const reviewResult = await services.reviewExecutor.execute({
+          userId: 'api-server',
           projectId: request.projectId,
           mrIid: request.mrIid,
-          resultCount: reviewResult.results.length,
-        },
-        'API review completed',
-      );
+          gitlabToken: request.gitlabToken,
+          checklist,
+          reviewSettings,
+          skillsPaths: request.options?.skillsPaths ?? [],
+          projectDir: cloneResult.projectDir,
+          aiApiKey: deps.aiApiKey,
+          aiApiEndpointUrl: deps.aiApiEndpointUrl,
+          aiModelName: deps.defaultAiModelName,
+          treeMaxDepth: request.options?.treeMaxDepth,
+          commentLanguage: request.options?.commentLanguage ?? 'Japanese',
+          openaiReasoningEffort: deps.openaiReasoningEffort,
+          maxContextLength: request.options?.maxContextLength ?? undefined,
+        });
+
+        // 11. ReviewApiResponse形式でレビュー結果を構築
+        const apiResponse: ReviewApiResponse = {
+          results: reviewResult.results.map((r) => ({
+            checkItemContent: r.checkItem.content,
+            ratingLabel: r.rating.label,
+            ratingDefinition: r.rating.definition,
+            comment: r.comment,
+            isError: r.isError,
+            errorMessage: r.errorMessage ?? undefined,
+          })),
+          commitHash: reviewResult.commitHash,
+          commitMessage: reviewResult.commitMessage,
+        };
+
+        // 12. SSE: 結果送信（コメント投稿・品質ゲート評価はCLI側の責務）
+        await stream.writeSSE({
+          event: 'result',
+          data: JSON.stringify(apiResponse),
+        });
+
+        // 13. SSE: 完了通知
+        await stream.writeSSE({
+          event: 'done',
+          data: JSON.stringify({ status: 'completed', message: 'Review completed successfully' }),
+        });
+
+        logger.info(
+          {
+            projectId: request.projectId,
+            mrIid: request.mrIid,
+            resultCount: reviewResult.results.length,
+          },
+          'API review completed',
+        );
+      };
+
+      // タイムアウトが設定されている場合はPromise.raceで制御
+      if (deps.reviewTimeoutMs) {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(`Review timed out after ${deps.reviewTimeoutMs}ms`));
+          }, deps.reviewTimeoutMs);
+        });
+        await Promise.race([reviewPromise(), timeoutPromise]);
+      } else {
+        await reviewPromise();
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error({ err: error }, 'Review handler error');
@@ -319,12 +339,13 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
       }
     } finally {
       clearInterval(keepaliveInterval);
+      if (timeoutId) clearTimeout(timeoutId);
       // レートリミッターからプロジェクトを解除
       deps.rateLimiter.unregisterProject(request.projectId);
       // クリーンアップ（クローンした一時ディレクトリの削除）
-      if (cleanup) {
+      if (state.cleanup) {
         try {
-          await cleanup();
+          await state.cleanup();
         } catch (cleanupError) {
           logger.warn({ err: cleanupError }, 'Failed to cleanup cloned repository');
         }
