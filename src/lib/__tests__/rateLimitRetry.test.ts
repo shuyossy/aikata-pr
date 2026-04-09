@@ -7,7 +7,12 @@ import {
   type RateLimitRetryConfig,
 } from '../rateLimitRetry.js';
 import { initializeLogger, resetLogger } from '../logger.js';
-import { initializeCoordinator, resetCoordinator } from '../rateLimitCoordinator.js';
+import { RateLimiter } from '../../infrastructure/adapter/rateLimiter/RateLimiter.js';
+import {
+  initializeRateLimiter,
+  resetRateLimiter,
+  RateLimitExhaustedError,
+} from '../rateLimiterGlobal.js';
 
 /**
  * テスト用のAPICallErrorを生成するヘルパー
@@ -76,7 +81,6 @@ describe('isRateLimitError', () => {
   });
 
   it('APICallError.isInstance()でマッチしないがstatusCode=429のErrorでtrueを返す（バージョン不一致フォールバック）', () => {
-    // 異なるバージョンのAPICallErrorをシミュレート（isInstanceでマッチしない）
     const fakeApiError = new Error('Rate limit exceeded') as Error & { statusCode: number };
     fakeApiError.statusCode = 429;
 
@@ -101,14 +105,12 @@ describe('isRateLimitError', () => {
 
 describe('calculateBackoffDelay', () => {
   it('attemptに応じて遅延が指数的に増加する', () => {
-    // Math.randomを固定して検証
     vi.spyOn(Math, 'random').mockReturnValue(0);
 
     const delay0 = calculateBackoffDelay(0, 1000, 60000);
     const delay1 = calculateBackoffDelay(1, 1000, 60000);
     const delay2 = calculateBackoffDelay(2, 1000, 60000);
 
-    // jitter=0の場合: 1000*2^0=1000, 1000*2^1=2000, 1000*2^2=4000
     expect(delay0).toBe(1000);
     expect(delay1).toBe(2000);
     expect(delay2).toBe(4000);
@@ -127,7 +129,6 @@ describe('calculateBackoffDelay', () => {
   });
 
   it('ジッターが含まれる（ランダム要素あり）', () => {
-    // random=0.5 の場合: 1000*2^0 + 0.5*1000 = 1500
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
     const delay = calculateBackoffDelay(0, 1000, 60000);
@@ -147,14 +148,13 @@ describe('withRateLimitRetry', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    // テスト用ロガーを初期化
     initializeLogger({ userId: 'test-user', level: 'silent' });
   });
 
   afterEach(() => {
     vi.useRealTimers();
     resetLogger();
-    resetCoordinator();
+    resetRateLimiter();
     vi.restoreAllMocks();
   });
 
@@ -204,7 +204,6 @@ describe('withRateLimitRetry', () => {
 
     await promise;
     expect(caughtError).toBe(rateLimitError);
-    // 初回 + maxRetries回
     expect(callback).toHaveBeenCalledTimes(config.maxRetries + 1);
   });
 
@@ -234,52 +233,41 @@ describe('withRateLimitRetry', () => {
     await vi.advanceTimersByTimeAsync(config.maxDelayMs);
     await promise;
 
-    // ログが出力されていることを確認
     expect(logs.length).toBeGreaterThan(0);
     const logContent = logs.join('');
     expect(logContent).toContain('Rate limit');
   });
 
-  describe('コーディネーター連携', () => {
-    it('コーディネーター初期化済みの場合、レート制限エラー時にコーディネーターにreportする', async () => {
-      const coordinator = initializeCoordinator(config);
+  describe('レートリミッター連携', () => {
+    const projectId = 'test-project';
+
+    function initTestRateLimiter(): RateLimiter {
+      const limiter = new RateLimiter({
+        rateLimitPerMin: 100,
+        baseDelayMs: config.baseDelayMs,
+        maxDelayMs: config.maxDelayMs,
+      });
+      initializeRateLimiter(limiter);
+      limiter.registerProject(projectId);
+      return limiter;
+    }
+
+    it('レートリミッター初期化済みの場合、レート制限エラー時にレートリミッターにreportする', async () => {
+      initTestRateLimiter();
       const rateLimitError = createAPICallError({ statusCode: 429 });
       const callback = vi.fn().mockRejectedValueOnce(rateLimitError).mockResolvedValue('success');
 
-      const promise = withRateLimitRetry(callback, config);
+      const promise = withRateLimitRetry(callback, config, { projectId });
 
-      // コーディネーターのcooldownが終わるまで待機
+      // レートリミッターのcooldownが終わるまで待機
       await vi.advanceTimersByTimeAsync(config.maxDelayMs);
       await promise;
 
-      // reportRateLimitで1に増えた後、成功でリセットされる
-      expect(coordinator.retryCount).toBe(0);
       expect(callback).toHaveBeenCalledTimes(2);
     });
 
-    it('コーディネーター初期化済みの場合、成功時にリトライカウントがリセットされる', async () => {
-      const coordinator = initializeCoordinator(config);
-      const rateLimitError = createAPICallError({ statusCode: 429 });
-      const callback = vi
-        .fn()
-        .mockRejectedValueOnce(rateLimitError)
-        .mockRejectedValueOnce(rateLimitError)
-        .mockResolvedValue('success');
-
-      const promise = withRateLimitRetry(callback, config);
-
-      // 2回分のcooldownを進める
-      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
-      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
-      await promise;
-
-      // 2回reportRateLimitされた後、成功で0にリセット
-      expect(coordinator.retryCount).toBe(0);
-      expect(callback).toHaveBeenCalledTimes(3);
-    });
-
-    it('コーディネーター初期化済みの場合、レート制限以外のエラー時もリトライカウントがリセットされる', async () => {
-      const coordinator = initializeCoordinator(config);
+    it('レートリミッター初期化済みの場合、レート制限以外のエラー時もreportSuccessされる', async () => {
+      initTestRateLimiter();
       const rateLimitError = createAPICallError({ statusCode: 429 });
       const nonRateLimitError = new Error('Some other error');
       const callback = vi
@@ -287,43 +275,120 @@ describe('withRateLimitRetry', () => {
         .mockRejectedValueOnce(rateLimitError)
         .mockRejectedValueOnce(nonRateLimitError);
 
-      const promise = withRateLimitRetry(callback, config).catch((e) => e);
+      const promise = withRateLimitRetry(callback, config, { projectId }).catch((e) => e);
 
       await vi.advanceTimersByTimeAsync(config.maxDelayMs);
       const caughtError = await promise;
 
-      // レート制限以外のエラーでもカウントがリセットされている
       expect(caughtError).toBe(nonRateLimitError);
-      expect(coordinator.retryCount).toBe(0);
     });
 
-    it('コーディネーター初期化済みの場合、コーディネーターの上限到達でRateLimitExhaustedErrorをスローする', async () => {
-      const coordinator = initializeCoordinator(config);
+    it('レートリミッター初期化済みの場合、ローカルリトライカウンタが上限到達でRateLimitExhaustedErrorをスローする', async () => {
+      initTestRateLimiter();
       const rateLimitError = createAPICallError({ statusCode: 429 });
       const callback = vi.fn().mockRejectedValue(rateLimitError);
 
       let caughtError: unknown;
-      const promise = withRateLimitRetry(callback, config).catch((e) => {
+      const promise = withRateLimitRetry(callback, config, { projectId }).catch((e) => {
         caughtError = e;
       });
 
-      // maxRetries + 1回分の待機を進める（maxRetries=3 → 4回呼び出し後に上限到達）
+      // maxRetries + 1回分の待機を進める
       for (let i = 0; i <= config.maxRetries; i++) {
         await vi.advanceTimersByTimeAsync(config.maxDelayMs);
       }
 
       await promise;
-      // maxRetries + 1回のreportで上限到達
-      expect(coordinator.retryCount).toBe(config.maxRetries + 1);
+      expect(caughtError).toBeInstanceOf(RateLimitExhaustedError);
       expect((caughtError as Error).name).toBe('RateLimitExhaustedError');
     });
 
-    it('コーディネーター未初期化の場合は既存のローカルリトライ動作を維持する', async () => {
-      // coordinatorは初期化しない
+    it('レートリミッター未初期化の場合は既存のローカルリトライ動作を維持する', async () => {
+      // レートリミッターは初期化しない
       const rateLimitError = createAPICallError({ statusCode: 429 });
       const callback = vi.fn().mockRejectedValueOnce(rateLimitError).mockResolvedValue('success');
 
       const promise = withRateLimitRetry(callback, config);
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      const result = await promise;
+
+      expect(result).toBe('success');
+      expect(callback).toHaveBeenCalledTimes(2);
+    });
+
+    it('projectId未指定の場合はローカルリトライ動作を維持する', async () => {
+      initTestRateLimiter();
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callback = vi.fn().mockRejectedValueOnce(rateLimitError).mockResolvedValue('success');
+
+      // projectIdなしで呼び出し → ローカルリトライ
+      const promise = withRateLimitRetry(callback, config);
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      const result = await promise;
+
+      expect(result).toBe('success');
+      expect(callback).toHaveBeenCalledTimes(2);
+    });
+
+    it('onRateLimitHitコールバックがレート制限リトライごとに呼ばれる', async () => {
+      initTestRateLimiter();
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callback = vi
+        .fn()
+        .mockRejectedValueOnce(rateLimitError)
+        .mockRejectedValueOnce(rateLimitError)
+        .mockResolvedValue('success');
+      const onRateLimitHit = vi.fn();
+
+      const promise = withRateLimitRetry(callback, config, { projectId, onRateLimitHit });
+
+      // 1回目のリトライ待機
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      // 2回目のリトライ待機
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      await promise;
+
+      // 2回のレート制限エラー → 2回呼ばれる
+      expect(onRateLimitHit).toHaveBeenCalledTimes(2);
+      expect(callback).toHaveBeenCalledTimes(3);
+    });
+
+    it('onRateLimitHitはreportRateLimitの後、次のacquirePermissionの前に呼ばれる', async () => {
+      const limiter = initTestRateLimiter();
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callOrder: string[] = [];
+
+      const reportRateLimitSpy = vi.spyOn(limiter, 'reportRateLimit').mockImplementation(() => {
+        callOrder.push('reportRateLimit');
+      });
+      vi.spyOn(limiter, 'acquirePermission').mockImplementation(async () => {
+        callOrder.push('acquirePermission');
+      });
+
+      const callback = vi.fn().mockRejectedValueOnce(rateLimitError).mockResolvedValue('success');
+      const onRateLimitHit = vi.fn().mockImplementation(() => {
+        callOrder.push('onRateLimitHit');
+      });
+
+      await withRateLimitRetry(callback, config, { projectId, onRateLimitHit });
+
+      expect(callOrder).toEqual([
+        'acquirePermission', // 初回呼び出し前
+        'reportRateLimit', // レート制限エラー検知後
+        'onRateLimitHit', // コールバック呼び出し
+        'acquirePermission', // リトライ前
+      ]);
+
+      reportRateLimitSpy.mockRestore();
+    });
+
+    it('onRateLimitHit未指定の場合もエラーなく動作する', async () => {
+      initTestRateLimiter();
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callback = vi.fn().mockRejectedValueOnce(rateLimitError).mockResolvedValue('success');
+
+      const promise = withRateLimitRetry(callback, config, { projectId });
+
       await vi.advanceTimersByTimeAsync(config.maxDelayMs);
       const result = await promise;
 

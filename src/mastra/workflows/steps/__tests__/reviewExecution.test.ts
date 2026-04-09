@@ -19,7 +19,8 @@ import {
   REVIEW_MISSED_MESSAGE,
 } from '../../../../lib/errorClassifier.js';
 import { initializeLogger, resetLogger, getLogger } from '../../../../lib/logger.js';
-import { initializeCoordinator, resetCoordinator } from '../../../../lib/rateLimitCoordinator.js';
+import { RateLimiter } from '../../../../infrastructure/adapter/rateLimiter/RateLimiter.js';
+import { initializeRateLimiter, resetRateLimiter } from '../../../../lib/rateLimiterGlobal.js';
 
 /**
  * 結果ファイルにレビュー結果を書き込むヘルパー
@@ -51,6 +52,7 @@ function createTestRequestContext(
 ): RequestContext<ReviewAgentRequestContext> {
   return new RequestContext<ReviewAgentRequestContext>([
     ['userId', 'test-user'],
+    ['projectId', 'test-project'],
     ['aiApiKey', 'test-key'],
     ['aiApiEndpointUrl', 'http://localhost'],
     ['aiModelName', 'test-model'],
@@ -143,9 +145,13 @@ function createBaseConfig(overrides: Partial<ReviewExecutionConfig> = {}): Revie
   const resultFilePath = overrides.resultFilePath ?? '';
   const rateLimitRetryConfig = overrides.rateLimitRetryConfig ?? DEFAULT_RATE_LIMIT_RETRY_CONFIG;
 
-  // コーディネーターを各テスト用の設定で初期化
-  resetCoordinator();
-  initializeCoordinator(rateLimitRetryConfig);
+  // レートリミッターを各テスト用の設定で初期化
+  resetRateLimiter();
+  const limiter = new RateLimiter({
+    rateLimitPerMin: 100,
+  });
+  initializeRateLimiter(limiter);
+  limiter.registerProject('test-project');
 
   return {
     checkItems,
@@ -173,7 +179,7 @@ describe('executeReview', () => {
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     resetLogger();
-    resetCoordinator();
+    resetRateLimiter();
   });
 
   it('グループ内の全チェック項目のレビュー結果が返される', async () => {
@@ -810,6 +816,7 @@ describe('executeReview', () => {
 
     const requestContext = new RequestContext<ReviewAgentRequestContext>([
       ['userId', 'test-user'],
+      ['projectId', 'test-project'],
       ['aiApiKey', 'test-key'],
       ['aiApiEndpointUrl', 'http://localhost'],
       ['aiModelName', 'test-model'],

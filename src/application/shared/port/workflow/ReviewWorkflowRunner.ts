@@ -22,6 +22,7 @@ export interface ReviewWorkflowParams {
   priorCommitMessages: string[] | null;
   priorDiffSincePrior: string | null;
   userId: string;
+  projectId: string;
   aiApiKey: string;
   aiApiEndpointUrl: string;
   aiModelName: string;

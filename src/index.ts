@@ -20,6 +20,8 @@ import { mastra } from './mastra/index.js';
 import { ReviewSettings } from './domain/reviewSettings/index.js';
 import { RequestContext } from '@mastra/core/request-context';
 import type { WorkflowRequestContext } from './mastra/requestContext.js';
+import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
+import { initializeRateLimiter, resetRateLimiter } from './lib/rateLimiterGlobal.js';
 import fs from 'node:fs';
 
 /**
@@ -30,6 +32,7 @@ class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
     // inputDataからモデル設定・プロジェクト情報を分離
     const {
       userId,
+      projectId,
       aiApiKey,
       aiApiEndpointUrl,
       aiModelName,
@@ -41,6 +44,7 @@ class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
     // モデル設定・プロジェクト情報をRequestContextに設定
     const requestContext = new RequestContext<WorkflowRequestContext>([
       ['userId', userId],
+      ['projectId', projectId],
       ['aiApiKey', aiApiKey],
       ['aiApiEndpointUrl', aiApiEndpointUrl],
       ['aiModelName', aiModelName],
@@ -283,6 +287,14 @@ async function main(): Promise<void> {
       }
     } else {
       // === ローカルモード（既存動作） ===
+      // レートリミッターをローカルモード用に初期化
+      resetRateLimiter();
+      const rateLimiter = new RateLimiter({
+        rateLimitPerMin: Number(process.env['AI_API_RATE_LIMIT_PER_MIN'] ?? '60'),
+      });
+      initializeRateLimiter(rateLimiter);
+      rateLimiter.registerProject(validated.projectId);
+
       // GitLab APIベースURLを環境変数から取得（CI環境では CI_API_V4_URL を使用）
       const gitlabApiBaseUrl =
         process.env['GITLAB_API_URL'] ??
@@ -365,6 +377,10 @@ async function main(): Promise<void> {
         flushLogger();
         process.exit(1);
       }
+
+      // レートリミッタークリーンアップ
+      rateLimiter.unregisterProject(validated.projectId);
+      rateLimiter.destroy();
     }
   } catch (error) {
     const userId = options.userId ?? 'unknown';

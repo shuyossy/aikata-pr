@@ -20,6 +20,7 @@ function createTestContext(
 ): ReviewAgentRequestContext {
   return {
     userId: 'test-user',
+    projectId: 'test-project',
     aiApiKey: 'test-key',
     aiApiEndpointUrl: 'http://localhost',
     aiModelName: 'test-model',
@@ -57,6 +58,7 @@ function createTestRequestContext(
   const ctx = createTestContext(overrides);
   return new RequestContext<ReviewAgentRequestContext>([
     ['userId', ctx.userId],
+    ['projectId', 'test-project'],
     ['aiApiKey', ctx.aiApiKey],
     ['aiApiEndpointUrl', ctx.aiApiEndpointUrl],
     ['aiModelName', ctx.aiModelName],

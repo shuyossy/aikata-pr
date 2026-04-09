@@ -229,6 +229,7 @@ export class ReviewExecutionService {
       mrTargetBranch: mrContext.targetBranch,
       mrCommitHash: mrContext.commitHash,
       userId: command.userId,
+      projectId: command.projectId,
       aiApiKey: command.aiApiKey,
       aiApiEndpointUrl: command.aiApiEndpointUrl,
       aiModelName: command.aiModelName,

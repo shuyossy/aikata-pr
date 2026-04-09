@@ -175,9 +175,8 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
     const logger = getLogger();
     let cleanup: (() => Promise<void>) | null = null;
 
-    // レートリミッターにユーザーを登録（リクエスト単位のユニークIDを生成）
-    const rateLimitUserId = `${request.projectId}-${request.mrIid}-${Date.now()}`;
-    deps.rateLimiter.registerUser(rateLimitUserId);
+    // レートリミッターにプロジェクトを登録（参照カウント方式）
+    deps.rateLimiter.registerProject(request.projectId);
 
     // keepaliveインターバル（30秒ごと）
     const keepaliveInterval = setInterval(async () => {
@@ -320,8 +319,8 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
       }
     } finally {
       clearInterval(keepaliveInterval);
-      // レートリミッターからユーザーを解除
-      deps.rateLimiter.unregisterUser(rateLimitUserId);
+      // レートリミッターからプロジェクトを解除
+      deps.rateLimiter.unregisterProject(request.projectId);
       // クリーンアップ（クローンした一時ディレクトリの削除）
       if (cleanup) {
         try {

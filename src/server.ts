@@ -8,6 +8,7 @@ import type { ReviewHandlerDeps } from './presentation/api/index.js';
 import { DefaultPerRequestServiceFactory } from './presentation/api/index.js';
 import { CloneManager } from './infrastructure/adapter/clone/CloneManager.js';
 import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
+import { initializeRateLimiter } from './lib/rateLimiterGlobal.js';
 import { mastra } from './mastra/index.js';
 import { initializeLogger, getLogger } from './lib/logger.js';
 import type {
@@ -25,6 +26,7 @@ class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
   async run(params: ReviewWorkflowParams): Promise<ReviewWorkflowResult> {
     const {
       userId,
+      projectId,
       aiApiKey,
       aiApiEndpointUrl,
       aiModelName,
@@ -35,6 +37,7 @@ class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
 
     const requestContext = new RequestContext<WorkflowRequestContext>([
       ['userId', userId],
+      ['projectId', projectId],
       ['aiApiKey', aiApiKey],
       ['aiApiEndpointUrl', aiApiEndpointUrl],
       ['aiModelName', aiModelName],
@@ -145,6 +148,9 @@ export async function startServer(): Promise<void> {
     rateLimitPerMin: Number(process.env['AI_API_RATE_LIMIT_PER_MIN'] ?? '60'),
   });
 
+  // レートリミッターをグローバルシングルトンとして登録（ワークフロー内からアクセス可能にする）
+  initializeRateLimiter(rateLimiter);
+
   const deps: ReviewHandlerDeps = {
     cloneManager,
     serviceFactory,
@@ -182,9 +188,18 @@ export async function startServer(): Promise<void> {
   const port = Number(process.env['API_PORT'] ?? '3000');
   logger.info({ port }, 'Starting API server');
 
-  serve({ fetch: app.fetch, port }, (info) => {
+  const server = serve({ fetch: app.fetch, port }, (info) => {
     logger.info({ port: info.port }, 'API server started');
   });
+
+  // graceful shutdown
+  const shutdown = () => {
+    logger.info('Shutting down API server');
+    rateLimiter.destroy();
+    server.close();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 // エントリーポイント（直接実行時のみ起動、テストやimport時には起動しない）

@@ -5,6 +5,7 @@ import type { WorkflowRequestContext } from '../requestContext.js';
 function createTestContext(overrides?: Partial<WorkflowRequestContext>): WorkflowRequestContext {
   return {
     userId: 'test-user',
+    projectId: 'test-project',
     aiApiKey: 'test-key',
     aiApiEndpointUrl: 'http://localhost',
     aiModelName: 'test-model',

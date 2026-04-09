@@ -94,6 +94,7 @@ async function callAgent(
     { requestContext: sanitizeForLog(agentContext.requestContext.all) },
     'Calling checklistSplitAgent.generate',
   );
+  const projectId = (agentContext.requestContext.all as WorkflowRequestContext).projectId;
   const result = await withRateLimitRetry(
     () =>
       agentContext.agent.generate(
@@ -105,6 +106,7 @@ async function callAgent(
         },
       ),
     agentContext.rateLimitRetryConfig,
+    { projectId },
   );
 
   // AI出力のグループ(number[][])をIndexedCheckItem[][]に変換

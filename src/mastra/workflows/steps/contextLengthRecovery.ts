@@ -286,6 +286,8 @@ export async function recoverFromContextLength(
   } = config;
   const resultFilePath = String(requestContext.get('resultFilePath'));
 
+  const projectId = String(requestContext.get('projectId'));
+
   logger.info({ threadId }, 'Starting context length recovery');
 
   // 1. レビュー済み結果の概要を構築
@@ -357,6 +359,7 @@ export async function recoverFromContextLength(
     result = await withRateLimitRetry(
       () => summarizationAgent.generate(userMessage, generateOptions),
       rateLimitRetryConfig,
+      { projectId },
     );
   } else if (imageData.length > 0 && imageCountExceeded) {
     // 画像数超過ケース: 画像データを除外し、ファイル名のみ使用
@@ -369,6 +372,7 @@ export async function recoverFromContextLength(
     result = await withRateLimitRetry(
       () => summarizationAgent.generate(userPrompt, generateOptions),
       rateLimitRetryConfig,
+      { projectId },
     );
   } else {
     // 画像なしケース: 既存動作と同じ
@@ -376,6 +380,7 @@ export async function recoverFromContextLength(
     result = await withRateLimitRetry(
       () => summarizationAgent.generate(userPrompt, generateOptions),
       rateLimitRetryConfig,
+      { projectId },
     );
   }
 

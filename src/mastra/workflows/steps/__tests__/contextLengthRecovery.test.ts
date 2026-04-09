@@ -8,6 +8,8 @@ import { IndexedChecklist } from '../../../indexedCheckItem.js';
 import type { IndexedCheckItem } from '../../../indexedCheckItem.js';
 import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
+import { RateLimiter } from '../../../../infrastructure/adapter/rateLimiter/RateLimiter.js';
+import { initializeRateLimiter, resetRateLimiter } from '../../../../lib/rateLimiterGlobal.js';
 import {
   serializeMessages,
   recoverFromContextLength,
@@ -98,6 +100,7 @@ function createTestRequestContext(
 ): RequestContext<ReviewAgentRequestContext> {
   return new RequestContext<ReviewAgentRequestContext>([
     ['userId', 'test-user'],
+    ['projectId', 'test-project'],
     ['aiApiKey', 'test-key'],
     ['aiApiEndpointUrl', 'http://localhost'],
     ['aiModelName', 'test-model'],
@@ -387,11 +390,17 @@ describe('recoverFromContextLength', () => {
     resultFilePath = path.join(tmpDir, 'results.json');
     vi.clearAllMocks();
     initializeLogger({ userId: 'test-user', level: 'silent' });
+    // withRateLimitRetryがグローバルレートリミッター経由で動作するため初期化
+    resetRateLimiter();
+    const limiter = new RateLimiter({ rateLimitPerMin: 100 });
+    initializeRateLimiter(limiter);
+    limiter.registerProject('test-project');
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     resetLogger();
+    resetRateLimiter();
   });
 
   it('memory.recall → 要約agent呼び出し → memory.deleteThread の順序で実行される', async () => {

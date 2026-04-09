@@ -112,8 +112,9 @@ function createMockRateLimiter(): RateLimiterPort {
     acquirePermission: vi.fn<RateLimiterPort['acquirePermission']>().mockResolvedValue(undefined),
     reportRateLimit: vi.fn<RateLimiterPort['reportRateLimit']>(),
     reportSuccess: vi.fn<RateLimiterPort['reportSuccess']>(),
-    registerUser: vi.fn<RateLimiterPort['registerUser']>(),
-    unregisterUser: vi.fn<RateLimiterPort['unregisterUser']>(),
+    registerProject: vi.fn<RateLimiterPort['registerProject']>(),
+    unregisterProject: vi.fn<RateLimiterPort['unregisterProject']>(),
+    destroy: vi.fn<RateLimiterPort['destroy']>(),
   };
 }
 

@@ -1,6 +1,6 @@
 import { getLogger } from './logger.js';
 import { extractAPICallError, findStatusCodeInChain } from './aiApiError.js';
-import { getCoordinatorOrNull } from './rateLimitCoordinator.js';
+import { getRateLimiterOrNull, RateLimitExhaustedError } from './rateLimiterGlobal.js';
 
 /**
  * レート制限リトライの設定
@@ -69,54 +69,79 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * レート制限リトライのオプション
+ */
+export interface WithRateLimitRetryOptions {
+  /** プロジェクトID（指定時はグローバルレートリミッター経由で制御） */
+  projectId?: string;
+  /** レート制限検知時のコールバック（次回リトライ前に呼ばれる） */
+  onRateLimitHit?: () => void;
+}
+
+/**
  * レート制限対応のリトライラッパー
  *
  * コールバックを実行し、レート制限エラーが発生した場合は
  * ランダム要素を含む指数バックオフで待機してリトライする。
  * レート制限以外のエラーはそのままスローする。
  *
- * コーディネーターが初期化済みの場合:
- * - レート制限をコーディネーターにreportし、コーディネーター経由で待機・上限判定を行う
- * コーディネーター未初期化の場合:
+ * レートリミッターが初期化済みかつprojectIdが指定された場合:
+ * - レート制限をレートリミッターにreportし、レートリミッター経由で待機を行う
+ * - per-agentリトライ回数をローカルで管理し、config.maxRetriesで上限判定を行う
+ * それ以外の場合:
  * - 従来通りローカルでリトライ制御を行う（checklistSplit等のforeach前処理用）
  */
 export async function withRateLimitRetry<T>(
   callback: () => Promise<T>,
   config: RateLimitRetryConfig,
+  options?: WithRateLimitRetryOptions,
 ): Promise<T> {
   const logger = getLogger();
-  const coordinator = getCoordinatorOrNull();
+  const rateLimiter = getRateLimiterOrNull();
+  const projectId = options?.projectId;
+  const onRateLimitHit = options?.onRateLimitHit;
 
-  if (coordinator) {
-    // コーディネーター経由のグローバル制御
+  if (rateLimiter && projectId) {
+    // レートリミッター経由のグローバル制御（per-agentリトライカウンタ）
+    let localRetryCount = 0;
     for (;;) {
-      // acquirePermission()はtry外で呼ぶ（RateLimitExhaustedErrorは直接伝播させる）
-      await coordinator.acquirePermission();
+      await rateLimiter.acquirePermission(projectId);
       try {
         const result = await callback();
-        coordinator.reportSuccess();
+        rateLimiter.reportSuccess();
         return result;
       } catch (error) {
         if (!isRateLimitError(error)) {
           // レート制限以外のエラー = APIが応答した = レート制限解除済み
-          coordinator.reportSuccess();
+          rateLimiter.reportSuccess();
           throw error;
         }
 
-        coordinator.reportRateLimit();
+        rateLimiter.reportRateLimit();
+
+        // per-agentリトライ上限判定（初回呼び出しはリトライに含めない）
+        if (localRetryCount >= config.maxRetries) {
+          throw new RateLimitExhaustedError(
+            `Rate limit retry exhausted: ${localRetryCount} retries reached the maximum of ${config.maxRetries}`,
+          );
+        }
+        localRetryCount++;
         logger.warn(
           {
-            globalRetryCount: coordinator.retryCount,
+            attempt: localRetryCount,
             maxRetries: config.maxRetries,
           },
-          `Rate limit error detected, reported to coordinator (global retry: ${coordinator.retryCount}/${config.maxRetries})`,
+          'Rate limit error detected, reported to rateLimiter',
         );
-        // 次のループ冒頭のacquirePermission()でisExhausted判定 → RateLimitExhaustedErrorがスローされる
+        if (onRateLimitHit) {
+          onRateLimitHit();
+        }
+        // 次のループでacquirePermission()のcooldown待機後にリトライ
       }
     }
   }
 
-  // コーディネーター未初期化: ローカルリトライ（従来動作）
+  // レートリミッター未初期化またはprojectId未指定: ローカルリトライ（従来動作）
   for (let attempt = 0; ; attempt++) {
     try {
       return await callback();

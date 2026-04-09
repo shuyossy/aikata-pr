@@ -5,6 +5,8 @@ import * as path from 'node:path';
 import { RequestContext } from '@mastra/core/request-context';
 import type { WorkflowRequestContext } from '../../requestContext.js';
 import { initializeLogger, resetLogger } from '../../../lib/logger.js';
+import { RateLimiter } from '../../../infrastructure/adapter/rateLimiter/RateLimiter.js';
+import { initializeRateLimiter, resetRateLimiter } from '../../../lib/rateLimiterGlobal.js';
 
 // Mastraインスタンスをimport（実Agent、実Workflowが登録された状態）
 // ベストプラクティスに従い mastra.getWorkflow() / mastra.getAgent() 経由でアクセスする
@@ -20,6 +22,7 @@ const checklistSplitAgentInstance = mastra.getAgent('checklistSplitAgent');
 function createWorkflowRequestContext(): RequestContext<WorkflowRequestContext> {
   return new RequestContext<WorkflowRequestContext>([
     ['userId', 'test-user'],
+    ['projectId', 'test-project'],
     ['aiApiKey', 'test-key'],
     ['aiApiEndpointUrl', 'http://localhost:8080'],
     ['aiModelName', 'test-model'],
@@ -141,12 +144,18 @@ describe('reviewWorkflow 結合テスト', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.spyOn(reviewAgentInstance, 'getMemory').mockResolvedValue(undefined as any);
     initializeLogger({ userId: 'test-user', level: 'silent' });
+    // レートリミッター初期化
+    resetRateLimiter();
+    const limiter = new RateLimiter({ rateLimitPerMin: 100 });
+    initializeRateLimiter(limiter);
+    limiter.registerProject('test-project');
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     vi.restoreAllMocks();
     resetLogger();
+    resetRateLimiter();
   });
 
   it('concurrentReviewCount=nullでend-to-end実行できる（分割なし）', async () => {

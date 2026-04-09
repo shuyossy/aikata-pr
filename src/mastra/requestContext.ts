@@ -7,6 +7,7 @@ import type { PendingImageData } from './tools/readImage.js';
  */
 export interface WorkflowRequestContext {
   userId: string;
+  projectId: string;
   aiApiKey: string;
   aiApiEndpointUrl: string;
   aiModelName: string;
