@@ -647,6 +647,24 @@ describe('ReviewExecutionService', () => {
     expect(runCall.skillsPaths).toEqual([]);
     expect(runCall.folderTree).toBe('src/\n  index.ts');
     expect(runCall.commentLanguage).toBe('Japanese');
+    expect(runCall.projectId).toBe('project-1');
+    expect(runCall.projectDir).toBe('/test/project');
+    expect(runCall.openaiReasoningEffort).toBeUndefined();
+  });
+
+  it('openaiReasoningEffort指定時にWorkflowに伝播されること', async () => {
+    const command = createCommand({ openaiReasoningEffort: 'high' });
+    const mrContext = createMrContext();
+    const workflowResult = createWorkflowResult();
+
+    vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+    vi.mocked(mrDiscussionGateway.getDiscussions).mockResolvedValue([]);
+    vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+    await service.execute(command);
+
+    const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+    expect(runCall.openaiReasoningEffort).toBe('high');
   });
 
   it('ProjectTreeGateway.getTreeが正しい引数で呼ばれる', async () => {

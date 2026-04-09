@@ -73,6 +73,8 @@ node dist/index.js --user-id <userId> [options]
   - [Mastra Documentation](https://mastra.ai/llms.txt)
   - [Mastra .well-known skills discovery](https://mastra.ai/.well-known/skills/index.json)
 - 決して`node_modules`を直接編集しないこと
+- 適切なタイミングで他層間のパラメータ伝播テストを新規作成・更新すること
+  - パラメータが伝播していないということが頻繁に起こるので、注意する必要があるため
 - プロジェクト全体を把握して、全ての実装が必要箇所を正しく洗い出してから実装すること
 - 既存資源（型、コンポーネント、ヘルパー関数など）を積極的に活用して効率的に実装すること
 - 似たような実装内容がある場合は参考にしたり、共通化を検討すること

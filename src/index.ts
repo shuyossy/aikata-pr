@@ -1,5 +1,10 @@
-import { parseCliOptions, buildChecklistParseOptions, type CliOptions } from './lib/cli.js';
+import { parseCliOptions, buildChecklistParseOptions } from './lib/cli.js';
 import { initializeLogger, getLogger, flushLogger } from './lib/logger.js';
+import {
+  validateRequiredParams,
+  buildApiReviewRequest,
+  buildLocalReviewCommand,
+} from './lib/commandBuilder.js';
 import { ChecklistParser } from './application/shared/parser/index.js';
 import { ReviewSettingsParser } from './application/shared/parser/index.js';
 import { ReviewExecutionService } from './application/reviewExecution/index.js';
@@ -16,58 +21,6 @@ import { ReviewSettings } from './domain/reviewSettings/index.js';
 import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
 import { initializeRateLimiter, resetRateLimiter } from './lib/rateLimiterGlobal.js';
 import fs from 'node:fs';
-
-/**
- * バリデーション済みの必須パラメータ
- */
-interface ValidatedParams {
-  userId: string;
-  projectId: string;
-  mrIid: string;
-  gitlabToken: string;
-  checklistPath: string;
-  aiApiKey?: string;
-  aiApiEndpointUrl?: string;
-  aiModelName?: string;
-}
-
-/**
- * 必須パラメータの存在をバリデーションする
- * APIモード時はAI関連パラメータを不要とする
- */
-function validateRequiredParams(
-  options: CliOptions,
-  env: Record<string, string | undefined>,
-): ValidatedParams {
-  const missing: string[] = [];
-  if (!options.userId) missing.push('--user-id or USER_ID');
-  if (!options.projectId) missing.push('--project-id or GITLAB_PROJECT_ID');
-  if (!options.mrIid) missing.push('--mr-iid or GITLAB_MR_IID');
-  if (!options.gitlabToken) missing.push('--aikata-pr-gitlab-token or AIKATA_PR_GITLAB_TOKEN');
-  if (!options.checklist) missing.push('--checklist or CHECKLIST_PATH');
-
-  // ローカルモードの場合のみAI関連パラメータを必須とする
-  if (!options.aikataApiUrl) {
-    if (!options.aiModelName) missing.push('--ai-model-name or AI_MODEL_NAME');
-    if (!env['AI_API_KEY']) missing.push('AI_API_KEY');
-    if (!env['AI_API_ENDPOINT_URL']) missing.push('AI_API_ENDPOINT_URL');
-  }
-
-  if (missing.length > 0) {
-    throw new Error(`Missing required parameters: ${missing.join(', ')}`);
-  }
-
-  return {
-    userId: options.userId!,
-    projectId: options.projectId!,
-    mrIid: options.mrIid!,
-    gitlabToken: options.gitlabToken!,
-    checklistPath: options.checklist!,
-    aiModelName: options.aiModelName,
-    aiApiKey: env['AI_API_KEY'],
-    aiApiEndpointUrl: env['AI_API_ENDPOINT_URL'],
-  };
-}
 
 /**
  * チェックロジックのエントリーポイント
@@ -134,42 +87,18 @@ async function main(): Promise<void> {
 
       const client = new ReviewApiClient(options.aikataApiUrl, jwtToken);
 
-      const apiResult = await client.executeReview(
-        {
-          gitlabToken: validated.gitlabToken,
-          projectId: validated.projectId,
-          mrIid: validated.mrIid,
-          checklist: checklist.items.map((i) => i.content),
-          reviewSettings: {
-            additionalInstructions: reviewSettings.additionalInstructions,
-            concurrentReviewCount: reviewSettings.concurrentReviewCount,
-            commentFormat: reviewSettings.commentFormat,
-            ratings: reviewSettings.ratings.map((r) => ({
-              label: r.label,
-              definition: r.definition,
-            })),
-            hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
-            qualityGate: {
-              failureCriteria: reviewSettings.qualityGate.failureCriteria.map((c) => ({
-                ratingLabel: c.ratingLabel,
-                threshold: c.threshold,
-              })),
-            },
-          },
-          options: {
-            commentLanguage: options.commentLanguage,
-            skillsPaths: options.skills ? [options.skills] : [],
-            treeMaxDepth,
-            maxContextLength,
-          },
-        },
-        (event) => {
-          logger.info(
-            { status: event.status },
-            event.message ?? `Review progress: ${event.status}`,
-          );
-        },
+      const apiRequest = buildApiReviewRequest(
+        validated,
+        checklist,
+        reviewSettings,
+        options,
+        treeMaxDepth,
+        maxContextLength,
       );
+
+      const apiResult = await client.executeReview(apiRequest, (event) => {
+        logger.info({ status: event.status }, event.message ?? `Review progress: ${event.status}`);
+      });
 
       // APIレスポンスをReviewResult[]に変換
       const results = apiResult.results.map((r) => {
@@ -268,23 +197,17 @@ async function main(): Promise<void> {
       const commentService = new CommentPostingService(mrDiscussionGateway);
 
       // AIレビュー実行
-      const reviewResult = await reviewService.execute({
-        userId: validated.userId,
-        projectId: validated.projectId,
-        mrIid: validated.mrIid,
+      const reviewCommand = buildLocalReviewCommand(
+        validated,
         checklist,
         reviewSettings,
-        skillsPaths: options.skills ? [options.skills] : [],
+        options,
         projectDir,
-        aiApiKey: validated.aiApiKey!,
-        aiApiEndpointUrl: validated.aiApiEndpointUrl!,
-        aiModelName: validated.aiModelName!,
-        gitlabToken: validated.gitlabToken,
         treeMaxDepth,
-        commentLanguage: options.commentLanguage,
-        openaiReasoningEffort: process.env['OPENAI_REASONING_EFFORT'],
         maxContextLength,
-      });
+        process.env['OPENAI_REASONING_EFFORT'],
+      );
+      const reviewResult = await reviewService.execute(reviewCommand);
 
       // 全てのレビュー結果がエラーかどうか判定
       const allResultsAreErrors = ReviewResult.allAreErrors(reviewResult.results);

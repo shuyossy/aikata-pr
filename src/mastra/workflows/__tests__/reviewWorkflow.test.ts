@@ -295,6 +295,24 @@ describe('reviewWorkflow 結合テスト', () => {
       checkItemContents: ['check1'],
       concurrentReviewCount: 1,
       resultFilePath,
+      ratings: [
+        { label: 'A', definition: 'Fully satisfies requirements' },
+        { label: 'C', definition: 'Does not satisfy requirements' },
+      ],
+      commentFormat: '## Review\n{comment}',
+      additionalInstructions: 'Be strict',
+      mrTitle: 'Test MR',
+      mrDescription: 'Test description',
+      mrSourceBranch: 'feature/test',
+      mrTargetBranch: 'main',
+      mrDiff: '+ added line',
+      skillsPaths: ['/path/to/skills'],
+      folderTree: 'src/\n  index.ts',
+      commentLanguage: 'English',
+      omittedFileDiffs: { 'file.ts': 'omitted content' },
+      allDiffFilePaths: ['file.ts', 'other.ts'],
+      diffCompressed: true,
+      folderTreeRemovedByCompression: true,
     });
 
     vi.mocked(reviewAgentInstance.generate).mockImplementation(async () => {
@@ -322,14 +340,52 @@ describe('reviewWorkflow 結合テスト', () => {
     const options = callArgs[1] as { requestContext: RequestContext };
     expect(options.requestContext).toBeDefined();
 
+    // WorkflowRequestContext由来のフィールド
     expect(options.requestContext.get('userId')).toBe('test-user');
+    expect(options.requestContext.get('projectId')).toBe('test-project');
     expect(options.requestContext.get('aiApiKey')).toBe('test-key');
+    expect(options.requestContext.get('aiApiEndpointUrl')).toBe('http://localhost:8080');
+    expect(options.requestContext.get('aiModelName')).toBe('test-model');
+    expect(options.requestContext.get('projectDir')).toBe('/test/project');
+    expect(options.requestContext.get('openaiReasoningEffort')).toBeUndefined();
+
     // チェック項目はIndexedCheckItem[]形式で渡される
     const checkItems = options.requestContext.get('checkItems') as Array<{
       id: number;
       content: string;
     }>;
     expect(checkItems).toEqual([{ id: 1, content: 'check1' }]);
+
+    // InputData由来のフィールド
+    expect(options.requestContext.get('ratings')).toEqual([
+      { label: 'A', definition: 'Fully satisfies requirements' },
+      { label: 'C', definition: 'Does not satisfy requirements' },
+    ]);
+    expect(options.requestContext.get('commentFormat')).toBe('## Review\n{comment}');
+    expect(options.requestContext.get('additionalInstructions')).toBe('Be strict');
+    expect(options.requestContext.get('resultFilePath')).toBe(resultFilePath);
+    expect(options.requestContext.get('commentLanguage')).toBe('English');
+    expect(options.requestContext.get('mrTitle')).toBe('Test MR');
+    expect(options.requestContext.get('mrDescription')).toBe('Test description');
+    expect(options.requestContext.get('mrSourceBranch')).toBe('feature/test');
+    expect(options.requestContext.get('mrTargetBranch')).toBe('main');
+    expect(options.requestContext.get('mrDiff')).toBe('+ added line');
+    expect(options.requestContext.get('skillsPaths')).toEqual(['/path/to/skills']);
+    expect(options.requestContext.get('folderTree')).toBe('src/\n  index.ts');
+    expect(options.requestContext.get('priorReviewContext')).toBeNull();
+    expect(options.requestContext.get('diffCompressed')).toBe(true);
+    expect(options.requestContext.get('folderTreeRemovedByCompression')).toBe(true);
+
+    // omittedFileDiffsはRecord→Mapに変換される
+    const omittedFileDiffs = options.requestContext.get('omittedFileDiffs') as Map<string, string>;
+    expect(omittedFileDiffs).toBeInstanceOf(Map);
+    expect(omittedFileDiffs.get('file.ts')).toBe('omitted content');
+
+    // allDiffFilePathsはstring[]→Setに変換される
+    const allDiffFilePaths = options.requestContext.get('allDiffFilePaths') as Set<string>;
+    expect(allDiffFilePaths).toBeInstanceOf(Set);
+    expect(allDiffFilePaths.has('file.ts')).toBe(true);
+    expect(allDiffFilePaths.has('other.ts')).toBe(true);
   });
 
   it('priorReviewResultsがある場合にpriorReviewContextが正しく組み立てられる', async () => {

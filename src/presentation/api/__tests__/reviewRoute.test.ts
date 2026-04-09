@@ -635,6 +635,247 @@ describe('reviewRoute', () => {
     });
   });
 
+  describe('POST /review - ReviewExecutionCommandへのパラメータ伝播', () => {
+    /**
+     * reviewExecutor.executeに渡されたReviewExecutionCommandをキャプチャするヘルパー
+     */
+    function createCapturingServiceFactory() {
+      const executeMock = vi
+        .fn<ReviewExecutor['execute']>()
+        .mockResolvedValue(createDefaultReviewResult());
+
+      const serviceFactory: PerRequestServiceFactory = {
+        create: vi.fn().mockReturnValue({
+          mrInfoFetcher: {
+            fetchBranchInfo: vi
+              .fn<MrInfoFetcher['fetchBranchInfo']>()
+              .mockResolvedValue({ source_branch: 'feature-branch', target_branch: 'main' }),
+          },
+          reviewExecutor: {
+            execute: executeMock,
+          },
+        }),
+      };
+
+      return { serviceFactory, executeMock };
+    }
+
+    it('全リクエストパラメータがReviewExecutionCommandに正しく伝播されること', async () => {
+      const { serviceFactory, executeMock } = createCapturingServiceFactory();
+      const app = createTestApp({
+        serviceFactory,
+        aiApiKey: 'server-api-key',
+        aiApiEndpointUrl: 'https://ai-server.example.com',
+        defaultAiModelName: 'openai/gpt-4o',
+        openaiReasoningEffort: 'medium',
+      });
+
+      const requestBody = {
+        gitlabToken: 'my-gitlab-token',
+        projectId: '999',
+        mrIid: '77',
+        checklist: ['可読性チェック', 'セキュリティチェック'],
+        reviewSettings: {
+          additionalInstructions: 'Be thorough',
+          concurrentReviewCount: 3,
+          commentFormat: '## Review\n{comment}',
+          ratings: [
+            { label: 'A', definition: 'Excellent' },
+            { label: 'C', definition: 'Poor' },
+          ],
+          hiddenRatingLabels: ['A'],
+          qualityGate: {
+            failureCriteria: [{ ratingLabel: 'C', threshold: 1 }],
+          },
+        },
+        options: {
+          commentLanguage: 'English',
+          skillsPaths: ['/path/to/skills'],
+          treeMaxDepth: 5,
+          maxContextLength: 50000,
+        },
+      };
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      await res.text(); // ストリーム消費
+
+      // reviewExecutor.executeが呼ばれたこと
+      expect(executeMock).toHaveBeenCalledTimes(1);
+      const command = executeMock.mock.calls[0][0];
+
+      // リクエスト由来のフィールド
+      expect(command.projectId).toBe('999');
+      expect(command.mrIid).toBe('77');
+      expect(command.gitlabToken).toBe('my-gitlab-token');
+      expect(command.checklist.items.map((i: { content: string }) => i.content)).toEqual([
+        '可読性チェック',
+        'セキュリティチェック',
+      ]);
+
+      // reviewSettings由来
+      expect(command.reviewSettings.additionalInstructions).toBe('Be thorough');
+      expect(command.reviewSettings.concurrentReviewCount).toBe(3);
+      expect(command.reviewSettings.commentFormat).toBe('## Review\n{comment}');
+      expect(command.reviewSettings.ratings).toHaveLength(2);
+      expect(command.reviewSettings.ratings[0].label).toBe('A');
+      expect(command.reviewSettings.ratings[1].label).toBe('C');
+      expect(command.reviewSettings.hiddenRatingLabels).toEqual(['A']);
+      expect(command.reviewSettings.qualityGate.failureCriteria).toHaveLength(1);
+      expect(command.reviewSettings.qualityGate.failureCriteria[0].ratingLabel).toBe('C');
+
+      // options由来
+      expect(command.commentLanguage).toBe('English');
+      expect(command.skillsPaths).toEqual(['/path/to/skills']);
+      expect(command.treeMaxDepth).toBe(5);
+      expect(command.maxContextLength).toBe(50000);
+
+      // deps由来（サーバー環境変数）
+      expect(command.aiApiKey).toBe('server-api-key');
+      expect(command.aiApiEndpointUrl).toBe('https://ai-server.example.com');
+      expect(command.aiModelName).toBe('openai/gpt-4o');
+      expect(command.openaiReasoningEffort).toBe('medium');
+
+      // ハードコード値
+      expect(command.userId).toBe('api-server');
+
+      // クローン結果由来
+      expect(command.projectDir).toBe('/tmp/test-clone');
+    });
+
+    it('reviewSettings未指定時にデフォルト値がReviewExecutionCommandに設定されること', async () => {
+      const { serviceFactory, executeMock } = createCapturingServiceFactory();
+      const app = createTestApp({ serviceFactory });
+
+      const requestBody = {
+        gitlabToken: 'token',
+        projectId: '123',
+        mrIid: '45',
+        checklist: ['Check item 1'],
+        // reviewSettings未指定
+      };
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      await res.text();
+
+      const command = executeMock.mock.calls[0][0];
+
+      // デフォルト値が適用されること
+      expect(command.reviewSettings.additionalInstructions).toBe('');
+      expect(command.reviewSettings.concurrentReviewCount).toBeNull();
+      expect(command.reviewSettings.commentFormat).toBe('{comment}');
+      expect(command.reviewSettings.ratings.length).toBeGreaterThan(0);
+      expect(command.reviewSettings.ratings[0].label).toBe('A');
+      expect(command.reviewSettings.hiddenRatingLabels).toEqual([]);
+      expect(command.reviewSettings.qualityGate.failureCriteria).toHaveLength(0);
+    });
+
+    it('options未指定時にデフォルト値がReviewExecutionCommandに設定されること', async () => {
+      const { serviceFactory, executeMock } = createCapturingServiceFactory();
+      const app = createTestApp({ serviceFactory });
+
+      const requestBody = {
+        gitlabToken: 'token',
+        projectId: '123',
+        mrIid: '45',
+        checklist: ['Check item 1'],
+        // options未指定
+      };
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      await res.text();
+
+      const command = executeMock.mock.calls[0][0];
+
+      expect(command.commentLanguage).toBe('Japanese');
+      expect(command.skillsPaths).toEqual([]);
+      expect(command.treeMaxDepth).toBeUndefined();
+      expect(command.maxContextLength).toBeUndefined();
+    });
+
+    it('maxContextLengthがnullの場合にundefinedに変換されること', async () => {
+      const { serviceFactory, executeMock } = createCapturingServiceFactory();
+      const app = createTestApp({ serviceFactory });
+
+      const requestBody = {
+        gitlabToken: 'token',
+        projectId: '123',
+        mrIid: '45',
+        checklist: ['Check item 1'],
+        options: {
+          maxContextLength: null,
+        },
+      };
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      await res.text();
+
+      const command = executeMock.mock.calls[0][0];
+
+      // null → undefinedに変換されること
+      expect(command.maxContextLength).toBeUndefined();
+    });
+
+    it('deps由来のパラメータ（AI設定）が正しくCommandに伝播されること', async () => {
+      const { serviceFactory, executeMock } = createCapturingServiceFactory();
+      const app = createTestApp({
+        serviceFactory,
+        aiApiKey: 'custom-key',
+        aiApiEndpointUrl: 'https://custom-ai.example.com',
+        defaultAiModelName: 'openai/custom-model',
+        openaiReasoningEffort: 'high',
+      });
+
+      const requestBody = createValidRequestBody();
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      await res.text();
+
+      const command = executeMock.mock.calls[0][0];
+
+      expect(command.aiApiKey).toBe('custom-key');
+      expect(command.aiApiEndpointUrl).toBe('https://custom-ai.example.com');
+      expect(command.aiModelName).toBe('openai/custom-model');
+      expect(command.openaiReasoningEffort).toBe('high');
+    });
+
+    it('userIdがapi-server固定であること', async () => {
+      const { serviceFactory, executeMock } = createCapturingServiceFactory();
+      const app = createTestApp({ serviceFactory });
+
+      const requestBody = createValidRequestBody();
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      await res.text();
+
+      const command = executeMock.mock.calls[0][0];
+      expect(command.userId).toBe('api-server');
+    });
+  });
+
   describe('POST /review - resultイベントのReviewApiResponse形式', () => {
     it('resultイベントが品質ゲート情報を含まず、レビュー結果のみ返すこと', async () => {
       const mockServiceFactory = createMockServiceFactory({
