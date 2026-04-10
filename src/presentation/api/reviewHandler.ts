@@ -19,6 +19,7 @@ import { Checklist } from '../../domain/checklist/index.js';
 import { CheckItem } from '../../domain/checkItem/index.js';
 import type { ReviewExecutionCommand } from '../../application/reviewExecution/index.js';
 import type { ReviewApiResponse } from '../../infrastructure/adapter/apiClient/ReviewApiClient.js';
+import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
 import { getLogger } from '../../lib/logger.js';
 
 /**
@@ -161,6 +162,7 @@ export class DefaultPerRequestServiceFactory implements PerRequestServiceFactory
       mrDiscussionGateway,
       this.workflowRunner,
       treeGateway,
+      new GptTokenCounter(),
     );
 
     return { mrInfoFetcher, reviewExecutor };

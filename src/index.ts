@@ -17,6 +17,7 @@ import { GitLabMrDiscussionGateway } from './infrastructure/adapter/gateway/inde
 import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/index.js';
 import { ReviewApiClient } from './infrastructure/adapter/apiClient/index.js';
 import { MastraReviewWorkflowRunner } from './infrastructure/adapter/workflow/index.js';
+import { GptTokenCounter } from './infrastructure/adapter/tokenCounter/index.js';
 import { ReviewSettings } from './domain/reviewSettings/index.js';
 import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
 import { initializeRateLimiter, resetRateLimiter } from './lib/rateLimiterGlobal.js';
@@ -192,6 +193,7 @@ async function main(): Promise<void> {
         mrDiscussionGateway,
         workflowRunner,
         treeGateway,
+        new GptTokenCounter(),
       );
       const commentService = new CommentPostingService(mrDiscussionGateway);
 

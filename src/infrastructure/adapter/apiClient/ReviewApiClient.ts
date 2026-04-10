@@ -123,7 +123,14 @@ export class ReviewApiClient {
         } else if (line === '') {
           // 空行 = イベント区切り
           if (currentEvent && currentData) {
-            const parsed = JSON.parse(currentData) as Record<string, unknown>;
+            let parsed: Record<string, unknown>;
+            try {
+              parsed = JSON.parse(currentData) as Record<string, unknown>;
+            } catch {
+              throw new Error(
+                `Failed to parse SSE event data for event "${currentEvent}": ${currentData}`,
+              );
+            }
 
             switch (currentEvent) {
               case 'progress':

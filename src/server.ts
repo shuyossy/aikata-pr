@@ -90,7 +90,11 @@ export async function startServer(): Promise<void> {
   const defaultAiModelName = process.env['AI_MODEL_NAME'] ?? 'openai/o4-mini';
 
   // 共有依存の組み立て
-  const cloneManager = new CloneManager();
+  const cloneManager = new CloneManager(
+    Number(process.env['CLONE_TIMEOUT_MS'] ?? '300000'),
+    Number(process.env['CLONE_MAX_DISK_MB'] ?? '1024'),
+    Number(process.env['MAX_CONCURRENT_CLONES'] ?? '5'),
+  );
   const workflowRunner = new MastraReviewWorkflowRunner();
   const serviceFactory = new DefaultPerRequestServiceFactory(workflowRunner);
   const rateLimiter = new RateLimiter({

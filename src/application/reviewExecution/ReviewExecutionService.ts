@@ -14,7 +14,7 @@ import { ReviewResult } from '../../domain/reviewResult/index.js';
 import { Rating } from '../../domain/rating/index.js';
 import type { MrContext } from '../../domain/mrContext/index.js';
 import { compressDiffIfNeeded } from '../shared/diffCompression/index.js';
-import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
+import type { TokenCounter } from '../shared/port/tokenCounter/index.js';
 import { buildUserPromptTemplate } from '../shared/prompt/index.js';
 
 /**
@@ -43,6 +43,7 @@ export class ReviewExecutionService {
     private readonly mrDiscussionGateway: MrDiscussionGateway,
     private readonly workflowRunner: ReviewWorkflowRunner,
     private readonly projectTreeGateway: ProjectTreeGateway,
+    private readonly tokenCounter: TokenCounter,
   ) {}
 
   async execute(command: ReviewExecutionCommand): Promise<ReviewExecutionDto> {
@@ -269,12 +270,11 @@ export class ReviewExecutionService {
       };
     }
 
-    const tokenCounter = new GptTokenCounter();
     const compressionResult = compressDiffIfNeeded(
       (diff, ft) => this.buildEstimatedUserPrompt(command, mrContext, diff, ft, priorContext),
       mrContext.diff,
       folderTree,
-      tokenCounter,
+      this.tokenCounter,
       {
         maxContextLength: command.maxContextLength,
         thresholdRatio: 0.6,

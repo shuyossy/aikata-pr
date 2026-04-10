@@ -16,6 +16,7 @@ import { ReviewSettings } from '../../../domain/reviewSettings/index.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
 import { QualityGate } from '../../../domain/qualityGate/index.js';
 import { CommentFormatter } from '../../shared/comment/index.js';
+import type { TokenCounter } from '../../shared/port/tokenCounter/index.js';
 
 // ヘルパー: テスト用のMrContextを生成
 function createMrContext(
@@ -146,11 +147,15 @@ describe('ReviewExecutionService', () => {
     projectTreeGateway = {
       getTree: vi.fn().mockResolvedValue('src/\n  index.ts'),
     };
+    const tokenCounter: TokenCounter = {
+      countTokens: vi.fn().mockReturnValue(100),
+    };
     service = new ReviewExecutionService(
       mrGateway,
       mrDiscussionGateway,
       workflowRunner,
       projectTreeGateway,
+      tokenCounter,
     );
   });
 
