@@ -70,6 +70,7 @@ node dist/index.js --user-id <userId> [options]
   - **BEFORE doing ANYTHING with Mastra, load the `mastra` skill FIRST.** Never rely on cached knowledge as Mastra's APIs change frequently between versions. Use the skill to read up-to-date documentation from `node_modules`.
   - Register new agents, tools, workflows, and scorers in `src/mastra/index.ts`
   - Use schemas for tool inputs and outputs
+  - `memory.recall()`はデフォルトで`perPage=40`のページネーションを行う。スレッドの全メッセージを取得したい場合は必ず`perPage: false`を明示すること（省略すると先頭40件しか返らず、長大スレッドでメッセージが欠落する）
   - [Mastra Documentation](https://mastra.ai/llms.txt)
   - [Mastra .well-known skills discovery](https://mastra.ai/.well-known/skills/index.json)
 - 決して`node_modules`を直接編集しないこと

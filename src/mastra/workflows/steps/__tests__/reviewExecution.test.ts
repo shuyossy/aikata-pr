@@ -1393,6 +1393,83 @@ describe('executeReview', () => {
       expect(secondPrompt).toBe(continuationText);
       expect(results[0].isError).toBe(false);
     });
+
+    it('memory.recall は perPage:false で呼ばれ、40件超の履歴からも重複継続プロンプトを検知できる', async () => {
+      // Mastraの memory.recall はデフォルトで perPage=40 のページネーションを行うため、
+      // perPage: false を明示しないと末尾（最新）に積まれた重複継続プロンプトを検知できない。
+      // 長時間稼働で履歴が40件を超えた状況でも重複除去が機能することを保証する。
+      const checkItems = makeItems(['check1']);
+      const mockMemory = createMockMemory();
+      const continuationText = buildRateLimitContinuationPrompt();
+
+      // 50件の履歴（末尾に重複継続プロンプトが積まれた状態）を返す
+      const longHistory = [
+        ...Array.from({ length: 49 }, (_, i) => ({
+          id: `m${i}`,
+          role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+          createdAt: new Date(),
+          content: { format: 2, parts: [{ type: 'text' as const, text: `message ${i}` }] },
+        })),
+        {
+          id: 'continuation-to-delete',
+          role: 'user' as const,
+          createdAt: new Date(),
+          content: {
+            format: 2,
+            parts: [{ type: 'text' as const, text: continuationText }],
+          },
+        },
+      ];
+
+      let recallCallCount = 0;
+      mockMemory.recall.mockImplementation(async () => {
+        recallCallCount++;
+        if (recallCallCount === 1) {
+          return { messages: longHistory };
+        }
+        return { messages: [] };
+      });
+
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const generateFn = vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) throw rateLimitError;
+        writeResultsToFile(resultFilePath, [
+          {
+            checkItemId: 1,
+            ratingLabel: 'A',
+            ratingDefinition: 'Good',
+            comment: 'OK',
+            isError: false,
+          },
+        ]);
+      });
+      const mockAgent = createMockAgent(generateFn, mockMemory);
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      await executeReview(config);
+
+      // recall が perPage: false 付きで呼び出されることを検証
+      expect(mockMemory.recall).toHaveBeenCalled();
+      const recallArgs = mockMemory.recall.mock.calls[0][0];
+      expect(recallArgs.perPage).toBe(false);
+
+      // 40件超の履歴でも末尾の重複継続プロンプトが検知・削除される
+      expect(mockMemory.deleteMessages).toHaveBeenCalledWith(['continuation-to-delete']);
+    });
   });
 
   describe('buildRateLimitContinuationPrompt', () => {

@@ -294,10 +294,17 @@ export async function recoverFromContextLength(
   const alreadyStoredSummary = buildAlreadyStoredSummary(checkItems, resultFilePath);
 
   // 2. メモリからスレッドメッセージを取得
+  // NOTE: memory.recall() のデフォルトは perPage=40 のページネーションで先頭40件しか返らないため、
+  // コンテキスト回復対象の長大スレッドからメッセージが欠落してしまう。
+  // perPage: false で全件取得し、orderBy で時系列昇順を明示する。
   const memory = await reviewAgent.getMemory();
   let messages: MastraDBMessage[] = [];
   if (memory) {
-    const recalled = await memory.recall({ threadId });
+    const recalled = await memory.recall({
+      threadId,
+      perPage: false,
+      orderBy: { field: 'createdAt', direction: 'ASC' },
+    });
     messages = recalled.messages;
   }
 

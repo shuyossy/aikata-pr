@@ -636,6 +636,60 @@ describe('recoverFromContextLength', () => {
     expect(callOptions.requestContext.all.hasImages).toBe(true);
   });
 
+  it('memory.recall は perPage:false で呼ばれ、40件超の履歴を全件取得する', async () => {
+    // Mastraの memory.recall はデフォルトで perPage=40 のページネーションを行うため、
+    // perPage: false を明示しないとスレッドのメッセージが欠落する。
+    // リカバリ対象となる長大スレッド（>40件）で全件が要約対象になることを保証する。
+    const messages = Array.from({ length: 45 }, (_, i) =>
+      createMessage(i % 2 === 0 ? 'user' : 'assistant', `Message ${i}`),
+    );
+
+    const mockMemory = {
+      recall: vi.fn().mockResolvedValue({
+        messages,
+        total: messages.length,
+        page: 0,
+        perPage: false,
+        hasMore: false,
+      }),
+      deleteThread: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const reviewAgent = createMockAgent(vi.fn(), mockMemory);
+    const generateFn = vi.fn().mockResolvedValue({ text: 'Summary of 45 messages' });
+    const summarizationAgent = createMockAgent(generateFn);
+
+    const config: ContextLengthRecoveryConfig = {
+      reviewAgent,
+      summarizationAgent,
+      threadId: 'old-thread-id',
+      resourceId: 'test-user',
+      requestContext: createTestRequestContext(
+        new IndexedChecklist(['check1']).items.slice(),
+        resultFilePath,
+      ),
+      checkItems: new IndexedChecklist(['check1']).items.slice(),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await recoverFromContextLength(config);
+
+    // recall が perPage: false 付きで呼び出されることを検証
+    expect(mockMemory.recall).toHaveBeenCalledTimes(1);
+    const recallArgs = mockMemory.recall.mock.calls[0][0];
+    expect(recallArgs.threadId).toBe('old-thread-id');
+    expect(recallArgs.perPage).toBe(false);
+
+    // 41件以上のメッセージが要約プロンプトに含まれることを検証
+    const prompt = generateFn.mock.calls[0][0];
+    const promptText = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+    // 先頭・末尾・中間（40件超）のメッセージがすべて含まれていること
+    expect(promptText).toContain('Message 0');
+    expect(promptText).toContain('Message 39');
+    expect(promptText).toContain('Message 40');
+    expect(promptText).toContain('Message 44');
+  });
+
   it('画像ありかつ画像数超過エラーの場合、画像データを除外しファイル名のみ使用', async () => {
     // APICallErrorを模擬（isImageCountExceededError用）
     const { APICallError } = await import('ai');

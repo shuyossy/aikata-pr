@@ -248,7 +248,13 @@ async function executeWithErrorRecovery(params: {
             try {
               const memory = await agent.getMemory();
               if (memory) {
-                const recalled = await memory.recall({ threadId: currentThreadId });
+                // NOTE: memory.recall() のデフォルトは perPage=40 のページネーション。
+                // 長時間稼働で履歴が40件を超えた後の重複継続プロンプトを検知するため
+                // perPage: false で全件取得する必要がある。
+                const recalled = await memory.recall({
+                  threadId: currentThreadId,
+                  perPage: false,
+                });
                 const duplicateId = getLastRateLimitContinuationMessageId(recalled.messages);
                 if (duplicateId !== null) {
                   try {
