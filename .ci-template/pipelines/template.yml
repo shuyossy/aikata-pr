@@ -15,15 +15,16 @@ stages:
 aikata-pr-review:
   stage: review
   image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
-  # JWT生成: AIKATA_API_URLが設定されている場合、GitLabがJWTを発行する
-  # APIモード時のみ有効（ローカル実行モードではJWTは使用されない）
+  # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
+  # ローカル実行モード（上記3変数が全て設定されている場合）ではJWTは使用されない
   id_tokens:
     AIKATA_JWT:
       aud: "${AIKATA_API_URL}"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  # NOTE: APIモード（AIKATA_API_URL設定時）ではAI_API_KEY, AI_API_ENDPOINT_URLは
-  # CI/CD環境変数に設定不要（APIサーバー側で管理される）
+  # NOTE: APIモード（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが未設定時）では
+  # これらの変数はCI/CD環境変数に設定不要（APIサーバー側で管理される）
+  # APIモード時はAIKATA_API_URLとAIKATA_JWT（自動生成）が必要
   script:
     # AIKATA_PR_DISABLED=trueの場合、AIレビューをスキップ
     - |

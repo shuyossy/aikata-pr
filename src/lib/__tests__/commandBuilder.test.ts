@@ -3,6 +3,7 @@ import {
   validateRequiredParams,
   buildApiReviewRequest,
   buildLocalReviewCommand,
+  isLocalMode,
 } from '../commandBuilder.js';
 import type { CliOptions } from '../cli.js';
 import { Checklist } from '../../domain/checklist/index.js';
@@ -63,8 +64,40 @@ function createReviewSettings(
   });
 }
 
+describe('isLocalMode', () => {
+  it('AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAME全指定時にtrueを返すこと', () => {
+    const options = createCliOptions({ aiModelName: 'openai/o4-mini' });
+    const env = { AI_API_KEY: 'key', AI_API_ENDPOINT_URL: 'https://api.example.com' };
+    expect(isLocalMode(options, env)).toBe(true);
+  });
+
+  it('AI_MODEL_NAMEが未指定の場合にfalseを返すこと', () => {
+    const options = createCliOptions({ aiModelName: undefined });
+    const env = { AI_API_KEY: 'key', AI_API_ENDPOINT_URL: 'https://api.example.com' };
+    expect(isLocalMode(options, env)).toBe(false);
+  });
+
+  it('AI_API_KEYが未指定の場合にfalseを返すこと', () => {
+    const options = createCliOptions({ aiModelName: 'openai/o4-mini' });
+    const env = { AI_API_ENDPOINT_URL: 'https://api.example.com' };
+    expect(isLocalMode(options, env)).toBe(false);
+  });
+
+  it('AI_API_ENDPOINT_URLが未指定の場合にfalseを返すこと', () => {
+    const options = createCliOptions({ aiModelName: 'openai/o4-mini' });
+    const env = { AI_API_KEY: 'key' };
+    expect(isLocalMode(options, env)).toBe(false);
+  });
+
+  it('全て未指定の場合にfalseを返すこと', () => {
+    const options = createCliOptions({ aiModelName: undefined });
+    const env = {};
+    expect(isLocalMode(options, env)).toBe(false);
+  });
+});
+
 describe('validateRequiredParams', () => {
-  it('全必須パラメータ指定時にValidatedParamsが返ること', () => {
+  it('ローカルモード時に全必須パラメータ指定でValidatedParamsが返ること', () => {
     const options = createCliOptions();
     const env = {
       AI_API_KEY: 'test-key',
@@ -98,6 +131,7 @@ describe('validateRequiredParams', () => {
   it('APIモード時にAI関連パラメータが不要であること', () => {
     const options = createCliOptions({
       aikataApiUrl: 'https://api.aikata.com',
+      aikataJwt: 'test-jwt-token',
       aiModelName: undefined,
     });
     const env = {}; // AI_API_KEYやAI_API_ENDPOINT_URLなし
@@ -110,13 +144,43 @@ describe('validateRequiredParams', () => {
     expect(result.aiApiEndpointUrl).toBeUndefined();
   });
 
-  it('ローカルモード時にAI関連パラメータが必須であること', () => {
+  it('AI変数未設定かつAIKATA_API_URL未設定時にAPIモード必須パラメータエラーとなること', () => {
     const options = createCliOptions({ aiModelName: undefined });
-    const env = {}; // AI_API_KEYなし
+    const env = {}; // AI変数なし、AIKATA_API_URLもなし
 
-    expect(() => validateRequiredParams(options, env)).toThrow('--ai-model-name or AI_MODEL_NAME');
-    expect(() => validateRequiredParams(options, env)).toThrow('AI_API_KEY');
-    expect(() => validateRequiredParams(options, env)).toThrow('AI_API_ENDPOINT_URL');
+    expect(() => validateRequiredParams(options, env)).toThrow(
+      '--aikata-api-url or AIKATA_API_URL',
+    );
+    expect(() => validateRequiredParams(options, env)).toThrow('AIKATA_JWT');
+  });
+
+  it('APIモード時にAIKATA_JWTが未設定の場合エラーとなること', () => {
+    const options = createCliOptions({
+      aikataApiUrl: 'https://api.aikata.com',
+      aikataJwt: undefined,
+      aiModelName: undefined,
+    });
+    const env = {};
+
+    expect(() => validateRequiredParams(options, env)).toThrow('AIKATA_JWT');
+  });
+
+  it('ローカルモード時にAIKATA_API_URLが不要であること', () => {
+    const options = createCliOptions({
+      aiModelName: 'openai/o4-mini',
+      aikataApiUrl: undefined,
+    });
+    const env = {
+      AI_API_KEY: 'test-key',
+      AI_API_ENDPOINT_URL: 'https://api.example.com',
+    };
+
+    const result = validateRequiredParams(options, env);
+
+    expect(result.userId).toBe('test-user');
+    expect(result.aiModelName).toBe('openai/o4-mini');
+    expect(result.aiApiKey).toBe('test-key');
+    expect(result.aiApiEndpointUrl).toBe('https://api.example.com');
   });
 });
 

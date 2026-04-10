@@ -26,7 +26,7 @@ variables:
   TREE_MAX_DEPTH: ""
   # Context Length
   MAX_CONTEXT_LENGTH: ""
-  # API Mode
+  # API Mode (AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定時に必要)
   AIKATA_API_URL: ""
   # Container Image（Docker方式用）
   AIKATA_IMAGE: ""

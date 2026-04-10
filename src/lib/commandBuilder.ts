@@ -5,6 +5,14 @@ import type { Checklist } from '../domain/checklist/index.js';
 import type { ReviewSettings } from '../domain/reviewSettings/index.js';
 
 /**
+ * ローカルモード判定
+ * AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て設定されている場合にローカルモードとする
+ */
+export function isLocalMode(options: CliOptions, env: Record<string, string | undefined>): boolean {
+  return !!(options.aiModelName && env['AI_API_KEY'] && env['AI_API_ENDPOINT_URL']);
+}
+
+/**
  * バリデーション済みの必須パラメータ
  */
 export interface ValidatedParams {
@@ -33,11 +41,10 @@ export function validateRequiredParams(
   if (!options.gitlabToken) missing.push('--aikata-pr-gitlab-token or AIKATA_PR_GITLAB_TOKEN');
   if (!options.checklist) missing.push('--checklist or CHECKLIST_PATH');
 
-  // ローカルモードの場合のみAI関連パラメータを必須とする
-  if (!options.aikataApiUrl) {
-    if (!options.aiModelName) missing.push('--ai-model-name or AI_MODEL_NAME');
-    if (!env['AI_API_KEY']) missing.push('AI_API_KEY');
-    if (!env['AI_API_ENDPOINT_URL']) missing.push('AI_API_ENDPOINT_URL');
+  // APIモードの場合のみAIKATA_API_URLとAIKATA_JWTを必須とする
+  if (!isLocalMode(options, env)) {
+    if (!options.aikataApiUrl) missing.push('--aikata-api-url or AIKATA_API_URL');
+    if (!options.aikataJwt) missing.push('AIKATA_JWT');
   }
 
   if (missing.length > 0) {

@@ -4,6 +4,7 @@ import {
   validateRequiredParams,
   buildApiReviewRequest,
   buildLocalReviewCommand,
+  isLocalMode,
 } from './lib/commandBuilder.js';
 import { ChecklistParser } from './application/shared/parser/index.js';
 import { ReviewSettingsParser } from './application/shared/parser/index.js';
@@ -64,17 +65,12 @@ async function main(): Promise<void> {
       }
     }
 
-    if (options.aikataApiUrl) {
-      // === APIモード ===
-      // JWT tokenはAPIモードで必須
-      const jwtToken = options.aikataJwt;
-      if (!jwtToken) {
-        throw new Error(
-          'Missing AIKATA_JWT environment variable. Required when AIKATA_API_URL is set.',
-        );
-      }
+    const localMode = isLocalMode(options, process.env as Record<string, string | undefined>);
 
-      const client = new ReviewApiClient(options.aikataApiUrl, jwtToken);
+    if (!localMode) {
+      // === APIモード ===
+      // AIKATA_API_URL, AIKATA_JWTはvalidateRequiredParamsで検証済み
+      const client = new ReviewApiClient(options.aikataApiUrl!, options.aikataJwt!);
 
       const apiRequest = buildApiReviewRequest(
         validated,

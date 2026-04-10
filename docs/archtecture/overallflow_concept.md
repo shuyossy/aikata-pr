@@ -15,8 +15,8 @@
 # システム処理フロー
 
 ## 構成パターン
-- **APIモード**（`AIKATA_API_URL`設定時）: CI/CDジョブのCLIが外部APIサーバーにSSEでレビュー実行を委譲し、コメント投稿・品質ゲート評価はCLI側で実行する。AI APIキーはAPIサーバー側で一元管理（流出リスク排除）。認証はGitLab CI/CDの`id_tokens`（JWT）で行う
-- **ローカルモード**（`AIKATA_API_URL`未設定時）: CLIが全処理をローカルで実行する（開発用・後方互換）
+- **ローカルモード**（`AI_API_KEY`、`AI_API_ENDPOINT_URL`、`AI_MODEL_NAME`が全て設定されている場合）: CLIが全処理をローカルで実行する（開発用・後方互換）
+- **APIモード**（上記3変数のいずれかが未設定の場合）: CI/CDジョブのCLIが外部APIサーバー（`AIKATA_API_URL`）にSSEでレビュー実行を委譲し、コメント投稿・品質ゲート評価はCLI側で実行する。AI APIキーはAPIサーバー側で一元管理（流出リスク排除）。認証はGitLab CI/CDの`id_tokens`（JWT）で行う。`AIKATA_API_URL`と`AIKATA_JWT`が必要
 
 以下のフローはローカルモードを基準に記述。APIモードではステップ0〜2がAPIサーバー側で実行され、SSEで結果がCLIに返却される。ステップ3（コメント投稿）および品質ゲート評価はいずれのモードでもCLI側で実行される。
 

@@ -4,9 +4,9 @@
 
 | カテゴリ | 変数名 | 必須 | 既定値 | 主な制御内容 | CLIオプション | 参照箇所 |
 | --- | --- | --- | --- | --- | --- | --- |
-| AI | AI_API_KEY | Yes | - | AI APIキー（秘密情報） | なし（環境変数のみ） | - |
-| AI | AI_API_ENDPOINT_URL | Yes | - | AI APIエンドポイントURL | なし（環境変数のみ） | - |
-| AI | AI_MODEL_NAME | Yes | - | AIモデル名 | --ai-model-name | - |
+| AI | AI_API_KEY | ローカルモード時必須 | - | AI APIキー（秘密情報）。AI_API_ENDPOINT_URL、AI_MODEL_NAMEと共に全て設定するとローカルモードで動作 | なし（環境変数のみ） | - |
+| AI | AI_API_ENDPOINT_URL | ローカルモード時必須 | - | AI APIエンドポイントURL。AI_API_KEY、AI_MODEL_NAMEと共に全て設定するとローカルモードで動作 | なし（環境変数のみ） | - |
+| AI | AI_MODEL_NAME | ローカルモード時必須 | - | AIモデル名。AI_API_KEY、AI_API_ENDPOINT_URLと共に全て設定するとローカルモードで動作 | --ai-model-name | - |
 | AI | OPENAI_REASONING_EFFORT | No | - | OpenAI reasoningモデルのreasoning effort（low/medium/high）。設定時はtemperature=1も自動適用 | なし（環境変数のみ） | - |
 | GitLab | GITLAB_API_URL | No | CI_API_V4_URLまたはhttps://gitlab.com/api/v4 | GitLab APIベースURL。CI_API_V4_URLが設定されている場合はそちらを優先 | なし（環境変数のみ） | - |
 | GitLab | AIKATA_PR_GITLAB_TOKEN | Yes | - | GitLab APIトークン（秘密情報） | --aikata-pr-gitlab-token | - |
@@ -24,8 +24,8 @@
 | 動作設定 | TREE_MAX_DEPTH | No | 無制限 | フォルダツリー走査の最大深度。正の整数を指定。未指定時は深さ制限なし（エントリ数制限のみ適用） | なし（環境変数のみ） | - |
 | 動作設定 | MAX_CONTEXT_LENGTH | No | - | AIモデルのコンテキスト長（トークン数）。設定時、userプロンプトのトークン数がMAX_CONTEXT_LENGTH*0.6を超える場合にdiffを自動圧縮する。未設定時は圧縮しない。**ローカルモード専用。APIモード時はAPIサーバー側で管理** | なし（環境変数のみ） | - |
 | 環境 | CI_PROJECT_DIR | No | process.cwd() | プロジェクトルートディレクトリ。Workspace（ファイルシステム・サンドボックス）のベースパスとして利用。CI環境では自動設定 | なし（環境変数のみ） | - |
-| APIモード | AIKATA_API_URL | No | - | APIサーバーのURL。設定時はAPIモードで動作（AIレビュー実行を外部APIに委譲） | --aikata-api-url | - |
-| APIモード | AIKATA_JWT | No | - | GitLab CI/CDのid_tokensで自動生成されるJWTトークン。APIモード時に必要 | なし（環境変数のみ） | - |
+| APIモード | AIKATA_API_URL | APIモード時必須 | - | APIサーバーのURL。AI_API_KEY、AI_API_ENDPOINT_URL、AI_MODEL_NAMEが全て未設定の場合はAPIモードとなり本変数が必須 | --aikata-api-url | - |
+| APIモード | AIKATA_JWT | APIモード時必須 | - | GitLab CI/CDのid_tokensで自動生成されるJWTトークン。APIモード時に必要 | なし（環境変数のみ） | - |
 
 ## APIサーバー専用環境変数
 

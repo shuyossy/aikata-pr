@@ -21,8 +21,8 @@ aikata-pr-review:
     key: "aikata-pr-v${AIKATA_VERSION}"
     paths:
       - .npm/
-  # JWT生成: AIKATA_API_URLが設定されている場合、GitLabがJWTを発行する
-  # APIモード時のみ有効（ローカル実行モードではJWTは使用されない）
+  # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
+  # ローカル実行モード（上記3変数が全て設定されている場合）ではJWTは使用されない
   id_tokens:
     AIKATA_JWT:
       aud: "${AIKATA_API_URL}"
