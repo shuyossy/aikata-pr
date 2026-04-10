@@ -75,7 +75,7 @@ export interface WithRateLimitRetryOptions {
   /** プロジェクトID（指定時はグローバルレートリミッター経由で制御） */
   projectId?: string;
   /** レート制限検知時のコールバック（次回リトライ前に呼ばれる） */
-  onRateLimitHit?: () => void;
+  onRateLimitHit?: () => void | Promise<void>;
 }
 
 /**
@@ -134,7 +134,7 @@ export async function withRateLimitRetry<T>(
           'Rate limit error detected, reported to rateLimiter',
         );
         if (onRateLimitHit) {
-          onRateLimitHit();
+          await onRateLimitHit();
         }
         // 次のループでacquirePermission()のcooldown待機後にリトライ
       }

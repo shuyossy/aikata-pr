@@ -395,5 +395,41 @@ describe('withRateLimitRetry', () => {
       expect(result).toBe('success');
       expect(callback).toHaveBeenCalledTimes(2);
     });
+
+    it('onRateLimitHitがasync関数の場合でも完了を待ってから次の処理に進む', async () => {
+      initTestRateLimiter();
+      const rateLimitError = createAPICallError({ statusCode: 429 });
+      const callOrder: string[] = [];
+
+      // コールバック内でマイクロタスクを挟んでawaitされるかを検証
+      const onRateLimitHit = vi.fn().mockImplementation(async () => {
+        callOrder.push('onRateLimitHit:start');
+        await Promise.resolve();
+        await Promise.resolve();
+        callOrder.push('onRateLimitHit:end');
+      });
+
+      const callback = vi.fn().mockImplementation(async () => {
+        callOrder.push('callback');
+        if (callback.mock.calls.length === 1) {
+          throw rateLimitError;
+        }
+        return 'success';
+      });
+
+      const promise = withRateLimitRetry(callback, config, { projectId, onRateLimitHit });
+      await vi.advanceTimersByTimeAsync(config.maxDelayMs);
+      const result = await promise;
+
+      expect(result).toBe('success');
+      expect(onRateLimitHit).toHaveBeenCalledTimes(1);
+      // onRateLimitHitのstartとendの間に2回目のcallbackが入らないこと（=awaitされたこと）
+      expect(callOrder).toEqual([
+        'callback',
+        'onRateLimitHit:start',
+        'onRateLimitHit:end',
+        'callback',
+      ]);
+    });
   });
 });

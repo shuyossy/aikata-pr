@@ -10,8 +10,9 @@ import {
   executeReview,
   type ReviewExecutionConfig,
   buildRateLimitContinuationPrompt,
+  getLastRateLimitContinuationMessageId,
 } from '../reviewExecution.js';
-import type { Agent } from '@mastra/core/agent';
+import type { Agent, MastraDBMessage } from '@mastra/core/agent';
 import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
 import {
@@ -93,6 +94,7 @@ function createMockMemory() {
   return {
     deleteThread: vi.fn().mockResolvedValue(undefined),
     recall: vi.fn().mockResolvedValue({ messages: [] }),
+    deleteMessages: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -1063,11 +1065,12 @@ describe('executeReview', () => {
       expect(results).toHaveLength(2);
       expect(results[0].isError).toBe(false);
       expect(results[1].isError).toBe(false);
-      // 2回目の呼び出しでは継続プロンプトが送信される
+      // 2回目の呼び出しでは簡潔な継続プロンプトが送信される（チェック項目を含まない）
       const secondPrompt = generateFn.mock.calls[1][0] as string;
       expect(secondPrompt).toContain('Rate Limit Recovery Notice');
-      expect(secondPrompt).toContain('Already Reviewed Items');
-      expect(secondPrompt).toContain('[ID: 1]');
+      expect(secondPrompt).toContain('resume reviewing');
+      expect(secondPrompt).not.toContain('Already Reviewed Items');
+      expect(secondPrompt).not.toContain('[ID: 1]');
     });
 
     it('レート制限リカバリー時、同じスレッドIDが使用される', async () => {
@@ -1203,26 +1206,302 @@ describe('executeReview', () => {
       expect(results[0].isError).toBe(false);
       expect(callCount).toBe(4);
     });
+
+    it('初回レート制限時はmemory.deleteMessagesを呼ばず、継続プロンプトで再開する', async () => {
+      const checkItems = makeItems(['check1']);
+      const mockMemory = createMockMemory();
+      // 初回時点では履歴に継続プロンプトは存在しない（末尾は初回userプロンプト）
+      mockMemory.recall.mockResolvedValue({
+        messages: [
+          {
+            id: 'initial-user',
+            role: 'user',
+            createdAt: new Date(),
+            content: {
+              format: 2,
+              parts: [{ type: 'text', text: 'initial user prompt' }],
+            },
+          },
+        ],
+      });
+
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const generateFn = vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) throw rateLimitError;
+        writeResultsToFile(resultFilePath, [
+          {
+            checkItemId: 1,
+            ratingLabel: 'A',
+            ratingDefinition: 'Good',
+            comment: 'OK',
+            isError: false,
+          },
+        ]);
+      });
+      const mockAgent = createMockAgent(generateFn, mockMemory);
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      await executeReview(config);
+
+      expect(mockMemory.deleteMessages).not.toHaveBeenCalled();
+      const secondPrompt = generateFn.mock.calls[1][0] as string;
+      expect(secondPrompt).toBe(buildRateLimitContinuationPrompt());
+    });
+
+    it('連続レート制限時は直前の継続プロンプトをmemory.deleteMessagesで削除してから再送する', async () => {
+      const checkItems = makeItems(['check1']);
+      const mockMemory = createMockMemory();
+      const continuationText = buildRateLimitContinuationPrompt();
+
+      // recallを呼ぶたびに履歴を動的に返す:
+      // - 1回目: 継続プロンプトが末尾に存在（=連続レート制限状態）
+      // - 2回目以降: deleteMessages後の状態（今回のテストでは無関係）
+      let recallCallCount = 0;
+      mockMemory.recall.mockImplementation(async () => {
+        recallCallCount++;
+        if (recallCallCount === 1) {
+          return {
+            messages: [
+              {
+                id: 'm1',
+                role: 'user',
+                createdAt: new Date(),
+                content: { format: 2, parts: [{ type: 'text', text: 'initial prompt' }] },
+              },
+              {
+                id: 'm2',
+                role: 'assistant',
+                createdAt: new Date(),
+                content: { format: 2, parts: [{ type: 'text', text: 'some answer' }] },
+              },
+              {
+                id: 'continuation-to-delete',
+                role: 'user',
+                createdAt: new Date(),
+                content: { format: 2, parts: [{ type: 'text', text: continuationText }] },
+              },
+            ],
+          };
+        }
+        return { messages: [] };
+      });
+
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const generateFn = vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) throw rateLimitError;
+        writeResultsToFile(resultFilePath, [
+          {
+            checkItemId: 1,
+            ratingLabel: 'A',
+            ratingDefinition: 'Good',
+            comment: 'OK',
+            isError: false,
+          },
+        ]);
+      });
+      const mockAgent = createMockAgent(generateFn, mockMemory);
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      await executeReview(config);
+
+      // 直前の継続プロンプトが削除される
+      expect(mockMemory.deleteMessages).toHaveBeenCalledWith(['continuation-to-delete']);
+      // 削除後に改めて同じ継続プロンプトで再実行される
+      const secondPrompt = generateFn.mock.calls[1][0] as string;
+      expect(secondPrompt).toBe(continuationText);
+    });
+
+    it('memory.deleteMessagesがreject してもリトライは継続する（fail-safe）', async () => {
+      const checkItems = makeItems(['check1']);
+      const mockMemory = createMockMemory();
+      const continuationText = buildRateLimitContinuationPrompt();
+      mockMemory.recall.mockResolvedValue({
+        messages: [
+          {
+            id: 'm1',
+            role: 'user',
+            createdAt: new Date(),
+            content: { format: 2, parts: [{ type: 'text', text: continuationText }] },
+          },
+        ],
+      });
+      mockMemory.deleteMessages.mockRejectedValue(new Error('storage unavailable'));
+
+      const rateLimitError = new APICallError({
+        message: 'Rate limit exceeded',
+        url: 'http://test-api/v1/chat',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+
+      let callCount = 0;
+      const generateFn = vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) throw rateLimitError;
+        writeResultsToFile(resultFilePath, [
+          {
+            checkItemId: 1,
+            ratingLabel: 'A',
+            ratingDefinition: 'Good',
+            comment: 'OK',
+            isError: false,
+          },
+        ]);
+      });
+      const mockAgent = createMockAgent(generateFn, mockMemory);
+      const config = createBaseConfig({
+        checkItems,
+        resultFilePath,
+        agent: mockAgent,
+        rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+      });
+
+      const results = await executeReview(config);
+
+      expect(mockMemory.deleteMessages).toHaveBeenCalled();
+      // deleteMessages失敗にかかわらず、継続プロンプトでの再実行は行われる
+      const secondPrompt = generateFn.mock.calls[1][0] as string;
+      expect(secondPrompt).toBe(continuationText);
+      expect(results[0].isError).toBe(false);
+    });
   });
 
   describe('buildRateLimitContinuationPrompt', () => {
-    it('レート制限リカバリー通知とレビュー済み項目が含まれる', () => {
-      const checkItems = makeItems(['check1', 'check2', 'check3']);
-      const prompt = buildRateLimitContinuationPrompt([1, 2], checkItems);
+    it('引数なしで呼び出せ、レート制限リカバリー通知と再開指示を含む', () => {
+      const prompt = buildRateLimitContinuationPrompt();
 
       expect(prompt).toContain('Rate Limit Recovery Notice');
-      expect(prompt).toContain('Already Reviewed Items');
-      expect(prompt).toContain('[ID: 1] check1');
-      expect(prompt).toContain('[ID: 2] check2');
-      expect(prompt).not.toContain('[ID: 3]');
       expect(prompt).toContain('resume reviewing');
     });
 
-    it('レビュー済み項目がない場合、"None"が表示される', () => {
-      const checkItems = makeItems(['check1']);
-      const prompt = buildRateLimitContinuationPrompt([], checkItems);
+    it('チェック項目（Already Reviewed Itemsセクション・[ID: ...]リスト）を含まない', () => {
+      const prompt = buildRateLimitContinuationPrompt();
 
-      expect(prompt).toContain('None');
+      expect(prompt).not.toContain('Already Reviewed Items');
+      expect(prompt).not.toContain('[ID: ');
+    });
+
+    it('呼び出しごとに同じ文字列を返す（決定論的）', () => {
+      expect(buildRateLimitContinuationPrompt()).toBe(buildRateLimitContinuationPrompt());
+    });
+  });
+
+  describe('getLastRateLimitContinuationMessageId', () => {
+    /**
+     * テスト用に MastraDBMessage 風のオブジェクトを生成するヘルパー
+     */
+    function makeUserTextMessage(id: string, text: string): MastraDBMessage {
+      return {
+        id,
+        role: 'user',
+        createdAt: new Date(),
+        content: {
+          format: 2,
+          parts: [{ type: 'text', text }],
+        },
+      } as unknown as MastraDBMessage;
+    }
+
+    function makeAssistantTextMessage(id: string, text: string): MastraDBMessage {
+      return {
+        id,
+        role: 'assistant',
+        createdAt: new Date(),
+        content: {
+          format: 2,
+          parts: [{ type: 'text', text }],
+        },
+      } as unknown as MastraDBMessage;
+    }
+
+    it('空配列の場合はnullを返す', () => {
+      expect(getLastRateLimitContinuationMessageId([])).toBeNull();
+    });
+
+    it('末尾がuserで継続プロンプトと一致する場合、そのメッセージIDを返す', () => {
+      const continuation = buildRateLimitContinuationPrompt();
+      const messages = [
+        makeUserTextMessage('m1', 'initial prompt'),
+        makeAssistantTextMessage('m2', 'some answer'),
+        makeUserTextMessage('m3', continuation),
+      ];
+
+      expect(getLastRateLimitContinuationMessageId(messages)).toBe('m3');
+    });
+
+    it('末尾がassistantの場合はnullを返す', () => {
+      const continuation = buildRateLimitContinuationPrompt();
+      const messages = [
+        makeUserTextMessage('m1', continuation),
+        makeAssistantTextMessage('m2', continuation),
+      ];
+
+      expect(getLastRateLimitContinuationMessageId(messages)).toBeNull();
+    });
+
+    it('末尾がuserでもテキストが継続プロンプトと一致しない場合はnullを返す', () => {
+      const messages = [makeUserTextMessage('m1', 'some other prompt')];
+
+      expect(getLastRateLimitContinuationMessageId(messages)).toBeNull();
+    });
+
+    it('末尾メッセージのcontent.partsにtextパートが無い場合はnullを返す', () => {
+      const message = {
+        id: 'm1',
+        role: 'user',
+        createdAt: new Date(),
+        content: {
+          format: 2,
+          parts: [{ type: 'file', mediaType: 'image/png', data: 'xxx' }],
+        },
+      } as unknown as MastraDBMessage;
+
+      expect(getLastRateLimitContinuationMessageId([message])).toBeNull();
+    });
+
+    it('parts空でcontent.contentが継続プロンプトと一致する場合はそのIDを返す（フォールバック）', () => {
+      const continuation = buildRateLimitContinuationPrompt();
+      const message = {
+        id: 'm1',
+        role: 'user',
+        createdAt: new Date(),
+        content: {
+          format: 2,
+          parts: [],
+          content: continuation,
+        },
+      } as unknown as MastraDBMessage;
+
+      expect(getLastRateLimitContinuationMessageId([message])).toBe('m1');
     });
   });
 

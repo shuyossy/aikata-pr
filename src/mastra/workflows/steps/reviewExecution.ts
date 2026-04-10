@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Agent } from '@mastra/core/agent';
+import type { Agent, MastraDBMessage } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
@@ -77,31 +77,61 @@ function buildResults(
  *
  * 同じスレッドに送信するため、会話履歴はメモリで保持されている。
  * エージェントに「中断されたので再開してください」と伝えるだけでよい。
+ * チェック項目は会話履歴から参照可能なため、ここでは含めない（連続レート制限時の
+ * コンテキスト肥大化を防ぐため簡潔な固定文面とする）。
  */
-export function buildRateLimitContinuationPrompt(
-  alreadyReviewedItemIds: number[],
-  checkItems: IndexedCheckItem[],
-): string {
-  const reviewedList =
-    alreadyReviewedItemIds.length > 0
-      ? alreadyReviewedItemIds
-          .map((id) => {
-            const item = checkItems.find((i) => i.id === id);
-            return item ? `- [ID: ${id}] ${item.content}` : `- [ID: ${id}] (unknown)`;
-          })
-          .join('\n')
-      : 'None';
-
+export function buildRateLimitContinuationPrompt(): string {
   return `## Rate Limit Recovery Notice
 The previous operation was interrupted due to a rate limit error. The conversation history is preserved.
 
-## Already Reviewed Items
-The following items have already been reviewed and their results stored. You do NOT need to review them again:
-${reviewedList}
-
----
-
 Please resume reviewing the remaining check items. Store each result using the storeReviewResult tool.`;
+}
+
+/**
+ * メモリから取得したメッセージ配列の末尾メッセージが、
+ * `buildRateLimitContinuationPrompt()` と完全一致する `user` メッセージかを判定する。
+ *
+ * 連続レート制限（直前のリトライで既に継続プロンプトを送信済み）を検知するために使用する。
+ * 一致した場合はそのメッセージのIDを返し、呼び出し側で `memory.deleteMessages` により
+ * 重複する継続プロンプトを削除できる。
+ */
+export function getLastRateLimitContinuationMessageId(messages: MastraDBMessage[]): string | null {
+  if (messages.length === 0) {
+    return null;
+  }
+  const last = messages[messages.length - 1];
+  if (last.role !== 'user') {
+    return null;
+  }
+  const text = extractTextFromMessage(last);
+  if (text === null) {
+    return null;
+  }
+  if (text !== buildRateLimitContinuationPrompt()) {
+    return null;
+  }
+  return last.id;
+}
+
+/**
+ * `MastraDBMessage` からテキスト本文を抽出する。
+ *
+ * `content.parts` 先頭の `text` パートを優先し、無ければ `content.content` にフォールバックする。
+ * いずれも取得できない場合は `null` を返す。
+ */
+function extractTextFromMessage(message: MastraDBMessage): string | null {
+  const parts = message.content.parts;
+  if (parts && parts.length > 0) {
+    for (const part of parts) {
+      if (part.type === 'text' && typeof part.text === 'string') {
+        return part.text;
+      }
+    }
+  }
+  if (typeof message.content.content === 'string') {
+    return message.content.content;
+  }
+  return null;
 }
 
 /**
@@ -211,11 +241,34 @@ async function executeWithErrorRecovery(params: {
         rateLimitRetryConfig,
         {
           projectId,
-          onRateLimitHit: () => {
-            // 同じスレッドで継続プロンプトを送信
-            const storedResults = readStoredResults(resultFilePath);
-            const alreadyReviewedItemIds = storedResults.map((r) => r.checkItemId);
-            prompt = buildRateLimitContinuationPrompt(alreadyReviewedItemIds, checkItems);
+          onRateLimitHit: async () => {
+            // 連続レート制限（直前のリトライで既に同じ継続プロンプトを送信済み）を検知し、
+            // メモリ履歴に積まれた重複プロンプトを削除してから再送する。
+            // これによりメモリには継続プロンプトが常に最大1件しか積まれない。
+            try {
+              const memory = await agent.getMemory();
+              if (memory) {
+                const recalled = await memory.recall({ threadId: currentThreadId });
+                const duplicateId = getLastRateLimitContinuationMessageId(recalled.messages);
+                if (duplicateId !== null) {
+                  try {
+                    await memory.deleteMessages([duplicateId]);
+                  } catch (err) {
+                    logger.warn(
+                      { err },
+                      'Failed to delete previous rate limit continuation message; proceeding without dedupe',
+                    );
+                  }
+                }
+              }
+            } catch (err) {
+              logger.debug(
+                { err },
+                'Failed to inspect memory for consecutive rate limit detection',
+              );
+            }
+            // 同じスレッドで簡潔な継続プロンプトを送信
+            prompt = buildRateLimitContinuationPrompt();
           },
         },
       );
