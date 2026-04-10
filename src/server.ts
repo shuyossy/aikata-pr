@@ -106,6 +106,18 @@ export async function startServer(): Promise<void> {
 
   const openaiReasoningEffort = process.env['OPENAI_REASONING_EFFORT'] || undefined;
 
+  // MAX_CONTEXT_LENGTHバリデーション
+  const maxContextLengthEnv = process.env['MAX_CONTEXT_LENGTH'];
+  let maxContextLength: number | undefined;
+  if (maxContextLengthEnv) {
+    maxContextLength = Number(maxContextLengthEnv);
+    if (!Number.isInteger(maxContextLength) || maxContextLength < 1) {
+      throw new Error(
+        `Invalid MAX_CONTEXT_LENGTH: ${maxContextLengthEnv}. Must be a positive integer.`,
+      );
+    }
+  }
+
   const deps: ReviewHandlerDeps = {
     cloneManager,
     serviceFactory,
@@ -116,6 +128,7 @@ export async function startServer(): Promise<void> {
     defaultAiModelName,
     openaiReasoningEffort,
     reviewTimeoutMs,
+    maxContextLength,
   };
 
   // JWT認証設定の構築

@@ -203,7 +203,6 @@ describe('ReviewApiClient', () => {
         commentLanguage: 'Japanese',
         skillsPaths: ['/path/to/skills'],
         treeMaxDepth: 5,
-        maxContextLength: 100000,
       },
     };
 

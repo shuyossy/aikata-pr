@@ -136,7 +136,7 @@ describe('buildApiReviewRequest', () => {
       commentLanguage: 'English',
     });
 
-    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, 5, 50000);
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, 5);
 
     // 必須フィールド
     expect(result.gitlabToken).toBe('test-gitlab-token');
@@ -154,7 +154,6 @@ describe('buildApiReviewRequest', () => {
     expect(result.options?.commentLanguage).toBe('English');
     expect(result.options?.skillsPaths).toEqual(['/path/to/skills']);
     expect(result.options?.treeMaxDepth).toBe(5);
-    expect(result.options?.maxContextLength).toBe(50000);
   });
 
   it('reviewSettings.ratingsがReviewSettingsから正しく変換されること', () => {
@@ -169,14 +168,7 @@ describe('buildApiReviewRequest', () => {
     const reviewSettings = createReviewSettings();
     const options = createCliOptions();
 
-    const result = buildApiReviewRequest(
-      validated,
-      checklist,
-      reviewSettings,
-      options,
-      undefined,
-      undefined,
-    );
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
 
     expect(result.reviewSettings?.ratings).toEqual([
       { label: 'A', definition: '完全に満たしている' },
@@ -197,14 +189,7 @@ describe('buildApiReviewRequest', () => {
     const reviewSettings = createReviewSettings();
     const options = createCliOptions();
 
-    const result = buildApiReviewRequest(
-      validated,
-      checklist,
-      reviewSettings,
-      options,
-      undefined,
-      undefined,
-    );
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
 
     expect(result.reviewSettings?.qualityGate?.failureCriteria).toEqual([
       { ratingLabel: 'C', threshold: 2 },
@@ -223,14 +208,7 @@ describe('buildApiReviewRequest', () => {
     const reviewSettings = createReviewSettings();
     const options = createCliOptions({ skills: undefined });
 
-    const result = buildApiReviewRequest(
-      validated,
-      checklist,
-      reviewSettings,
-      options,
-      undefined,
-      undefined,
-    );
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
 
     expect(result.options?.skillsPaths).toEqual([]);
   });
@@ -247,14 +225,7 @@ describe('buildApiReviewRequest', () => {
     const reviewSettings = createReviewSettings();
     const options = createCliOptions({ skills: '/my/skills.yaml' });
 
-    const result = buildApiReviewRequest(
-      validated,
-      checklist,
-      reviewSettings,
-      options,
-      undefined,
-      undefined,
-    );
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
 
     expect(result.options?.skillsPaths).toEqual(['/my/skills.yaml']);
   });

@@ -63,18 +63,6 @@ async function main(): Promise<void> {
       }
     }
 
-    // MAX_CONTEXT_LENGTHバリデーション
-    const maxContextLengthEnv = process.env['MAX_CONTEXT_LENGTH'];
-    let maxContextLength: number | undefined;
-    if (maxContextLengthEnv) {
-      maxContextLength = Number(maxContextLengthEnv);
-      if (!Number.isInteger(maxContextLength) || maxContextLength < 1) {
-        throw new Error(
-          `Invalid MAX_CONTEXT_LENGTH: ${maxContextLengthEnv}. Must be a positive integer.`,
-        );
-      }
-    }
-
     if (options.aikataApiUrl) {
       // === APIモード ===
       // JWT tokenはAPIモードで必須
@@ -93,7 +81,6 @@ async function main(): Promise<void> {
         reviewSettings,
         options,
         treeMaxDepth,
-        maxContextLength,
       );
 
       const apiResult = await client.executeReview(apiRequest, (event) => {
@@ -163,6 +150,18 @@ async function main(): Promise<void> {
       }
     } else {
       // === ローカルモード（既存動作） ===
+      // MAX_CONTEXT_LENGTHバリデーション（ローカルモード専用。APIモード時はAPIサーバー側で管理）
+      const maxContextLengthEnv = process.env['MAX_CONTEXT_LENGTH'];
+      let maxContextLength: number | undefined;
+      if (maxContextLengthEnv) {
+        maxContextLength = Number(maxContextLengthEnv);
+        if (!Number.isInteger(maxContextLength) || maxContextLength < 1) {
+          throw new Error(
+            `Invalid MAX_CONTEXT_LENGTH: ${maxContextLengthEnv}. Must be a positive integer.`,
+          );
+        }
+      }
+
       // レートリミッターをローカルモード用に初期化
       resetRateLimiter();
       const rateLimiter = new RateLimiter({

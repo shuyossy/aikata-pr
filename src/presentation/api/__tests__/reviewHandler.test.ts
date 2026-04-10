@@ -37,7 +37,6 @@ describe('reviewRequestSchema', () => {
         commentLanguage: 'English',
         skillsPaths: ['/path/to/skills'],
         treeMaxDepth: 5,
-        maxContextLength: 50000,
       },
     };
 
@@ -89,21 +88,6 @@ describe('reviewRequestSchema', () => {
       checklist: ['item 1'],
       reviewSettings: {
         concurrentReviewCount: null,
-      },
-    };
-
-    const result = reviewRequestSchema.safeParse(input);
-    expect(result.success).toBe(true);
-  });
-
-  it('options.maxContextLengthがnullの場合にバリデーションが通ること', () => {
-    const input = {
-      gitlabToken: 'token',
-      projectId: '42',
-      mrIid: '10',
-      checklist: ['item 1'],
-      options: {
-        maxContextLength: null,
       },
     };
 

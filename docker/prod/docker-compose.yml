@@ -11,6 +11,7 @@ services:
       - AI_API_ENDPOINT_URL
       - AI_MODEL_NAME
       - OPENAI_REASONING_EFFORT
+      - MAX_CONTEXT_LENGTH
       - JWT_JWKS_URL
       - JWT_AUDIENCE
       - JWT_ISSUER

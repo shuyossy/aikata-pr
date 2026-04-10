@@ -668,6 +668,7 @@ describe('reviewRoute', () => {
         aiApiEndpointUrl: 'https://ai-server.example.com',
         defaultAiModelName: 'openai/gpt-4o',
         openaiReasoningEffort: 'medium',
+        maxContextLength: 80000,
       });
 
       const requestBody = {
@@ -692,7 +693,6 @@ describe('reviewRoute', () => {
           commentLanguage: 'English',
           skillsPaths: ['/path/to/skills'],
           treeMaxDepth: 5,
-          maxContextLength: 50000,
         },
       };
 
@@ -731,13 +731,13 @@ describe('reviewRoute', () => {
       expect(command.commentLanguage).toBe('English');
       expect(command.skillsPaths).toEqual(['/path/to/skills']);
       expect(command.treeMaxDepth).toBe(5);
-      expect(command.maxContextLength).toBe(50000);
 
       // deps由来（サーバー環境変数）
       expect(command.aiApiKey).toBe('server-api-key');
       expect(command.aiApiEndpointUrl).toBe('https://ai-server.example.com');
       expect(command.aiModelName).toBe('openai/gpt-4o');
       expect(command.openaiReasoningEffort).toBe('medium');
+      expect(command.maxContextLength).toBe(80000);
 
       // ハードコード値
       expect(command.userId).toBe('api-server');
@@ -801,33 +801,6 @@ describe('reviewRoute', () => {
       expect(command.commentLanguage).toBe('Japanese');
       expect(command.skillsPaths).toEqual([]);
       expect(command.treeMaxDepth).toBeUndefined();
-      expect(command.maxContextLength).toBeUndefined();
-    });
-
-    it('maxContextLengthがnullの場合にundefinedに変換されること', async () => {
-      const { serviceFactory, executeMock } = createCapturingServiceFactory();
-      const app = createTestApp({ serviceFactory });
-
-      const requestBody = {
-        gitlabToken: 'token',
-        projectId: '123',
-        mrIid: '45',
-        checklist: ['Check item 1'],
-        options: {
-          maxContextLength: null,
-        },
-      };
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-      await res.text();
-
-      const command = executeMock.mock.calls[0][0];
-
-      // null → undefinedに変換されること
       expect(command.maxContextLength).toBeUndefined();
     });
 

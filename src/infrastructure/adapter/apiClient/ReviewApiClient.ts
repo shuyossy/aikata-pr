@@ -20,7 +20,6 @@ export interface ReviewApiRequest {
     commentLanguage?: string;
     skillsPaths?: string[];
     treeMaxDepth?: number;
-    maxContextLength?: number | null;
   };
 }
 

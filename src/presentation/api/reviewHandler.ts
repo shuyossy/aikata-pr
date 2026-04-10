@@ -63,7 +63,6 @@ export const reviewRequestSchema = z.object({
       commentLanguage: z.string().optional(),
       skillsPaths: z.array(z.string()).optional(),
       treeMaxDepth: z.number().optional(),
-      maxContextLength: z.number().nullable().optional(),
     })
     .optional(),
 });
@@ -124,6 +123,8 @@ export interface ReviewHandlerDeps {
   openaiReasoningEffort?: string;
   /** レビュー全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
   reviewTimeoutMs?: number;
+  /** AIモデルのコンテキスト長（トークン数）。未設定時は圧縮しない */
+  maxContextLength?: number;
 }
 
 /**
@@ -275,7 +276,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
           treeMaxDepth: request.options?.treeMaxDepth,
           commentLanguage: request.options?.commentLanguage ?? 'Japanese',
           openaiReasoningEffort: deps.openaiReasoningEffort,
-          maxContextLength: request.options?.maxContextLength ?? undefined,
+          maxContextLength: deps.maxContextLength,
         });
 
         // 11. ReviewApiResponse形式でレビュー結果を構築

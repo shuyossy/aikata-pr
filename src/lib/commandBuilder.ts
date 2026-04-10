@@ -65,7 +65,6 @@ export function buildApiReviewRequest(
   reviewSettings: ReviewSettings,
   options: CliOptions,
   treeMaxDepth: number | undefined,
-  maxContextLength: number | undefined,
 ): ReviewApiRequest {
   return {
     gitlabToken: validated.gitlabToken,
@@ -92,7 +91,6 @@ export function buildApiReviewRequest(
       commentLanguage: options.commentLanguage,
       skillsPaths: options.skills ? [options.skills] : [],
       treeMaxDepth,
-      maxContextLength,
     },
   };
 }
