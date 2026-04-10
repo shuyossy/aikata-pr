@@ -2,8 +2,8 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createJwtAuthMiddleware } from './infrastructure/adapter/auth/index.js';
 import type { JwtAuthEnv } from './infrastructure/adapter/auth/index.js';
-import { createReviewRoute } from './presentation/api/index.js';
-import type { ReviewRouteEnv } from './presentation/api/index.js';
+import { createReviewRoute, createRequestIdMiddleware } from './presentation/api/index.js';
+import type { ReviewRouteEnv, RequestIdEnv } from './presentation/api/index.js';
 import type { ReviewHandlerDeps } from './presentation/api/index.js';
 import { DefaultPerRequestServiceFactory } from './presentation/api/index.js';
 import { CloneManager } from './infrastructure/adapter/clone/CloneManager.js';
@@ -39,8 +39,12 @@ export interface JwtConfig {
 export function createApp(
   deps: ReviewHandlerDeps,
   jwtConfig?: JwtConfig,
-): Hono<JwtAuthEnv & ReviewRouteEnv> {
-  const app = new Hono<JwtAuthEnv & ReviewRouteEnv>();
+): Hono<JwtAuthEnv & ReviewRouteEnv & RequestIdEnv> {
+  const app = new Hono<JwtAuthEnv & ReviewRouteEnv & RequestIdEnv>();
+
+  // requestIdミドルウェア（全ルートに適用、最前段）
+  // X-Request-Idヘッダがあれば継承、無ければUUID v4を生成
+  app.use('*', createRequestIdMiddleware());
 
   // ヘルスチェック（認証不要）
   app.get('/health', (c) => c.json({ status: 'ok' }));
@@ -152,7 +156,7 @@ export async function startServer(): Promise<void> {
       );
     }
     logger.warn(
-      'JWT authentication is NOT configured. API routes are unauthenticated. Set JWT_JWKS_URL, JWT_AUDIENCE, and JWT_ISSUER to enable authentication.',
+      'JWT authentication is NOT configured. API routes are unauthenticated. Set JWT_JWKS_URL, JWT_AUDIENCE, and JWT_ISSUER to enable authentication. In this mode, the userId for per-request log context is taken from the request body only.',
     );
   }
 

@@ -46,6 +46,8 @@ async function createTestJwt(
     expiresIn?: string;
     signingKey?: CryptoKey;
     subject?: string;
+    /** GitLab id_tokens互換のカスタムクレーム */
+    customClaims?: Record<string, unknown>;
   } = {},
 ): Promise<string> {
   const {
@@ -54,9 +56,10 @@ async function createTestJwt(
     expiresIn = '1h',
     signingKey = privateKey,
     subject = 'test-project',
+    customClaims = {},
   } = options;
 
-  let builder = new SignJWT({ sub: subject })
+  let builder = new SignJWT({ sub: subject, ...customClaims })
     .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
     .setIssuedAt();
 
@@ -204,5 +207,52 @@ describe('JwtAuthMiddleware', () => {
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.error).toBe('Invalid or expired token');
+  });
+
+  it('GitLab id_tokensのカスタムクレーム（user_login等）がpayloadに保持されること', async () => {
+    const app = createTestApp(jwksUrl);
+    const token = await createTestJwt({
+      customClaims: {
+        user_login: 'alice',
+        user_id: 123,
+        user_email: 'alice@example.com',
+        project_path: 'group/subgroup/project',
+        project_id: 456,
+        pipeline_id: 789,
+        job_id: 1011,
+        ref: 'main',
+      },
+    });
+
+    const res = await app.request('/protected/resource', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.payload.user_login).toBe('alice');
+    expect(body.payload.user_id).toBe(123);
+    expect(body.payload.user_email).toBe('alice@example.com');
+    expect(body.payload.project_path).toBe('group/subgroup/project');
+    expect(body.payload.project_id).toBe(456);
+    expect(body.payload.pipeline_id).toBe(789);
+    expect(body.payload.job_id).toBe(1011);
+    expect(body.payload.ref).toBe('main');
+  });
+
+  it('カスタムクレームが無くても（最小限のJWT）認証が成功すること', async () => {
+    const app = createTestApp(jwksUrl);
+    const token = await createTestJwt(); // customClaims未指定
+
+    const res = await app.request('/protected/resource', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.payload.sub).toBe('test-project');
+    // GitLab固有フィールドは未定義で問題ない
+    expect(body.payload.user_login).toBeUndefined();
+    expect(body.payload.user_id).toBeUndefined();
   });
 });

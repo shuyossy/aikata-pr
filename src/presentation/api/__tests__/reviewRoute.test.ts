@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { createReviewRoute } from '../reviewRoute.js';
 import type { ReviewRouteEnv } from '../reviewRoute.js';
+import { createRequestIdMiddleware } from '../requestIdMiddleware.js';
 import type {
   ReviewHandlerDeps,
   PerRequestServiceFactory,
@@ -14,6 +15,7 @@ import type {
 } from '../../../application/shared/port/clone/index.js';
 import type { RateLimiterPort } from '../../../application/shared/port/rateLimiter/index.js';
 import type { ReviewExecutionDto } from '../../../application/reviewExecution/index.js';
+import type { GitLabIdTokenPayload } from '../../../infrastructure/adapter/auth/index.js';
 import { ReviewResult } from '../../../domain/reviewResult/index.js';
 import { CheckItem } from '../../../domain/checkItem/index.js';
 import { Rating } from '../../../domain/rating/index.js';
@@ -120,8 +122,13 @@ function createMockRateLimiter(): RateLimiterPort {
 
 /**
  * テスト用のHonoアプリを作成するヘルパー
+ *
+ * 必要に応じてJWT payloadをモック注入できる（ログコンテキスト検証用）
  */
-function createTestApp(depsOverrides?: Partial<ReviewHandlerDeps>): Hono<ReviewRouteEnv> {
+function createTestApp(
+  depsOverrides?: Partial<ReviewHandlerDeps>,
+  jwtPayload?: GitLabIdTokenPayload,
+): Hono<ReviewRouteEnv> {
   const deps: ReviewHandlerDeps = {
     cloneManager: createMockCloneManager(),
     serviceFactory: createMockServiceFactory(),
@@ -135,9 +142,15 @@ function createTestApp(depsOverrides?: Partial<ReviewHandlerDeps>): Hono<ReviewR
 
   const app = new Hono<ReviewRouteEnv>();
 
-  // reviewHandlerDepsをコンテキストに注入するミドルウェア
+  // requestIdミドルウェア（reviewRouteが `c.get('requestId')` を参照するため必須）
+  app.use('*', createRequestIdMiddleware());
+
+  // 依存注入とJWT payloadモックのミドルウェア
   app.use('*', async (c, next) => {
     c.set('reviewHandlerDeps', deps);
+    if (jwtPayload) {
+      c.set('jwtPayload', jwtPayload);
+    }
     await next();
   });
 
@@ -153,6 +166,7 @@ function createTestApp(depsOverrides?: Partial<ReviewHandlerDeps>): Hono<ReviewR
  */
 function createValidRequestBody() {
   return {
+    userId: 'test-user',
     gitlabToken: 'test-gitlab-token',
     projectId: '123',
     mrIid: '45',
@@ -215,6 +229,7 @@ describe('reviewRoute', () => {
       const app = createTestApp();
       const validBody = createValidRequestBody();
       const requestBody = {
+        userId: validBody.userId,
         gitlabToken: validBody.gitlabToken,
         mrIid: validBody.mrIid,
         checklist: validBody.checklist,
@@ -236,11 +251,49 @@ describe('reviewRoute', () => {
       const app = createTestApp();
       const validBody = createValidRequestBody();
       const requestBody = {
+        userId: validBody.userId,
         gitlabToken: validBody.gitlabToken,
         projectId: validBody.projectId,
         checklist: validBody.checklist,
         reviewSettings: validBody.reviewSettings,
       };
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe('Validation error');
+    });
+
+    it('userIdが未指定で400エラーが返ること', async () => {
+      const app = createTestApp();
+      const validBody = createValidRequestBody();
+      const requestBody = {
+        gitlabToken: validBody.gitlabToken,
+        projectId: validBody.projectId,
+        mrIid: validBody.mrIid,
+        checklist: validBody.checklist,
+        reviewSettings: validBody.reviewSettings,
+      };
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe('Validation error');
+    });
+
+    it('userIdが空文字で400エラーが返ること', async () => {
+      const app = createTestApp();
+      const requestBody = { ...createValidRequestBody(), userId: '' };
 
       const res = await app.request('/review', {
         method: 'POST',
@@ -272,6 +325,7 @@ describe('reviewRoute', () => {
       const app = createTestApp();
       const validBody = createValidRequestBody();
       const requestBody = {
+        userId: validBody.userId,
         gitlabToken: validBody.gitlabToken,
         projectId: validBody.projectId,
         mrIid: validBody.mrIid,
@@ -292,6 +346,7 @@ describe('reviewRoute', () => {
     it('reviewSettingsがオプションで省略可能なこと', async () => {
       const app = createTestApp();
       const requestBody = {
+        userId: 'test-user',
         gitlabToken: 'test-token',
         projectId: '123',
         mrIid: '45',
@@ -499,6 +554,7 @@ describe('reviewRoute', () => {
     it('reviewSettings未指定時にデフォルト値が適用されること', async () => {
       const app = createTestApp();
       const requestBody = {
+        userId: 'test-user',
         gitlabToken: 'test-token',
         projectId: '123',
         mrIid: '45',
@@ -672,6 +728,7 @@ describe('reviewRoute', () => {
       });
 
       const requestBody = {
+        userId: 'charlie',
         gitlabToken: 'my-gitlab-token',
         projectId: '999',
         mrIid: '77',
@@ -739,8 +796,8 @@ describe('reviewRoute', () => {
       expect(command.openaiReasoningEffort).toBe('medium');
       expect(command.maxContextLength).toBe(80000);
 
-      // ハードコード値
-      expect(command.userId).toBe('api-server');
+      // userIdはリクエストボディ由来
+      expect(command.userId).toBe('charlie');
 
       // クローン結果由来
       expect(command.projectDir).toBe('/tmp/test-clone');
@@ -751,6 +808,7 @@ describe('reviewRoute', () => {
       const app = createTestApp({ serviceFactory });
 
       const requestBody = {
+        userId: 'test-user',
         gitlabToken: 'token',
         projectId: '123',
         mrIid: '45',
@@ -782,6 +840,7 @@ describe('reviewRoute', () => {
       const app = createTestApp({ serviceFactory });
 
       const requestBody = {
+        userId: 'test-user',
         gitlabToken: 'token',
         projectId: '123',
         mrIid: '45',
@@ -831,11 +890,11 @@ describe('reviewRoute', () => {
       expect(command.openaiReasoningEffort).toBe('high');
     });
 
-    it('userIdがapi-server固定であること', async () => {
+    it('userIdがリクエストボディ由来でReviewExecutionCommandに伝播すること', async () => {
       const { serviceFactory, executeMock } = createCapturingServiceFactory();
       const app = createTestApp({ serviceFactory });
 
-      const requestBody = createValidRequestBody();
+      const requestBody = { ...createValidRequestBody(), userId: 'dave' };
 
       const res = await app.request('/review', {
         method: 'POST',
@@ -845,7 +904,7 @@ describe('reviewRoute', () => {
       await res.text();
 
       const command = executeMock.mock.calls[0][0];
-      expect(command.userId).toBe('api-server');
+      expect(command.userId).toBe('dave');
     });
   });
 
@@ -904,6 +963,160 @@ describe('reviewRoute', () => {
       // 品質ゲート関連のフィールドは含まれないこと
       expect(resultData.qualityGatePassed).toBeUndefined();
       expect(resultData.qualityGateViolations).toBeUndefined();
+    });
+  });
+
+  describe('POST /review - リクエスト単位のログコンテキスト', () => {
+    /**
+     * JSONログを捕捉するストリームを返すヘルパー
+     *
+     * 本describe内では各テストでロガーを再初期化するため、beforeEachで初期化された
+     * ロガーをリセットしてから`stream`付きで再生成する。
+     */
+    function createCapturingApp(
+      jwtPayload?: GitLabIdTokenPayload,
+      depsOverrides?: Partial<ReviewHandlerDeps>,
+    ): {
+      app: ReturnType<typeof createTestApp>;
+      logs: Array<Record<string, unknown>>;
+    } {
+      resetLogger();
+      const raw: string[] = [];
+      initializeLogger({
+        userId: 'api-server',
+        prettyPrint: false,
+        stream: {
+          write(chunk: string) {
+            raw.push(chunk);
+          },
+        },
+      });
+      const app = createTestApp(depsOverrides, jwtPayload);
+      return {
+        app,
+        logs: new Proxy([] as Array<Record<string, unknown>>, {
+          get(_target, prop) {
+            // 参照時点でのraw→JSONパース結果を都度返す（テスト中にraw.pushされるため）
+            const parsed = raw
+              .filter((l) => l.trim().length > 0)
+              .map((l) => JSON.parse(l) as Record<string, unknown>);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return (parsed as any)[prop];
+          },
+        }),
+      };
+    }
+
+    it('リクエストボディのuserIdがログに記録されること（JWT認証無効モード）', async () => {
+      const { app, logs } = createCapturingApp();
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
+      });
+      await res.text();
+
+      // 'Review API request received' ログが userId: 'alice' で出力される
+      const received = (logs as unknown as Array<Record<string, unknown>>).find(
+        (l) => l['msg'] === 'Review API request received',
+      );
+      expect(received).toBeDefined();
+      expect(received!['userId']).toBe('alice');
+      expect(received!['requestId']).toBeTypeOf('string');
+    });
+
+    it('JWT認証有効時にgitlab*補助フィールドがログに追加されること', async () => {
+      const { app, logs } = createCapturingApp({
+        user_login: 'alice',
+        user_id: 42,
+        user_email: 'alice@example.com',
+        project_path: 'group/project',
+        pipeline_id: 111,
+        job_id: 222,
+      });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
+      });
+      await res.text();
+
+      const received = (logs as unknown as Array<Record<string, unknown>>).find(
+        (l) => l['msg'] === 'Review API request received',
+      );
+      expect(received).toBeDefined();
+      expect(received!['userId']).toBe('alice');
+      expect(received!['gitlabUserId']).toBe(42);
+      expect(received!['gitlabUserEmail']).toBe('alice@example.com');
+      expect(received!['gitlabProjectPath']).toBe('group/project');
+      expect(received!['gitlabPipelineId']).toBe(111);
+      expect(received!['gitlabJobId']).toBe(222);
+      expect(received!['requestId']).toBeTypeOf('string');
+    });
+
+    it('JWT user_loginとリクエストボディuserIdが不一致の場合に警告ログが出ること', async () => {
+      const { app, logs } = createCapturingApp({
+        user_login: 'alice',
+        user_id: 42,
+      });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...createValidRequestBody(), userId: 'bob' }),
+      });
+      await res.text();
+
+      const warning = (logs as unknown as Array<Record<string, unknown>>).find(
+        (l) => l['msg'] === 'userId in request body does not match JWT user_login claim',
+      );
+      expect(warning).toBeDefined();
+      expect(warning!['bodyUserId']).toBe('bob');
+      expect(warning!['jwtUserLogin']).toBe('alice');
+      expect(warning!['level']).toBe(40); // pinoのwarn数値
+      // 警告ログ自体にもrequestIdとuserId（ボディ由来）が付与されている
+      expect(warning!['requestId']).toBeTypeOf('string');
+      expect(warning!['userId']).toBe('bob');
+    });
+
+    it('X-Request-IdヘッダがレスポンスとログのrequestIdに反映されること', async () => {
+      const { app, logs } = createCapturingApp();
+      const customId = 'custom-req-id-xyz';
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Request-Id': customId },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      await res.text();
+
+      expect(res.headers.get('X-Request-Id')).toBe(customId);
+
+      const received = (logs as unknown as Array<Record<string, unknown>>).find(
+        (l) => l['msg'] === 'Review API request received',
+      );
+      expect(received).toBeDefined();
+      expect(received!['requestId']).toBe(customId);
+    });
+
+    it('JWT user_loginとリクエストボディuserIdが一致する場合は警告ログが出ないこと', async () => {
+      const { app, logs } = createCapturingApp({
+        user_login: 'alice',
+      });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
+      });
+      await res.text();
+
+      const warning = (logs as unknown as Array<Record<string, unknown>>).find(
+        (l) => l['msg'] === 'userId in request body does not match JWT user_login claim',
+      );
+      expect(warning).toBeUndefined();
     });
   });
 });

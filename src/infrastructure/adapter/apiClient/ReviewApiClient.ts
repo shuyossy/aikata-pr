@@ -2,6 +2,8 @@
  * APIリクエストの型
  */
 export interface ReviewApiRequest {
+  /** 本テンプレートを実行したユーザID（通常は$GITLAB_USER_LOGIN）。APIサーバー側でログに記録される */
+  userId: string;
   gitlabToken: string;
   projectId: string;
   mrIid: string;
@@ -47,6 +49,9 @@ export interface ReviewProgressEvent {
   message?: string;
 }
 
+/** APIサーバーがレスポンスヘッダで返すリクエストID用ヘッダ名 */
+export const REQUEST_ID_HEADER = 'X-Request-Id';
+
 /**
  * CLI→APIサーバー間のSSEクライアント
  * Node.js組み込みのfetchを使用してAPIサーバーのレビューエンドポイントを呼び出し、
@@ -63,10 +68,17 @@ export class ReviewApiClient {
 
   /**
    * レビューAPIを呼び出し、SSEレスポンスを処理する
+   *
+   * @param request - レビューリクエスト
+   * @param onProgress - 進捗イベントを受け取るコールバック
+   * @param onRequestId - APIサーバーが返した`X-Request-Id`ヘッダを受け取るコールバック
+   *   （ストリーム消費開始前に同期的に呼び出される。呼び出し側はこのIDをログに付与し、
+   *   サーバー側ログとの相関キーとして利用する）
    */
   async executeReview(
     request: ReviewApiRequest,
     onProgress?: (event: ReviewProgressEvent) => void,
+    onRequestId?: (requestId: string) => void,
   ): Promise<ReviewApiResponse> {
     const url = `${this.apiUrl}/api/v1/review`;
 
@@ -78,6 +90,12 @@ export class ReviewApiClient {
       },
       body: JSON.stringify(request),
     });
+
+    // X-Request-Idヘッダの抽出（エラー応答でも付与される想定のため、!response.okより先に取得）
+    const requestId = response.headers.get(REQUEST_ID_HEADER);
+    if (requestId && onRequestId) {
+      onRequestId(requestId);
+    }
 
     // 非SSEエラー（400, 401, 500等）
     if (!response.ok) {

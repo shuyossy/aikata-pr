@@ -4,6 +4,7 @@ import { reviewRequestSchema, buildReviewSettings } from '../reviewHandler.js';
 describe('reviewRequestSchema', () => {
   it('必須フィールドがすべて揃っている場合にバリデーションが通ること', () => {
     const input = {
+      userId: 'alice',
       gitlabToken: 'token123',
       projectId: '42',
       mrIid: '10',
@@ -14,8 +15,34 @@ describe('reviewRequestSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('userIdが未指定の場合にバリデーションエラーになること', () => {
+    const input = {
+      gitlabToken: 'token',
+      projectId: '42',
+      mrIid: '10',
+      checklist: ['item 1'],
+    };
+
+    const result = reviewRequestSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('userIdが空文字の場合にバリデーションエラーになること', () => {
+    const input = {
+      userId: '',
+      gitlabToken: 'token',
+      projectId: '42',
+      mrIid: '10',
+      checklist: ['item 1'],
+    };
+
+    const result = reviewRequestSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
   it('reviewSettingsとoptionsを含む完全なリクエストがバリデーションを通ること', () => {
     const input = {
+      userId: 'alice',
       gitlabToken: 'token123',
       projectId: '42',
       mrIid: '10',
@@ -82,6 +109,7 @@ describe('reviewRequestSchema', () => {
 
   it('reviewSettings.concurrentReviewCountがnullの場合にバリデーションが通ること', () => {
     const input = {
+      userId: 'alice',
       gitlabToken: 'token',
       projectId: '42',
       mrIid: '10',

@@ -9,7 +9,11 @@ import {
 /**
  * SSE形式のレスポンスを生成するヘルパー
  */
-function createSSEResponse(events: Array<{ event: string; data: string }>, status = 200): Response {
+function createSSEResponse(
+  events: Array<{ event: string; data: string }>,
+  status = 200,
+  extraHeaders?: Record<string, string>,
+): Response {
   const body = events.map((e) => `event: ${e.event}\ndata: ${e.data}\n\n`).join('');
   const stream = new ReadableStream({
     start(controller) {
@@ -19,7 +23,7 @@ function createSSEResponse(events: Array<{ event: string; data: string }>, statu
   });
   return new Response(stream, {
     status,
-    headers: { 'content-type': 'text/event-stream' },
+    headers: { 'content-type': 'text/event-stream', ...extraHeaders },
   });
 }
 
@@ -40,6 +44,7 @@ describe('ReviewApiClient', () => {
 
   // テスト用リクエスト
   const testRequest: ReviewApiRequest = {
+    userId: 'alice',
     gitlabToken: 'gitlab-token',
     projectId: '123',
     mrIid: '42',
@@ -182,6 +187,7 @@ describe('ReviewApiClient', () => {
 
   it('正しいURL、ヘッダー、ボディでfetchが呼ばれること', async () => {
     const requestWithOptions: ReviewApiRequest = {
+      userId: 'alice',
       gitlabToken: 'gitlab-token',
       projectId: '123',
       mrIid: '42',
@@ -221,12 +227,19 @@ describe('ReviewApiClient', () => {
       },
       body: JSON.stringify(requestWithOptions),
     });
+
+    // 送信ボディに userId が含まれる
+    const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string) as {
+      userId?: string;
+    };
+    expect(sentBody.userId).toBe('alice');
   });
 
   it('レスポンスボディが空の場合にエラーがスローされること', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       body: null,
+      headers: new Headers(),
     });
 
     const client = new ReviewApiClient(API_URL, JWT_TOKEN);
@@ -245,6 +258,78 @@ describe('ReviewApiClient', () => {
     await expect(client.executeReview(testRequest)).rejects.toThrow(
       'Review API error: Unknown error',
     );
+  });
+
+  it('レスポンスヘッダのX-Request-IdがonRequestIdコールバックに渡されること', async () => {
+    const sseResponse = createSSEResponse(
+      [
+        { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
+        { event: 'result', data: JSON.stringify(testResult) },
+      ],
+      200,
+      { 'X-Request-Id': 'server-generated-uuid-123' },
+    );
+    mockFetch.mockResolvedValueOnce(sseResponse);
+
+    const onRequestId = vi.fn();
+    const onProgress = vi.fn();
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    await client.executeReview(testRequest, onProgress, onRequestId);
+
+    expect(onRequestId).toHaveBeenCalledTimes(1);
+    expect(onRequestId).toHaveBeenCalledWith('server-generated-uuid-123');
+  });
+
+  it('X-Request-Idが無いレスポンスではonRequestIdが呼ばれないこと', async () => {
+    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
+    mockFetch.mockResolvedValueOnce(sseResponse);
+
+    const onRequestId = vi.fn();
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    await client.executeReview(testRequest, undefined, onRequestId);
+
+    expect(onRequestId).not.toHaveBeenCalled();
+  });
+
+  it('onRequestIdがSSEストリーム消費開始前（progress受信前）に呼ばれること', async () => {
+    const sseResponse = createSSEResponse(
+      [
+        { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
+        { event: 'result', data: JSON.stringify(testResult) },
+      ],
+      200,
+      { 'X-Request-Id': 'req-abc' },
+    );
+    mockFetch.mockResolvedValueOnce(sseResponse);
+
+    const callOrder: string[] = [];
+    const onRequestId = vi.fn((id: string) => callOrder.push(`onRequestId:${id}`));
+    const onProgress = vi.fn((event: ReviewProgressEvent) =>
+      callOrder.push(`onProgress:${event.status}`),
+    );
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    await client.executeReview(testRequest, onProgress, onRequestId);
+
+    // onRequestIdが必ず最初に呼ばれること
+    expect(callOrder[0]).toBe('onRequestId:req-abc');
+    expect(callOrder).toContain('onProgress:cloning');
+  });
+
+  it('HTTPエラー応答にX-Request-Idが含まれる場合もonRequestIdが呼ばれること', async () => {
+    const errorResponse = new Response(JSON.stringify({ error: 'Internal error' }), {
+      status: 500,
+      statusText: 'Internal Server Error',
+      headers: { 'X-Request-Id': 'req-on-error' },
+    });
+    mockFetch.mockResolvedValueOnce(errorResponse);
+
+    const onRequestId = vi.fn();
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+
+    await expect(client.executeReview(testRequest, undefined, onRequestId)).rejects.toThrow(
+      /API request failed with status 500/,
+    );
+    expect(onRequestId).toHaveBeenCalledWith('req-on-error');
   });
 
   it('チャンク分割されたSSEストリームを正しくパースできること', async () => {

@@ -26,6 +26,7 @@ import { getLogger } from '../../lib/logger.js';
  * レビューリクエストのバリデーションスキーマ
  */
 export const reviewRequestSchema = z.object({
+  userId: z.string().min(1),
   gitlabToken: z.string().min(1),
   projectId: z.string().min(1),
   mrIid: z.string().min(1),
@@ -264,7 +265,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
 
         // 10. AIレビュー実行
         const reviewResult = await services.reviewExecutor.execute({
-          userId: 'api-server',
+          userId: request.userId,
           projectId: request.projectId,
           mrIid: request.mrIid,
           gitlabToken: request.gitlabToken,

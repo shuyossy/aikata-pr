@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { initializeLogger, getLogger, resetLogger, flushLogger } from '../logger.js';
+import {
+  initializeLogger,
+  getLogger,
+  resetLogger,
+  flushLogger,
+  runWithLogContext,
+} from '../logger.js';
 
 describe('Logger', () => {
   beforeEach(() => {
@@ -188,6 +194,126 @@ describe('Logger', () => {
       expect(() => getLogger()).toThrowError(
         'Logger is not initialized. Call initializeLogger() first.',
       );
+    });
+  });
+
+  describe('runWithLogContext', () => {
+    /**
+     * JSONログを収集するストリームを作成するヘルパー
+     */
+    function createCapturingStream(): { logs: string[]; stream: { write(chunk: string): void } } {
+      const logs: string[] = [];
+      return {
+        logs,
+        stream: {
+          write(chunk: string) {
+            logs.push(chunk);
+          },
+        },
+      };
+    }
+
+    it('コンテキスト内で出力されるログに追加バインディングが付与される', () => {
+      const { logs, stream } = createCapturingStream();
+      initializeLogger({ userId: 'base-user', prettyPrint: false, stream });
+
+      runWithLogContext({ requestId: 'req-123', userId: 'alice' }, () => {
+        getLogger().info('inside context');
+      });
+
+      expect(logs.length).toBe(1);
+      const entry = JSON.parse(logs[0]!) as Record<string, unknown>;
+      expect(entry['userId']).toBe('alice'); // 上書きされる
+      expect(entry['requestId']).toBe('req-123');
+      expect(entry['msg']).toBe('inside context');
+    });
+
+    it('コンテキスト外のgetLoggerはベースロガー（ベースバインディングのみ）を返す', () => {
+      const { logs, stream } = createCapturingStream();
+      initializeLogger({ userId: 'base-user', prettyPrint: false, stream });
+
+      getLogger().info('outside context');
+
+      expect(logs.length).toBe(1);
+      const entry = JSON.parse(logs[0]!) as Record<string, unknown>;
+      expect(entry['userId']).toBe('base-user');
+      expect(entry['requestId']).toBeUndefined();
+    });
+
+    it('ネストしたrunWithLogContextは外側のバインディングに内側の値をマージする', () => {
+      const { logs, stream } = createCapturingStream();
+      initializeLogger({ userId: 'base-user', prettyPrint: false, stream });
+
+      runWithLogContext({ requestId: 'req-outer', userId: 'outer' }, () => {
+        runWithLogContext({ userId: 'inner', extraField: 'x' }, () => {
+          getLogger().info('nested');
+        });
+      });
+
+      expect(logs.length).toBe(1);
+      const entry = JSON.parse(logs[0]!) as Record<string, unknown>;
+      expect(entry['userId']).toBe('inner');
+      expect(entry['requestId']).toBe('req-outer');
+      expect(entry['extraField']).toBe('x');
+    });
+
+    it('非同期境界（Promise.resolve().then）をまたいでもコンテキストが伝播する', async () => {
+      const { logs, stream } = createCapturingStream();
+      initializeLogger({ userId: 'base-user', prettyPrint: false, stream });
+
+      await runWithLogContext({ requestId: 'req-async', userId: 'bob' }, async () => {
+        await Promise.resolve();
+        await new Promise<void>((resolve) =>
+          setTimeout(() => {
+            getLogger().info('after async hop');
+            resolve();
+          }, 5),
+        );
+      });
+
+      expect(logs.length).toBe(1);
+      const entry = JSON.parse(logs[0]!) as Record<string, unknown>;
+      expect(entry['userId']).toBe('bob');
+      expect(entry['requestId']).toBe('req-async');
+    });
+
+    it('コンテキスト外→コンテキスト内→コンテキスト外と出力が切り替わる', () => {
+      const { logs, stream } = createCapturingStream();
+      initializeLogger({ userId: 'base-user', prettyPrint: false, stream });
+
+      getLogger().info('before');
+      runWithLogContext({ userId: 'alice', requestId: 'r1' }, () => {
+        getLogger().info('during');
+      });
+      getLogger().info('after');
+
+      expect(logs.length).toBe(3);
+      const entries = logs.map((l) => JSON.parse(l) as Record<string, unknown>);
+      expect(entries[0]!['userId']).toBe('base-user');
+      expect(entries[0]!['requestId']).toBeUndefined();
+      expect(entries[1]!['userId']).toBe('alice');
+      expect(entries[1]!['requestId']).toBe('r1');
+      expect(entries[2]!['userId']).toBe('base-user');
+      expect(entries[2]!['requestId']).toBeUndefined();
+    });
+
+    it('空のバインディングでもエラーにならない', () => {
+      const { logs, stream } = createCapturingStream();
+      initializeLogger({ userId: 'base-user', prettyPrint: false, stream });
+
+      runWithLogContext({}, () => {
+        getLogger().info('empty bindings');
+      });
+
+      expect(logs.length).toBe(1);
+      const entry = JSON.parse(logs[0]!) as Record<string, unknown>;
+      expect(entry['userId']).toBe('base-user');
+    });
+
+    it('同期関数の返り値を透過的に返す', () => {
+      initializeLogger({ userId: 'base-user', prettyPrint: false });
+      const result = runWithLogContext({ requestId: 'r1' }, () => 42);
+      expect(result).toBe(42);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { parseCliOptions, buildChecklistParseOptions } from './lib/cli.js';
-import { initializeLogger, getLogger, flushLogger } from './lib/logger.js';
+import { initializeLogger, getLogger, flushLogger, runWithLogContext } from './lib/logger.js';
 import {
   validateRequiredParams,
   buildApiReviewRequest,
@@ -38,6 +38,10 @@ async function main(): Promise<void> {
 
   const logger = getLogger();
   logger.info('aikata-pr started');
+
+  // APIモード時にAPIサーバーから受領するrequestId。ログコンテキストおよびエラーログの
+  // 相関キーとしてcatchブロックからも参照できるよう、try外のスコープに宣言
+  let apiRequestId: string | undefined;
 
   try {
     // 必須パラメータのバリデーション
@@ -80,71 +84,96 @@ async function main(): Promise<void> {
         treeMaxDepth,
       );
 
-      const apiResult = await client.executeReview(apiRequest, (event) => {
-        logger.info({ status: event.status }, event.message ?? `Review progress: ${event.status}`);
-      });
-
-      // APIレスポンスをReviewResult[]に変換
-      const results = apiResult.results.map((r) => {
-        const checkItem = checklist.items.find((i) => i.content === r.checkItemContent);
-        if (!checkItem) {
-          throw new Error(`Check item not found in local checklist: ${r.checkItemContent}`);
-        }
-        if (r.isError) {
-          return ReviewResult.error(checkItem, r.errorMessage ?? 'Unknown error');
-        }
-        return ReviewResult.success(
-          checkItem,
-          new Rating(r.ratingLabel, r.ratingDefinition),
-          r.comment,
-        );
-      });
-
-      // 全てのレビュー結果がエラーかどうか判定
-      const allResultsAreErrors = ReviewResult.allAreErrors(results);
-
-      // 品質ゲート評価
-      const qualityGateResult = reviewSettings.qualityGate.evaluate(results);
-
-      // エラーでない場合はコメント投稿
-      if (!allResultsAreErrors) {
-        const gitlabApiBaseUrl =
-          process.env['GITLAB_API_URL'] ??
-          process.env['CI_API_V4_URL'] ??
-          'https://gitlab.com/api/v4';
-        const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
-        const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
-        const commentService = new CommentPostingService(mrDiscussionGateway);
-
-        await commentService.execute({
-          projectId: validated.projectId,
-          mrIid: validated.mrIid,
-          results,
-          ratings: reviewSettings.ratings,
-          commitHash: apiResult.commitHash,
-          commitMessage: apiResult.commitMessage,
-          hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
-          qualityGateResult,
-        });
-      }
-
-      // 終了処理
-      logger.info(
-        { resultCount: results.length, commentPosted: !allResultsAreErrors },
-        'Review completed',
+      // executeReview呼び出し中は`apiRequestId`がまだ未設定の区間があるため、
+      // onRequestIdでIDを受領した時点で外側スコープの`apiRequestId`に保持しつつ、
+      // 以降のonProgressコールバックではクロージャでそのIDを参照してログに付与する
+      const apiResult = await client.executeReview(
+        apiRequest,
+        (event) => {
+          // runWithLogContextでonProgressの都度requestIdをログに付与する
+          // （onProgressはexecuteReviewの同期コールスタック上で呼ばれるため、
+          // requestIdは既に受領済みの想定）
+          runWithLogContext({ requestId: apiRequestId }, () => {
+            getLogger().info(
+              { status: event.status },
+              event.message ?? `Review progress: ${event.status}`,
+            );
+          });
+        },
+        (receivedRequestId) => {
+          apiRequestId = receivedRequestId;
+          // requestId受領時点で即座にログ出力（サーバー側ログとの相関用）
+          runWithLogContext({ requestId: apiRequestId }, () => {
+            getLogger().info('API review request accepted by server');
+          });
+        },
       );
 
-      if (allResultsAreErrors) {
-        logger.error('All review results are errors. Exiting with failure.');
-        flushLogger();
-        process.exit(1);
-      }
+      // API呼び出し以降の処理（結果変換、コメント投稿、終了判定）を
+      // requestIdバインディング下で実行し、全ログにrequestIdを付与する
+      await runWithLogContext({ requestId: apiRequestId }, async () => {
+        // APIレスポンスをReviewResult[]に変換
+        const results = apiResult.results.map((r) => {
+          const checkItem = checklist.items.find((i) => i.content === r.checkItemContent);
+          if (!checkItem) {
+            throw new Error(`Check item not found in local checklist: ${r.checkItemContent}`);
+          }
+          if (r.isError) {
+            return ReviewResult.error(checkItem, r.errorMessage ?? 'Unknown error');
+          }
+          return ReviewResult.success(
+            checkItem,
+            new Rating(r.ratingLabel, r.ratingDefinition),
+            r.comment,
+          );
+        });
 
-      if (!qualityGateResult.passed) {
-        logger.error('Quality gate failed. Exiting with failure.');
-        flushLogger();
-        process.exit(1);
-      }
+        // 全てのレビュー結果がエラーかどうか判定
+        const allResultsAreErrors = ReviewResult.allAreErrors(results);
+
+        // 品質ゲート評価
+        const qualityGateResult = reviewSettings.qualityGate.evaluate(results);
+
+        // エラーでない場合はコメント投稿
+        if (!allResultsAreErrors) {
+          const gitlabApiBaseUrl =
+            process.env['GITLAB_API_URL'] ??
+            process.env['CI_API_V4_URL'] ??
+            'https://gitlab.com/api/v4';
+          const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
+          const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
+          const commentService = new CommentPostingService(mrDiscussionGateway);
+
+          await commentService.execute({
+            projectId: validated.projectId,
+            mrIid: validated.mrIid,
+            results,
+            ratings: reviewSettings.ratings,
+            commitHash: apiResult.commitHash,
+            commitMessage: apiResult.commitMessage,
+            hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
+            qualityGateResult,
+          });
+        }
+
+        // 終了処理
+        getLogger().info(
+          { resultCount: results.length, commentPosted: !allResultsAreErrors },
+          'Review completed',
+        );
+
+        if (allResultsAreErrors) {
+          getLogger().error('All review results are errors. Exiting with failure.');
+          flushLogger();
+          process.exit(1);
+        }
+
+        if (!qualityGateResult.passed) {
+          getLogger().error('Quality gate failed. Exiting with failure.');
+          flushLogger();
+          process.exit(1);
+        }
+      });
     } else {
       // === ローカルモード（既存動作） ===
       // MAX_CONTEXT_LENGTHバリデーション（ローカルモード専用。APIモード時はAPIサーバー側で管理）
@@ -251,10 +280,15 @@ async function main(): Promise<void> {
     }
   } catch (error) {
     const userId = options.userId ?? 'unknown';
+    // APIモード時に受領済みのrequestIdがあればエラーログにも付与し、サーバー側ログとの相関を可能にする
+    const errorBindings: Record<string, unknown> = { userId };
+    if (apiRequestId) {
+      errorBindings['requestId'] = apiRequestId;
+    }
     if (error instanceof Error) {
-      logger.error({ err: error, userId }, 'Review failed');
+      logger.error({ ...errorBindings, err: error }, 'Review failed');
     } else {
-      logger.error({ userId }, `Review failed: ${String(error)}`);
+      logger.error(errorBindings, `Review failed: ${String(error)}`);
     }
     flushLogger();
     process.exit(1);

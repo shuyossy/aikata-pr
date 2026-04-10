@@ -77,6 +77,17 @@ CI/CDパイプラインでは以下のジョブを実行する
 Pinoを利用。
 時刻とユーザIDを常に表示する。
 
+## CLI実行時
+`src/lib/logger.ts`の`initializeLogger({ userId })`でシングルトンロガーを生成し、`--user-id`/`USER_ID`（提供用CIテンプレートでは`$GITLAB_USER_LOGIN`）を全ログにバインドする。
+
+## APIサーバー実行時
+APIサーバーは複数ユーザからのリクエストを処理するため、シングルトンロガーに固定のuserIdをバインドしてしまうと「本テンプレートを実行したユーザ」をログから識別できない。このため以下の方式を採用している:
+
+- **`AsyncLocalStorage`ベースのリクエスト単位バインディング**: `src/lib/logger.ts`の`runWithLogContext(bindings, fn)`を用いて、リクエストハンドラ内部で追加バインディングを確立する。同じ非同期チェーン内の`getLogger()`呼び出しは、下流のインフラ層（CloneManager、Gateway、Mastra workflow等）に至るまで自動的にバインディングが適用された子ロガーを返す。
+- **ユーザ情報の主ソース**: リクエストボディの`userId`（CLIから渡される`$GITLAB_USER_LOGIN`相当）。JWT認証をスキップする開発モードでも取得可能。
+- **ユーザ情報の補助ソース**: JWT認証有効時は`jwtPayload`から`user_id`/`user_email`/`project_path`/`pipeline_id`/`job_id`を抽出し、`gitlabUserId`等として追加でログにバインドする。JWTの`user_login`とリクエストボディの`userId`が不一致の場合は警告ログを出力する（拒否はしない）。
+- **リクエストID**: `src/presentation/api/requestIdMiddleware.ts`で全リクエストに`requestId`（UUID v4、`X-Request-Id`ヘッダがあれば継承）を付与し、ログ/レスポンスヘッダ両方に出力する。`gitlabJobId`は任意かつJWT認証時のみ得られるため、一意な識別子として`requestId`を常時採用する。
+
 ## エラーログ出力方法
 エラーオブジェクトをログ出力する際は、`pino-std-serializers`の`errWithCause`シリアライザーを利用
 

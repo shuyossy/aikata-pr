@@ -74,6 +74,7 @@ export function buildApiReviewRequest(
   treeMaxDepth: number | undefined,
 ): ReviewApiRequest {
   return {
+    userId: validated.userId,
     gitlabToken: validated.gitlabToken,
     projectId: validated.projectId,
     mrIid: validated.mrIid,

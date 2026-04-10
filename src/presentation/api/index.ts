@@ -14,3 +14,5 @@ export type {
   MrInfoFetcher,
   ReviewExecutor,
 } from './reviewHandler.js';
+export { createRequestIdMiddleware, REQUEST_ID_HEADER } from './requestIdMiddleware.js';
+export type { RequestIdEnv } from './requestIdMiddleware.js';

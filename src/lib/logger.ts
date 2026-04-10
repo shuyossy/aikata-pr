@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
 import { errWithCause } from 'pino-std-serializers';
@@ -23,6 +24,32 @@ export type AppLogger = pino.Logger;
 
 /** シングルトンロガーインスタンス */
 let loggerInstance: AppLogger | null = null;
+
+/**
+ * リクエスト単位のログコンテキスト用AsyncLocalStorage
+ *
+ * APIサーバーで各リクエストに固有のログバインディング（userId, requestId等）を
+ * 下流コードに自動伝播させるために利用する。`runWithLogContext()`で包まれた
+ * 同期/非同期チェーン内部で`getLogger()`を呼び出すと、ベースロガーに本コンテキスト
+ * のバインディングが適用された子ロガーが返る。
+ */
+const logContextStorage = new AsyncLocalStorage<Record<string, unknown>>();
+
+/**
+ * リクエスト単位のログバインディングを設定し、関数`fn`を実行する
+ * `fn`内部の（同期/非同期問わず）`getLogger()`呼び出しは、与えたバインディングを
+ * 持つ子ロガーを返すようになる。ネストした`runWithLogContext`は外側のバインディングを
+ * 上書き合成する。
+ *
+ * @param bindings - ログに付与する追加フィールド
+ * @param fn - コンテキスト内部で実行する関数
+ * @returns `fn`の返り値
+ */
+export function runWithLogContext<T>(bindings: Record<string, unknown>, fn: () => T): T {
+  const parent = logContextStorage.getStore();
+  const merged: Record<string, unknown> = parent ? { ...parent, ...bindings } : { ...bindings };
+  return logContextStorage.run(merged, fn);
+}
 
 /**
  * ロガーを初期化する
@@ -82,12 +109,19 @@ export function initializeLogger(config: LoggerConfig): AppLogger {
  * 初期化済みのロガーを取得する
  * initializeLoggerが呼ばれていない場合はエラーをスローする
  *
+ * `runWithLogContext`の内部で呼び出された場合は、現在のコンテキストバインディングを
+ * 適用した子ロガーを返す。外部では従来通りシングルトンインスタンスを返す。
+ *
  * @returns ロガーインスタンス
  * @throws {Error} ロガーが未初期化の場合
  */
 export function getLogger(): AppLogger {
   if (!loggerInstance) {
     throw new Error('Logger is not initialized. Call initializeLogger() first.');
+  }
+  const contextBindings = logContextStorage.getStore();
+  if (contextBindings && Object.keys(contextBindings).length > 0) {
+    return loggerInstance.child(contextBindings);
   }
   return loggerInstance;
 }

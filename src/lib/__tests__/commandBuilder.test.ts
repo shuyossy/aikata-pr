@@ -203,6 +203,7 @@ describe('buildApiReviewRequest', () => {
     const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, 5);
 
     // 必須フィールド
+    expect(result.userId).toBe('test-user');
     expect(result.gitlabToken).toBe('test-gitlab-token');
     expect(result.projectId).toBe('project-1');
     expect(result.mrIid).toBe('42');
@@ -292,6 +293,23 @@ describe('buildApiReviewRequest', () => {
     const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
 
     expect(result.options?.skillsPaths).toEqual(['/my/skills.yaml']);
+  });
+
+  it('userIdがvalidated由来でAPIリクエストに設定されること', () => {
+    const validated = {
+      userId: 'alice',
+      projectId: 'p',
+      mrIid: '1',
+      gitlabToken: 't',
+      checklistPath: '/c',
+    };
+    const checklist = createChecklist();
+    const reviewSettings = createReviewSettings();
+    const options = createCliOptions({ userId: 'ignored-from-cli-options' });
+
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
+
+    expect(result.userId).toBe('alice');
   });
 });
 
