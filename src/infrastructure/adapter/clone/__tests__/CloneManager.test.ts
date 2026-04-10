@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFile as realExecFile } from 'node:child_process';
 import { rm, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { CloneManager } from '../CloneManager.js';
 import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 
@@ -81,6 +82,13 @@ describe('CloneManager', () => {
   const defaultProjectId = '42';
   const defaultSourceBranch = 'feature/test';
   const defaultTargetBranch = 'main';
+  // プラットフォーム非依存に期待パスを構築する
+  // (Windowsでは path.join が '\' 区切りを返すため、正規表現を静的に書けない)
+  const testBaseTmpDir = '/tmp/aikata-test-clones';
+  const clonePathPrefix = join(testBaseTmpDir, 'clone-');
+  // RegExpの特殊文字（バックスラッシュ含む）をエスケープ
+  const escapedClonePathPrefix = clonePathPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clonePathPattern = new RegExp(`^${escapedClonePathPrefix}`);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -107,7 +115,7 @@ describe('CloneManager', () => {
       );
 
       // CloneResultの構造を検証
-      expect(result.projectDir).toMatch(/^\/tmp\/aikata-test-clones\/clone-/);
+      expect(result.projectDir).toMatch(clonePathPattern);
       expect(result.sourceBranch).toBe(defaultSourceBranch);
       expect(result.targetBranch).toBe(defaultTargetBranch);
       expect(typeof result.cleanup).toBe('function');
@@ -210,10 +218,9 @@ describe('CloneManager', () => {
 
       // mkdirが呼ばれていること
       const mockedMkdir = vi.mocked(mkdir);
-      expect(mockedMkdir).toHaveBeenCalledWith(
-        expect.stringMatching(/^\/tmp\/aikata-test-clones\/clone-/),
-        { recursive: true },
-      );
+      expect(mockedMkdir).toHaveBeenCalledWith(expect.stringMatching(clonePathPattern), {
+        recursive: true,
+      });
     });
 
     it('異常系: GitLab APIエラー時にエラーがスローされる', async () => {
@@ -254,10 +261,10 @@ describe('CloneManager', () => {
 
       // クリーンアップが実行されたことを確認
       const mockedRm = vi.mocked(rm);
-      expect(mockedRm).toHaveBeenCalledWith(
-        expect.stringMatching(/^\/tmp\/aikata-test-clones\/clone-/),
-        { recursive: true, force: true },
-      );
+      expect(mockedRm).toHaveBeenCalledWith(expect.stringMatching(clonePathPattern), {
+        recursive: true,
+        force: true,
+      });
     });
 
     it('異常系: git fetch失敗時にエラーがスローされクリーンアップされる', async () => {
@@ -281,10 +288,10 @@ describe('CloneManager', () => {
 
       // クリーンアップが実行されたことを確認
       const mockedRm = vi.mocked(rm);
-      expect(mockedRm).toHaveBeenCalledWith(
-        expect.stringMatching(/^\/tmp\/aikata-test-clones\/clone-/),
-        { recursive: true, force: true },
-      );
+      expect(mockedRm).toHaveBeenCalledWith(expect.stringMatching(clonePathPattern), {
+        recursive: true,
+        force: true,
+      });
     });
   });
 
