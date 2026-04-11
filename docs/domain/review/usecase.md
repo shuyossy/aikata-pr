@@ -72,4 +72,4 @@
   - 事後処理
     - なし
   - 備考
-    - 品質ゲート評価（QualityGate.evaluate）およびジョブの成否判定（全エラー時・品質ゲート抵触時のexit code 1）はCLIエントリーポイント（src/index.ts）で実行される
+    - 品質ゲート評価（QualityGate.evaluate）およびジョブの成否判定（全エラー時・品質ゲート抵触時のexit code 1）はreviewサブコマンドのエントリ（src/cli/review/index.ts）で実行される

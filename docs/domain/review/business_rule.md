@@ -110,7 +110,7 @@
   - 結果(アクション)
     - 品質ゲート失敗時: レビューコメントを投稿した後（警告メッセージを付加）、ジョブを失敗（exit code 1）として終了
     - 品質ゲート成功時（または未設定時）: 通常通りジョブ成功として終了
-  - 関連するユースケースorエンティティ: QualityGate, ReviewSettings, CLIエントリーポイント（src/index.ts）
+  - 関連するユースケースorエンティティ: QualityGate, ReviewSettings, reviewサブコマンドのエントリ（src/cli/review/index.ts）
 
 - コメント投稿方法ルール
   - 目的/背景
@@ -131,7 +131,7 @@
     - 結果が0件の場合はエラーとは見なさない
   - 結果(アクション)
     - コメントを投稿せず、ジョブを失敗（exit code 1）として終了する
-  - 関連するユースケースorエンティティ: ReviewResult, CLIエントリーポイント（src/index.ts）
+  - 関連するユースケースorエンティティ: ReviewResult, reviewサブコマンドのエントリ（src/cli/review/index.ts）
 
 - 画像ファイル読み取りルール
   - 目的/背景
