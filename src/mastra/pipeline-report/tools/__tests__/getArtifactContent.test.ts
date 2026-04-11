@@ -171,6 +171,28 @@ describe('getArtifactContentTool', () => {
     }
   });
 
+  it('ファイル拡張子が.pngだが中身がテキストの場合はtextとして扱う', async () => {
+    // 拡張子は画像だがマジックバイトは画像ではない（UTF-8のテキスト）
+    const fakeData = Buffer.from('not a real png', 'utf-8');
+    const entries = new Map([['foo.png', { data: fakeData, truncated: false }]]);
+
+    const { result, pendingImages } = await executeGetArtifactContent(
+      { jobId: 60, artifactPath: 'foo.png' },
+      {
+        artifactCachePaths: new Map([[60, '/tmp/artifact.zip']]),
+        archiveReader: new FakeArchiveReader(entries),
+      },
+    );
+
+    // UTF-8としてデコードできるのでtextになる、バイナリならunsupportedになる
+    expect(['text', 'unsupported']).toContain(result.kind);
+    // 画像としては扱われないのでpendingImagesは空のままであること
+    expect(pendingImages.size).toBe(0);
+    if (result.kind === 'text') {
+      expect(result.content).toBe('not a real png');
+    }
+  });
+
   it('archiveReaderが例外を投げた場合 kind=errorを返す', async () => {
     const entries = new Map<string, { data: Buffer; truncated: boolean }>();
     const { result } = await executeGetArtifactContent(

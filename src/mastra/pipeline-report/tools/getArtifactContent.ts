@@ -70,16 +70,24 @@ function detectImageMimeFromMagicBytes(buf: Buffer): string | null {
 }
 
 /**
- * 画像MIME判定: 拡張子 または マジックバイトで判定する
+ * 画像MIME判定: 拡張子ベースで画像と判定された場合でも必ずマジックバイト検証を行う。
+ * - 拡張子が画像 & マジックバイト一致 → その MIME を返す
+ * - 拡張子が画像 だが マジックバイト不一致（壊れたファイル or 誤命名）→ null（画像扱いしない）
+ * - 拡張子が画像ではないがマジックバイトで画像と判定できる場合 → マジックバイトのMIMEを返す
  */
 function detectImageMime(artifactPath: string, data: Buffer): string | null {
-  // 拡張子による判定を優先（高速）
+  const byMagic = detectImageMimeFromMagicBytes(data);
   if (isSupportedImageFormat(artifactPath)) {
     const byExt = getMediaType(artifactPath);
-    if (byExt) return byExt;
+    // 拡張子とマジックバイトが一致した場合のみ画像として扱う
+    if (byExt && byMagic === byExt) {
+      return byMagic;
+    }
+    // 拡張子は画像だがマジックバイトで確認できない → 画像ではないと判定
+    return null;
   }
-  // フォールバックとしてマジックバイト判定
-  return detectImageMimeFromMagicBytes(data);
+  // 拡張子は画像ではないがマジックバイトでは画像と判定できる場合にフォールバック
+  return byMagic;
 }
 
 /**
