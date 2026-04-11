@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PipelineAnalysisService } from '../PipelineAnalysisService.js';
 import type { PipelineAnalyzeCommand } from '../PipelineAnalysisService.js';
+import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 import type { PipelineGateway } from '../../../shared/port/gateway/PipelineGateway.js';
 import type { ProjectTreeGateway } from '../../../shared/port/gateway/ProjectTreeGateway.js';
 import type {
@@ -67,6 +68,7 @@ function createCommand(overrides?: Partial<PipelineAnalyzeCommand>): PipelineAna
       reasoningEffort: null,
     },
     maxContextLength: null,
+    treeMaxDepth: undefined,
     options: { maxCompletenessRetries: 3 },
     onProgress: () => {
       /* no-op */
@@ -98,6 +100,8 @@ describe('PipelineAnalysisService', () => {
   let createdResultFiles: string[];
 
   beforeEach(() => {
+    // PipelineAnalysisService 内部の getLogger() 呼び出しが失敗しないよう初期化する
+    initializeLogger({ userId: 'test-user', level: 'silent', prettyPrint: false });
     createdResultFiles = [];
     pipelineGateway = {
       getPipeline: vi.fn(),
@@ -162,6 +166,7 @@ describe('PipelineAnalysisService', () => {
         /* ignore */
       }
     }
+    resetLogger();
   });
 
   it('正常系: Pipeline取得→Job取得→ログ取得→artifactプリフェッチ→workflow実行→結果返却', async () => {
@@ -204,7 +209,10 @@ describe('PipelineAnalysisService', () => {
     expect(pipelineGateway.getPipeline).toHaveBeenCalledWith(100, 2001);
     expect(pipelineGateway.getJobs).toHaveBeenCalledWith(100, 2001, { includeRetried: false });
     expect(pipelineGateway.getJobTrace).toHaveBeenCalledTimes(2);
-    expect(projectTreeGateway.getTree).toHaveBeenCalled();
+    // treeMaxDepth が command 経由で gateway に伝播する（デフォルトは undefined）
+    expect(projectTreeGateway.getTree).toHaveBeenCalledWith('/tmp/test-project', {
+      maxDepth: undefined,
+    });
     expect(cacheManager.prefetchForJobs).toHaveBeenCalled();
     // cachedジョブのzipはlistEntriesが呼ばれる
     expect(archiveReader.listEntries).toHaveBeenCalled();
@@ -434,5 +442,94 @@ describe('PipelineAnalysisService', () => {
     const result = await service.analyze(command);
 
     expect(result.tokenStats.compressed).toBe(true);
+  });
+
+  it('一部のジョブでgetJobTraceが失敗しても、残りのジョブとplaceholderでworkflowを実行する', async () => {
+    const pipeline = createPipeline();
+    const jobA = createJob({ id: 5001, name: 'build', stage: 'build', status: 'success' });
+    const jobB = createJob({ id: 5002, name: 'test:unit', stage: 'test', status: 'failed' });
+    const jobC = createJob({
+      id: 5003,
+      name: 'deploy',
+      stage: 'deploy',
+      status: 'success',
+      hasArtifacts: false,
+      artifactsSize: 0,
+    });
+
+    vi.mocked(pipelineGateway.getPipeline).mockResolvedValue(pipeline);
+    vi.mocked(pipelineGateway.getJobs).mockResolvedValue([jobA, jobB, jobC]);
+    // jobB の trace 取得だけ失敗させる
+    vi.mocked(pipelineGateway.getJobTrace).mockImplementation(async (_projectId, jobId) => {
+      if (jobId === 5002) {
+        throw new Error('upstream trace fetch error');
+      }
+      return `log for ${jobId}`;
+    });
+    vi.mocked(workflowRunner.run).mockImplementation(async (params) => {
+      fs.writeFileSync(params.resultFilePath, '# Partial report');
+      return createWorkflowResult();
+    });
+
+    const command = createCommand();
+    createdResultFiles.push(command.resultFilePath);
+
+    const service = new PipelineAnalysisService(
+      pipelineGateway,
+      projectTreeGateway,
+      workflowRunner,
+      tokenCounter,
+      archiveReader,
+      cacheManager,
+    );
+
+    const result = await service.analyze(command);
+
+    // workflow は中断されず実行される
+    expect(workflowRunner.run).toHaveBeenCalledOnce();
+    const runnerCall = vi.mocked(workflowRunner.run).mock.calls[0]![0];
+    // 対象ジョブは 3 件全て残っており、jobLogs にも全 ID のエントリが入っている
+    expect(runnerCall.targetJobs).toHaveLength(3);
+    expect(runnerCall.jobLogsCompressed.size).toBe(3);
+    // 成功したジョブは trace 本文が入る
+    expect(runnerCall.jobLogsCompressed.get(5001)).toBe('log for 5001');
+    expect(runnerCall.jobLogsCompressed.get(5003)).toBe('log for 5003');
+    // 失敗したジョブは placeholder 本文が入る
+    const placeholder = runnerCall.jobLogsCompressed.get(5002);
+    expect(placeholder).toBeDefined();
+    expect(placeholder).toContain('[aikata: failed to fetch job trace:');
+    expect(placeholder).toContain('upstream trace fetch error');
+    // サービスは完了し、最終レポートを返す
+    expect(result.report.content).toBe('# Partial report');
+    expect(cleanupSpy).toHaveBeenCalled();
+  });
+
+  it('treeMaxDepthがcommand経由でProjectTreeGatewayに伝播する', async () => {
+    const pipeline = createPipeline();
+    const jobA = createJob({ id: 5001, hasArtifacts: false, artifactsSize: 0 });
+
+    vi.mocked(pipelineGateway.getPipeline).mockResolvedValue(pipeline);
+    vi.mocked(pipelineGateway.getJobs).mockResolvedValue([jobA]);
+    vi.mocked(pipelineGateway.getJobTrace).mockResolvedValue('log');
+    vi.mocked(workflowRunner.run).mockImplementation(async (params) => {
+      fs.writeFileSync(params.resultFilePath, '# Report');
+      return createWorkflowResult();
+    });
+
+    const command = createCommand({ treeMaxDepth: 7, projectDir: '/tmp/custom-dir' });
+    createdResultFiles.push(command.resultFilePath);
+
+    const service = new PipelineAnalysisService(
+      pipelineGateway,
+      projectTreeGateway,
+      workflowRunner,
+      tokenCounter,
+      archiveReader,
+      cacheManager,
+    );
+
+    await service.analyze(command);
+
+    expect(projectTreeGateway.getTree).toHaveBeenCalledWith('/tmp/custom-dir', { maxDepth: 7 });
   });
 });

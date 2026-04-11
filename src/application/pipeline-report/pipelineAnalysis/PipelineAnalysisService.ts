@@ -11,6 +11,7 @@ import type {
   PipelineAnalysisWorkflowRunner,
 } from '../../shared/port/workflow/PipelineAnalysisWorkflowRunner.js';
 import type { TokenCounter } from '../../shared/port/tokenCounter/TokenCounter.js';
+import { getLogger } from '../../../lib/logger.js';
 import type { ArtifactArchiveReader } from './ArtifactArchiveReader.js';
 import type { ArtifactCacheEntryStatus, ArtifactCacheManager } from './ArtifactCacheManager.js';
 import { compressJobLogsIfNeeded } from './JobLogCompressor.js';
@@ -39,6 +40,8 @@ export interface PipelineAnalyzeCommand {
   };
   /** コンテキスト長圧縮の上限（null の場合は圧縮しない） */
   maxContextLength: number | null;
+  /** フォルダツリー走査の最大深度。undefined の場合は無制限（review機能と同じ扱い） */
+  treeMaxDepth: number | undefined;
   options: {
     maxCompletenessRetries: number;
   };
@@ -61,11 +64,6 @@ export interface PipelineAnalysisResult {
     compressedJobIds: number[];
   };
 }
-
-/**
- * フォルダツリー走査深度のデフォルト値（review機能と同じ値を採用）
- */
-const DEFAULT_TREE_MAX_DEPTH = 5;
 
 /**
  * パイプライン分析ユースケースを実行するアプリケーションサービス。
@@ -125,13 +123,27 @@ export class PipelineAnalysisService {
       }
 
       // Step 4: 各対象ジョブのログを並列取得
-      const jobLogPairs = await Promise.all(
-        targetJobs.map(async (job) => {
-          const trace = await this.pipelineGateway.getJobTrace(command.projectId, job.id);
-          return [job.id, trace] as const;
-        }),
+      // 一部ジョブの取得に失敗しても分析全体を止めない（PBI「成功・失敗に関わらず
+      // 全ジョブのレポート」要件）。失敗したジョブには placeholder 本文を入れて続行する。
+      const traceResults = await Promise.allSettled(
+        targetJobs.map((job) => this.pipelineGateway.getJobTrace(command.projectId, job.id)),
       );
-      const originalJobLogs = new Map<number, string>(jobLogPairs);
+      const originalJobLogs = new Map<number, string>();
+      const logger = getLogger();
+      for (const [index, job] of targetJobs.entries()) {
+        const outcome = traceResults[index]!;
+        if (outcome.status === 'fulfilled') {
+          originalJobLogs.set(job.id, outcome.value);
+        } else {
+          const reason =
+            outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+          logger.warn(
+            { err: outcome.reason, jobId: job.id, jobName: job.name },
+            'Failed to fetch job trace; using placeholder and continuing analysis',
+          );
+          originalJobLogs.set(job.id, `[aikata: failed to fetch job trace: ${reason}]`);
+        }
+      }
 
       // Step 5: artifacts zip を並列プリフェッチ
       const artifactCacheStatuses = await this.cacheManager.prefetchForJobs(
@@ -144,7 +156,7 @@ export class PipelineAnalysisService {
 
       // Step 7: プロジェクトフォルダツリー取得
       const folderTree = await this.projectTreeGateway.getTree(command.projectDir, {
-        maxDepth: DEFAULT_TREE_MAX_DEPTH,
+        maxDepth: command.treeMaxDepth,
       });
 
       // Step 8 + 9: ユーザプロンプト組み立て用クロージャ + 閾値超過時の圧縮
