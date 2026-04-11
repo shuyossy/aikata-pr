@@ -67,7 +67,7 @@ export function buildInstructions(
     ? `## User-Specified Review Instructions (HIGHEST PRIORITY)\n\nThe following instructions were provided by the user as review requirements. You MUST follow these instructions with the highest priority.\n\n${ctx.additionalInstructions}\n\n`
     : '';
 
-  return `You are an expert MR (Merge Request) code review specialist. You will receive an MR diff and a set of check items. Your job is to evaluate each check item against the MR and provide a rating and comment.
+  return `You are an expert MR (Merge Request) code review specialist. You will receive an MR diff, the project folder tree, and a set of check items. Your job is to evaluate each check item against the MR and provide a rating and comment.
 
 Always reason and think in English. When writing review comments, you MUST write them in ${ctx.commentLanguage}.
 
@@ -158,7 +158,7 @@ Some file diffs have been compressed to fit within context limits. Compressed se
 `
       : ''
   }### Workspace Tools
-You have access to workspace tools for investigating the project codebase:
+You have access to workspace tools for investigating the project codebase. The project folder tree provided in the user message is the map of this repository — use it to decide which files or directories to open with these tools:
 - File reading: Examine source files beyond what the diff shows
 - Directory listing: Understand project structure
 - File search: Find code patterns across the codebase

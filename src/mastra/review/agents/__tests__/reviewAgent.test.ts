@@ -166,6 +166,28 @@ describe('buildInstructions', () => {
     expect(result).toMatch(/Workspace/i);
   });
 
+  it('冒頭文で入力物としてプロジェクトフォルダツリーが明示される', () => {
+    const requestContext = createTestRequestContext();
+
+    const result = buildInstructions(requestContext);
+
+    // ユーザから渡される入力物の列挙にフォルダツリーが含まれていること
+    expect(result).toMatch(/You will receive[^.]*folder tree/i);
+  });
+
+  it('Workspace Toolsセクションでフォルダツリーをリポジトリの地図として言及する', () => {
+    const requestContext = createTestRequestContext();
+
+    const result = buildInstructions(requestContext);
+
+    // Workspace Tools セクション内にフォルダツリーへの参照と地図としての位置付けがある
+    const workspaceSectionIndex = result.indexOf('### Workspace Tools');
+    expect(workspaceSectionIndex).toBeGreaterThanOrEqual(0);
+    const workspaceSection = result.slice(workspaceSectionIndex);
+    expect(workspaceSection).toMatch(/folder tree/i);
+    expect(workspaceSection).toMatch(/map/i);
+  });
+
   it('完了要件が含まれる', () => {
     const requestContext = createTestRequestContext();
 
