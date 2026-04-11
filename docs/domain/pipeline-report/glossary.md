@@ -1,0 +1,36 @@
+# 用語集（pipeline-report 機能）
+
+- パイプライン (Pipeline)
+  - GitLab CI/CD の 1 回の実行単位。`$CI_PIPELINE_ID` で識別される
+- ジョブ (Job)
+  - パイプラインを構成する実行単位。1 つのパイプラインは複数のジョブを持つ
+- 自ジョブ (self job)
+  - pipeline-report 機能そのものが動作しているジョブ。`$CI_JOB_ID` に対応し、分析対象から必ず除外される
+- 分析対象ジョブ (target job)
+  - `PipelineReportSettings.filterJobs` のビジネスルールによって選定された、AI による分析の対象となるジョブ群
+- ジョブログ (job log / job trace)
+  - GitLab の `GET /projects/:id/jobs/:job_id/trace` で得られるジョブの標準出力・標準エラーの統合ログ
+- アーティファクト (artifact)
+  - GitLab ジョブが生成した成果物。本機能では zip 形式でまとめてダウンロードし、`ArtifactArchiveReader` で一覧・個別取得する
+- アーティファクトパス一覧 (artifact path list)
+  - 各対象ジョブの `ArtifactTree` に含まれる `ArtifactEntry` のパス列。AI へのプロンプトにそのまま渡され、圧縮対象外
+- ジョブログ圧縮 (job log compression)
+  - プロンプトサイズが閾値を超えた場合に、ジョブログの中央部分を省略して先頭/末尾を残す段階的アルゴリズム。review 機能の diff 圧縮と同一方式
+- 省略マーカー (omission marker)
+  - 圧縮されたジョブログの中央に埋め込まれる `[aikata: N chars omitted from middle of job log. ...]` 形式の文字列。AI が `getJobLogDetail` ツールで省略部分を取り戻せることを示す
+- 完成判定 (report completeness judgement)
+  - `reportCompletenessJudgeAgent` による、AI が生成したレポートが全対象ジョブを網羅しているか / フォーマット仕様に従っているかの JSON 判定
+- 完成判定ループ (completeness retry loop)
+  - `isComplete=false` の場合に `pipelineAnalysisAgent` へフィードバックを返して再実行するループ。上限は `PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES`（デフォルト 3）
+- 全体骨組み (overall template)
+  - 固定レポート構造。`OVERALL_REPORT_TEMPLATE` 定数としてハードコードされており、ユーザはカスタマイズ不可
+- ジョブレポートフォーマット (job report format)
+  - ジョブ 1 件分のレポートブロックのフォーマット。`PipelineReportSettings.jobReportFormat` としてユーザが JSON 設定で上書き可能
+- AI 総合評価 (AI overall verdict)
+  - 各ジョブブロックに記載される 1 件の判定。デフォルトは `問題なし` / `要注意` / `問題あり` の 3 値。ユーザは `jobReportFormat` を差し替えることで評価軸を変更できる
+- ReAct フレームワーク
+  - Reason → Act → Observe → Record のループで動く AI エージェントの行動パターン。review の reviewAgent と同様、pipelineAnalysisAgent でも採用
+- コンテキスト長リカバリー (context length recovery)
+  - `pipelineReportSummarizationAgent` で会話履歴を要約し、新スレッドで分析を継続する仕組み。review と同一方針
+- アーティファクトキャッシュ (artifact cache)
+  - ジョブ単位でダウンロードした zip を temp ディレクトリに退避する領域。`ArtifactCacheManager` が 1 ジョブ上限と合計ディスク上限を管理し、実行後にクリーンアップされる
