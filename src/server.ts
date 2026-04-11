@@ -69,8 +69,10 @@ export function createApp(
   });
 
   // featureモジュールを配列でloop登録（将来新機能を追加する際はapiFeatures配列に追加するだけ）
-  const apiFeatures: ApiFeatureModule[] = [reviewApiModule];
-  apiFeatures.forEach((f) => f.register(app, deps));
+  const apiFeatures: ApiFeatureModule<JwtAuthEnv & ReviewRouteEnv & RequestIdEnv>[] = [
+    reviewApiModule,
+  ];
+  apiFeatures.forEach((f) => f.register(app));
 
   return app;
 }
