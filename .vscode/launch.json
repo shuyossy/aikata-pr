@@ -8,7 +8,8 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["tsx"],
       "args": [
-        "src/index.ts",
+        "src/cli.ts",
+        "review",
         "--checklist", "${workspaceFolder}/debug/checklist.csv",
         "--review-settings", "${workspaceFolder}/debug/review-settings.json"
       ],
@@ -23,7 +24,8 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["tsx"],
       "args": [
-        "src/index.ts",
+        "src/cli.ts",
+        "review",
         "--checklist", "${workspaceFolder}/debug/checklist.csv",
         "--review-settings", "${workspaceFolder}/debug/review-settings.json"
       ],
