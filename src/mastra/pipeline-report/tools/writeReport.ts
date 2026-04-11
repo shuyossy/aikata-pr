@@ -64,8 +64,12 @@ export const writeReportTool = createTool({
 
     const lockPath = `${filePath}.lock`;
     // テスト等でロックタイムアウトを短縮するための内部フック
-    const lockTimeoutRaw = context?.requestContext?.get('reportLockTimeoutMs');
-    const lockTimeout = typeof lockTimeoutRaw === 'number' ? lockTimeoutRaw : 5000;
+    // PipelineAnalysisAgentRequestContext で `reportLockTimeoutMs: number | undefined` として型定義されている
+    const lockTimeoutRaw = context?.requestContext?.get('reportLockTimeoutMs') as
+      | number
+      | undefined;
+    const lockTimeout =
+      typeof lockTimeoutRaw === 'number' && lockTimeoutRaw > 0 ? lockTimeoutRaw : 5000;
     try {
       acquireLock(lockPath, lockTimeout);
     } catch (err) {

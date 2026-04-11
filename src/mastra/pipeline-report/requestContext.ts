@@ -41,6 +41,11 @@ export interface PipelineAnalysisAgentRequestContext {
   hasImages: boolean;
   /** 画像取得Tool経由で蓄積された画像データ（key = `${jobId}:${artifactPath}`） */
   pendingImages: Map<string, { base64: string; mimeType: string }>;
+  /**
+   * ファイルロック取得のタイムアウト（ミリ秒）。
+   * テスト用フック: 未指定時はデフォルト 5000ms。本番では `undefined` を明示的に渡す。
+   */
+  reportLockTimeoutMs: number | undefined;
 }
 
 /**
