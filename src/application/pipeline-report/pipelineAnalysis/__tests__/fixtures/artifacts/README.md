@@ -15,7 +15,8 @@ npx tsx tools/scripts/gen-test-fixtures.ts
 
 ## 中身
 
-`sample.zip` には以下の 2 つのファイルが含まれる:
+`sample.zip` には以下の 3 つのファイルが含まれる:
 
 - `content-a.txt`: `hello world`（UTF-8、11 バイト）
 - `content-b.txt`: `binary\x00data`（UTF-8、NUL バイトを含む 11 バイト）
+- `large.bin`: 64 KB の決定的バイト列（`i % 256` パターン）。`readFile` の `maxBytes` 到達時のストリーム halt/切り捨て挙動を検証するために使用する
