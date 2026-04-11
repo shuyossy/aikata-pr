@@ -1,20 +1,42 @@
 import type { Job } from '../job/Job.js';
 
 /**
+ * PipelineReportSettings のファクトリパラメータ
+ */
+export interface PipelineReportSettingsParams {
+  /** ジョブ 1 件分のレポートブロックのフォーマット（review の commentFormat と同じ粒度） */
+  jobReportFormat: string;
+  /** Agent に渡す追加指示（任意） */
+  additionalInstructions: string | null;
+  /** 分析対象に含めるジョブ名のパターン（空なら全て対象） */
+  includeJobPatterns: readonly RegExp[];
+  /** 分析対象から除外するジョブ名のパターン */
+  excludeJobPatterns: readonly RegExp[];
+}
+
+/**
  * pipeline-report 機能のユーザ設定を表す値オブジェクト。
  * レポートフォーマット・追加指示・ジョブ名フィルタを保持する。
  */
 export class PipelineReportSettings {
-  constructor(
-    /** ジョブ 1 件分のレポートブロックのフォーマット（review の commentFormat と同じ粒度） */
+  private constructor(
     readonly jobReportFormat: string,
-    /** Agent に渡す追加指示（任意） */
     readonly additionalInstructions: string | null,
-    /** 分析対象に含めるジョブ名のパターン（空なら全て対象） */
     readonly includeJobPatterns: readonly RegExp[],
-    /** 分析対象から除外するジョブ名のパターン */
     readonly excludeJobPatterns: readonly RegExp[],
   ) {}
+
+  /**
+   * パラメータから PipelineReportSettings を生成するファクトリ。
+   */
+  static of(params: PipelineReportSettingsParams): PipelineReportSettings {
+    return new PipelineReportSettings(
+      params.jobReportFormat,
+      params.additionalInstructions,
+      params.includeJobPatterns,
+      params.excludeJobPatterns,
+    );
+  }
 
   /**
    * 分析対象ジョブの選定ビジネスルール:

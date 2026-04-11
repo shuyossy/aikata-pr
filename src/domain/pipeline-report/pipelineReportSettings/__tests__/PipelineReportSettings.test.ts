@@ -27,12 +27,12 @@ function makeSettings(
     excludeJobPatterns: RegExp[];
   }> = {},
 ): PipelineReportSettings {
-  return new PipelineReportSettings(
-    overrides.jobReportFormat ?? '## {{jobName}}',
-    overrides.additionalInstructions ?? null,
-    overrides.includeJobPatterns ?? [],
-    overrides.excludeJobPatterns ?? [],
-  );
+  return PipelineReportSettings.of({
+    jobReportFormat: overrides.jobReportFormat ?? '## {{jobName}}',
+    additionalInstructions: overrides.additionalInstructions ?? null,
+    includeJobPatterns: overrides.includeJobPatterns ?? [],
+    excludeJobPatterns: overrides.excludeJobPatterns ?? [],
+  });
 }
 
 describe('PipelineReportSettings.filterJobs', () => {
