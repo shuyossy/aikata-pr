@@ -2,7 +2,8 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createJwtAuthMiddleware } from './infrastructure/adapter/auth/index.js';
 import type { JwtAuthEnv } from './infrastructure/adapter/auth/index.js';
-import { createReviewRoute, createRequestIdMiddleware } from './presentation/api/index.js';
+import { createRequestIdMiddleware, reviewApiModule } from './presentation/api/index.js';
+import type { ApiFeatureModule } from './presentation/api/index.js';
 import type { ReviewRouteEnv, RequestIdEnv } from './presentation/api/index.js';
 import type { ReviewHandlerDeps } from './presentation/api/index.js';
 import { DefaultPerRequestServiceFactory } from './presentation/api/index.js';
@@ -67,9 +68,9 @@ export function createApp(
     await next();
   });
 
-  // レビューAPIルート
-  const reviewRoute = createReviewRoute();
-  app.route('/api/v1', reviewRoute);
+  // featureモジュールを配列でloop登録（将来新機能を追加する際はapiFeatures配列に追加するだけ）
+  const apiFeatures: ApiFeatureModule[] = [reviewApiModule];
+  apiFeatures.forEach((f) => f.register(app, deps));
 
   return app;
 }
