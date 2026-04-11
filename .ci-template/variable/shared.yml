@@ -1,0 +1,27 @@
+# .ci-template/variable/shared.yml
+# 全機能共通のCI変数デフォルト値
+variables:
+  # GitLab
+  GITLAB_API_URL: ""
+  AIKATA_PR_GITLAB_TOKEN: ""
+  GITLAB_PROJECT_ID: "$CI_PROJECT_ID"
+  # AI共通
+  AI_API_KEY: ""
+  AI_API_ENDPOINT_URL: ""
+  AI_MODEL_NAME: ""
+  OPENAI_REASONING_EFFORT: ""
+  # Feature Toggle
+  AIKATA_PR_DISABLED: "false"
+  # Settings
+  USER_ID: "$GITLAB_USER_LOGIN"
+  AIKATA_LOG_LEVEL: "info"
+  # API Mode (AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定時に必要)
+  AIKATA_API_URL: ""
+  # Container Image（Docker方式用）
+  AIKATA_IMAGE: ""
+  AIKATA_IMAGE_TAG: "latest"
+  # npm（npx方式用）
+  AIKATA_PROJECT_ID: ""
+  AIKATA_VERSION: "latest"
+  # Context Length（AI全般で使う可能性）
+  MAX_CONTEXT_LENGTH: ""

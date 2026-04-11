@@ -1,0 +1,14 @@
+# .ci-template/variable/review.yml
+# review機能固有のCI変数デフォルト値
+variables:
+  GITLAB_MR_IID: "$CI_MERGE_REQUEST_IID"
+  # Input
+  CHECKLIST_PATH: ""
+  CHECKLIST_COLUMNS: ""
+  CHECKLIST_NO_HEADER: "false"
+  REVIEW_SETTINGS_PATH: ""
+  SKILLS_PATH: ""
+  # レビュー出力設定
+  COMMENT_LANGUAGE: "Japanese"
+  # ツリー表示
+  TREE_MAX_DEPTH: ""

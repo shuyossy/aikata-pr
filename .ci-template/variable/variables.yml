@@ -1,36 +1,9 @@
-# 提供用CIテンプレートのデフォルト変数
-variables:
-  # AI
-  AI_API_KEY: ""
-  AI_API_ENDPOINT_URL: ""
-  AI_MODEL_NAME: ""
-  OPENAI_REASONING_EFFORT: ""
-  # GitLab
-  GITLAB_API_URL: ""
-  AIKATA_PR_GITLAB_TOKEN: ""
-  GITLAB_PROJECT_ID: "$CI_PROJECT_ID"
-  GITLAB_MR_IID: "$CI_MERGE_REQUEST_IID"
-  # Input
-  CHECKLIST_PATH: ""
-  CHECKLIST_COLUMNS: ""
-  CHECKLIST_NO_HEADER: "false"
-  REVIEW_SETTINGS_PATH: ""
-  SKILLS_PATH: ""
-  # Feature Toggle
-  AIKATA_PR_DISABLED: "false"
-  # Settings
-  USER_ID: "$GITLAB_USER_LOGIN"
-  AIKATA_LOG_LEVEL: "info"
-  COMMENT_LANGUAGE: "Japanese"
-  # Tree
-  TREE_MAX_DEPTH: ""
-  # Context Length
-  MAX_CONTEXT_LENGTH: ""
-  # API Mode (AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定時に必要)
-  AIKATA_API_URL: ""
-  # Container Image（Docker方式用）
-  AIKATA_IMAGE: ""
-  AIKATA_IMAGE_TAG: "latest"
-  # npm（npx方式用）
-  AIKATA_PROJECT_ID: ""
-  AIKATA_VERSION: "latest"
+# .ci-template/variable/variables.yml
+# 後方互換用のファサード。
+# 全機能共通変数 (shared.yml) と review固有変数 (review.yml) の両方をincludeする。
+#
+# 既存ユーザはこのファイルをincludeし続けることで変更不要で動作する。
+# 新規ユーザは `shared.yml` と必要な機能別ファイルを直接includeすることを推奨。
+include:
+  - local: '.ci-template/variable/shared.yml'
+  - local: '.ci-template/variable/review.yml'
