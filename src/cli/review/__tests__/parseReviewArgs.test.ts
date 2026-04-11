@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCliOptions, buildChecklistParseOptions } from '../cli.js';
+import { parseCliOptions, buildChecklistParseOptions } from '../parseReviewArgs.js';
 
 describe('parseCliOptions', () => {
   it('--user-idオプションをパースできる', () => {

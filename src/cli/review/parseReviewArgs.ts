@@ -1,4 +1,4 @@
-import type { ChecklistParseOptions } from '../application/shared/parser/index.js';
+import type { ChecklistParseOptions } from '../../application/shared/parser/index.js';
 
 /**
  * CLIオプションの型定義

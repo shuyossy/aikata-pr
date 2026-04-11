@@ -5,12 +5,12 @@ import {
   buildLocalReviewCommand,
   isLocalMode,
 } from '../commandBuilder.js';
-import type { CliOptions } from '../cli.js';
-import { Checklist } from '../../domain/review/checklist/index.js';
-import { CheckItem } from '../../domain/review/checkItem/index.js';
-import { Rating } from '../../domain/review/rating/index.js';
-import { ReviewSettings } from '../../domain/review/reviewSettings/index.js';
-import { QualityGate } from '../../domain/review/qualityGate/index.js';
+import type { CliOptions } from '../parseReviewArgs.js';
+import { Checklist } from '../../../domain/review/checklist/index.js';
+import { CheckItem } from '../../../domain/review/checkItem/index.js';
+import { Rating } from '../../../domain/review/rating/index.js';
+import { ReviewSettings } from '../../../domain/review/reviewSettings/index.js';
+import { QualityGate } from '../../../domain/review/qualityGate/index.js';
 
 // ヘルパー: テスト用のCliOptionsを生成
 function createCliOptions(overrides?: Partial<CliOptions>): CliOptions {
