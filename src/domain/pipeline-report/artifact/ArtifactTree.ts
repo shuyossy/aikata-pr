@@ -15,7 +15,11 @@ export class ArtifactTree {
    * 指定ジョブの artifacts ツリーを生成する。
    * entries は防御的コピーして内部に保持する。
    */
-  static of(params: { jobId: number; jobName: string; entries: ArtifactEntry[] }): ArtifactTree {
+  static of(params: {
+    jobId: number;
+    jobName: string;
+    entries: readonly ArtifactEntry[];
+  }): ArtifactTree {
     return new ArtifactTree(params.jobId, params.jobName, [...params.entries]);
   }
 
