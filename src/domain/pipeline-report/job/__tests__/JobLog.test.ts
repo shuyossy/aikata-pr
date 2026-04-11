@@ -35,5 +35,38 @@ describe('JobLog', () => {
       expect(log.omittedRange).toEqual({ startChar: 100, endChar: 900 });
       expect(log.totalChars).toBe(1000);
     });
+
+    it('omittedRange.startChar > endCharの場合はエラーになる', () => {
+      expect(() =>
+        JobLog.compressed({
+          jobId: 1,
+          compressedText: 'head...tail',
+          omittedRange: { startChar: 900, endChar: 100 },
+          totalChars: 1000,
+        }),
+      ).toThrow(/omittedRange\.startChar must be <= endChar/);
+    });
+
+    it('omittedRange.endChar > totalCharsの場合はエラーになる', () => {
+      expect(() =>
+        JobLog.compressed({
+          jobId: 1,
+          compressedText: 'head...tail',
+          omittedRange: { startChar: 100, endChar: 2000 },
+          totalChars: 1000,
+        }),
+      ).toThrow(/omittedRange\.endChar must be <= totalChars/);
+    });
+
+    it('totalChars < compressedText.lengthの場合はエラーになる', () => {
+      expect(() =>
+        JobLog.compressed({
+          jobId: 1,
+          compressedText: 'head...tail',
+          omittedRange: { startChar: 1, endChar: 5 },
+          totalChars: 3,
+        }),
+      ).toThrow(/totalChars must be >= compressedText\.length/);
+    });
   });
 });

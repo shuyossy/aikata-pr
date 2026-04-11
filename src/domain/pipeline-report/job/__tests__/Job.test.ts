@@ -72,4 +72,21 @@ describe('Job', () => {
     expect(job.hasArtifacts).toBe(true);
     expect(job.artifactsSize).toBe(2048);
   });
+
+  it('durationが負数の場合はエラーになる', () => {
+    expect(() => Job.of(baseParams({ duration: -1 }))).toThrow(
+      /duration must be non-negative or null/,
+    );
+  });
+
+  it('durationがnullの場合は許容される', () => {
+    const job = Job.of(baseParams({ duration: null }));
+    expect(job.duration).toBeNull();
+  });
+
+  it('artifactsSizeが負数の場合はエラーになる', () => {
+    expect(() => Job.of(baseParams({ artifactsSize: -1 }))).toThrow(
+      /artifactsSize must be non-negative/,
+    );
+  });
 });

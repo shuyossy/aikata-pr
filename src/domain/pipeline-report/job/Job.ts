@@ -40,6 +40,12 @@ export class Job {
     if (params.id <= 0) {
       throw new Error(`id must be positive, got ${params.id}`);
     }
+    if (params.duration !== null && params.duration < 0) {
+      throw new Error(`duration must be non-negative or null, got ${params.duration}`);
+    }
+    if (params.artifactsSize < 0) {
+      throw new Error(`artifactsSize must be non-negative, got ${params.artifactsSize}`);
+    }
     return new Job(
       params.id,
       params.name,

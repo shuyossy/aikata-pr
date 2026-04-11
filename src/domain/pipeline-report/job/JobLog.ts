@@ -35,6 +35,15 @@ export class JobLog {
     omittedRange: OmittedRange;
     totalChars: number;
   }): JobLog {
+    if (params.totalChars < params.compressedText.length) {
+      throw new Error('totalChars must be >= compressedText.length');
+    }
+    if (params.omittedRange.startChar > params.omittedRange.endChar) {
+      throw new Error('omittedRange.startChar must be <= endChar');
+    }
+    if (params.omittedRange.endChar > params.totalChars) {
+      throw new Error('omittedRange.endChar must be <= totalChars');
+    }
     return new JobLog(params.jobId, params.compressedText, params.omittedRange, params.totalChars);
   }
 }
