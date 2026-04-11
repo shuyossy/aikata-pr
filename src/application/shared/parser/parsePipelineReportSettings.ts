@@ -5,13 +5,17 @@ import { PipelineReportSettingsParseError } from './PipelineReportSettingsParseE
 /**
  * pipeline-report 設定ファイルのスキーマ。
  * 全フィールドはオプショナルで、未指定時はデフォルトが適用される。
+ * `.strict()` により、未知のキー（例: `jobReportFromat` のようなタイポ）は
+ * 明示的にバリデーションエラーとして検出する。
  */
-const schema = z.object({
-  jobReportFormat: z.string().optional(),
-  additionalInstructions: z.string().nullable().optional(),
-  includeJobPatterns: z.array(z.string()).optional(),
-  excludeJobPatterns: z.array(z.string()).optional(),
-});
+const schema = z
+  .object({
+    jobReportFormat: z.string().optional(),
+    additionalInstructions: z.string().nullable().optional(),
+    includeJobPatterns: z.array(z.string()).optional(),
+    excludeJobPatterns: z.array(z.string()).optional(),
+  })
+  .strict();
 
 /**
  * pipeline-report 設定 JSON をパースして PipelineReportSettings を構築する。

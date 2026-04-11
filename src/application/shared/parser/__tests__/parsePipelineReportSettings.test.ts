@@ -33,25 +33,38 @@ describe('parsePipelineReportSettings', () => {
     expect(settings.excludeJobPatterns).toEqual([]);
   });
 
-  it('不正な JSON 文字列の場合は PipelineReportSettingsParseError を投げる', () => {
+  it('不正な JSON 文字列の場合は PipelineReportSettingsParseError を投げ、not valid JSON を示すメッセージを返す', () => {
     expect(() => parsePipelineReportSettings('{invalid json')).toThrow(
       PipelineReportSettingsParseError,
     );
+    expect(() => parsePipelineReportSettings('{invalid json')).toThrow(/not valid JSON/);
   });
 
-  it('不正な RegExp パターンが含まれる場合は PipelineReportSettingsParseError を投げる', () => {
+  it('不正な RegExp パターンが含まれる場合は PipelineReportSettingsParseError を投げ、invalid RegExp を示すメッセージを返す', () => {
     const json = JSON.stringify({
       includeJobPatterns: ['[unclosed'],
     });
 
     expect(() => parsePipelineReportSettings(json)).toThrow(PipelineReportSettingsParseError);
+    expect(() => parsePipelineReportSettings(json)).toThrow(/invalid RegExp/);
   });
 
-  it('includeJobPatterns が配列でない場合は PipelineReportSettingsParseError を投げる', () => {
+  it('includeJobPatterns が配列でない場合は PipelineReportSettingsParseError を投げ、invalid shape を示すメッセージを返す', () => {
     const json = JSON.stringify({
       includeJobPatterns: 'not-an-array',
     });
 
     expect(() => parsePipelineReportSettings(json)).toThrow(PipelineReportSettingsParseError);
+    expect(() => parsePipelineReportSettings(json)).toThrow(/invalid shape/);
+  });
+
+  it('未知のキーが含まれる場合は PipelineReportSettingsParseError を投げ、invalid shape を示すメッセージを返す', () => {
+    // タイポ（jobReportFromat）などの未知キーを strict スキーマで拒否できることを確認する
+    const json = JSON.stringify({
+      jobReportFromat: '## typo format',
+    });
+
+    expect(() => parsePipelineReportSettings(json)).toThrow(PipelineReportSettingsParseError);
+    expect(() => parsePipelineReportSettings(json)).toThrow(/invalid shape/);
   });
 });

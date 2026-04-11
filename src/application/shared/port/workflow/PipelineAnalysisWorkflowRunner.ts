@@ -34,7 +34,12 @@ export interface PipelineAnalysisWorkflowParams {
     modelName: string;
     reasoningEffort: 'low' | 'medium' | 'high' | null;
   };
-  onProgress?: (event: PipelineAnalysisProgressEvent) => void;
+  /**
+   * 進捗イベントのコールバック。
+   * 呼び出し側で進捗を気にしない場合は no-op (`() => {}`) を渡すこと。
+   * AGENTS.md「関数の引数は特別な理由がない限りオプショナルは避けること」に従い必須化している。
+   */
+  onProgress: (event: PipelineAnalysisProgressEvent) => void;
 }
 
 /**
