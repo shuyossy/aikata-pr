@@ -22,11 +22,12 @@ const executePatch = (
 ): Promise<PatchResult> => {
   const executeFn = patchReportTool.execute;
   if (!executeFn) throw new Error('execute is not defined');
-  const entries: Array<[string, unknown]> = [['resultFilePath', resultFilePath]];
+  // RequestContextの型パラメータを明示的にunknownとして、制約の緩いコンストラクタシグネチャを利用する
+  const entries: Array<readonly [string, unknown]> = [['resultFilePath', resultFilePath]];
   if (lockTimeoutMs !== undefined) {
     entries.push(['reportLockTimeoutMs', lockTimeoutMs]);
   }
-  const requestContext = new RequestContext(entries);
+  const requestContext = new RequestContext<unknown>(entries);
   const context = {
     requestContext,
   } as Parameters<NonNullable<typeof patchReportTool.execute>>[1];
