@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { dispatch, type CliFeatureModule } from '../dispatch.js';
+import { dispatch, defaultFeatures, type CliFeatureModule } from '../dispatch.js';
 
 describe('cli dispatcher', () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
@@ -36,5 +36,29 @@ describe('cli dispatcher', () => {
     const fakeFeatures: CliFeatureModule[] = [{ name: 'review', description: 'x', run: runMock }];
     await dispatch(['review', '--foo', 'bar'], fakeFeatures);
     expect(runMock).toHaveBeenCalledWith(['--foo', 'bar']);
+  });
+
+  it('pipeline-reportサブコマンドが登録されている', () => {
+    expect(defaultFeatures.map((f) => f.name)).toContain('pipeline-report');
+  });
+
+  it('pipeline-reportサブコマンドを選択するとpipeline-report機能のrunが呼ばれる', async () => {
+    const reviewRun = vi.fn().mockResolvedValue(undefined);
+    const pipelineReportRun = vi.fn().mockResolvedValue(undefined);
+    const fakeFeatures: CliFeatureModule[] = [
+      { name: 'review', description: 'x', run: reviewRun },
+      { name: 'pipeline-report', description: 'y', run: pipelineReportRun },
+    ];
+    await dispatch(['pipeline-report', '--user-id', 'alice'], fakeFeatures);
+    expect(reviewRun).not.toHaveBeenCalled();
+    expect(pipelineReportRun).toHaveBeenCalledWith(['--user-id', 'alice']);
+  });
+
+  it('defaultFeatures の pipeline-report 機能は name / description / run を持つ', () => {
+    const feature = defaultFeatures.find((f) => f.name === 'pipeline-report');
+    expect(feature).toBeDefined();
+    expect(typeof feature!.description).toBe('string');
+    expect(feature!.description.length).toBeGreaterThan(0);
+    expect(typeof feature!.run).toBe('function');
   });
 });
