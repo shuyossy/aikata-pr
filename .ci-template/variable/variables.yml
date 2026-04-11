@@ -1,9 +1,10 @@
 # .ci-template/variable/variables.yml
 # 後方互換用のファサード。
-# 全機能共通変数 (shared.yml) と review固有変数 (review.yml) の両方をincludeする。
+# 全機能共通変数 (shared.yml) と機能固有変数 (review.yml / pipeline-report.yml) をincludeする。
 #
 # 既存ユーザはこのファイルをincludeし続けることで変更不要で動作する。
 # 新規ユーザは `shared.yml` と必要な機能別ファイルを直接includeすることを推奨。
 include:
   - local: '.ci-template/variable/shared.yml'
   - local: '.ci-template/variable/review.yml'
+  - local: '.ci-template/variable/pipeline-report.yml'

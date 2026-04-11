@@ -1,0 +1,14 @@
+# .ci-template/variable/pipeline-report.yml
+# pipeline-report機能固有のCI変数デフォルト値
+variables:
+  # pipeline-report 機能（GitLab 変数経由で自動供給）
+  GITLAB_PIPELINE_ID: $CI_PIPELINE_ID
+  GITLAB_SELF_JOB_ID: $CI_JOB_ID
+
+  # pipeline-report オプション
+  PIPELINE_REPORT_SETTINGS_PATH: ""
+  PIPELINE_REPORT_RESULT_FILE: "./aikata-pipeline-report.md"
+  PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB: "50"
+  PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB: "500"
+  PIPELINE_REPORT_MAX_ARTIFACT_FILE_BYTES: "2097152"
+  PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES: "3"
