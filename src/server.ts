@@ -187,11 +187,6 @@ export async function startServer(): Promise<void> {
   const pipelineReportTotalArtifactDiskMb = Number(
     process.env['PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB'] ?? '500',
   );
-  const pipelineReportMaxCompletenessRetries = Number(
-    process.env['PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES'] ?? '3',
-  );
-  // Phase 14 で .env.example / variables.yml に正式登録される値を先行使用
-  void pipelineReportMaxCompletenessRetries;
 
   const projectTreeGateway = new LocalProjectTreeGateway();
   const tokenCounter = new GptTokenCounter();
