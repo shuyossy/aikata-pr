@@ -129,7 +129,7 @@ describe('pipeline-report CLI module', () => {
       expect(fs.readFileSync(resultFilePath, 'utf-8')).toBe('# Pipeline Report\n\nall good');
       // stdout にも出力されている
       expect(stdoutSpy).toHaveBeenCalled();
-      const stdoutOut = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      const stdoutOut = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('');
       expect(stdoutOut).toContain('# Pipeline Report');
       // cleanup が呼ばれる
       expect(cleanup).toHaveBeenCalledTimes(1);
@@ -231,7 +231,7 @@ describe('pipeline-report CLI module', () => {
       expect(req.aiModelName).toBe('openai/o4-mini');
 
       expect(fs.readFileSync(resultFilePath, 'utf-8')).toBe('# API Pipeline Report\n\nok');
-      const stdoutOut = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      const stdoutOut = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('');
       expect(stdoutOut).toContain('# API Pipeline Report');
     });
 

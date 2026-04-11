@@ -85,14 +85,14 @@ describe('PipelineReportApiClient', () => {
   };
 
   function createHandlers(): {
-    onProgress: ReturnType<typeof vi.fn>;
-    onRequestId: ReturnType<typeof vi.fn>;
-    onError: ReturnType<typeof vi.fn>;
+    onProgress: ReturnType<typeof vi.fn<(event: PipelineReportProgressEvent) => void>>;
+    onRequestId: ReturnType<typeof vi.fn<(id: string) => void>>;
+    onError: ReturnType<typeof vi.fn<(err: Error) => void>>;
   } {
     return {
-      onProgress: vi.fn(),
-      onRequestId: vi.fn(),
-      onError: vi.fn(),
+      onProgress: vi.fn<(event: PipelineReportProgressEvent) => void>(),
+      onRequestId: vi.fn<(id: string) => void>(),
+      onError: vi.fn<(err: Error) => void>(),
     };
   }
 
