@@ -37,6 +37,18 @@ export class YauzlArtifactArchiveReader implements ArtifactArchiveReader {
           rejectPromise(new Error('zipfile is null'));
           return;
         }
+        // zipfile.close()漏れを防ぐための終端ハンドラ。成功/失敗どちらでも必ずcloseする。
+        let settled = false;
+        const finalize = (action: () => void): void => {
+          if (settled) return;
+          settled = true;
+          try {
+            zipfile.close();
+          } catch {
+            // closeの二重呼び出しや内部状態エラーは無視する
+          }
+          action();
+        };
         const results: ArtifactEntry[] = [];
         zipfile.on('entry', (entry: yauzl.Entry) => {
           // ディレクトリエントリは末尾が '/' で判別
@@ -49,8 +61,8 @@ export class YauzlArtifactArchiveReader implements ArtifactArchiveReader {
           });
           zipfile.readEntry();
         });
-        zipfile.on('end', () => resolvePromise(results));
-        zipfile.on('error', rejectPromise);
+        zipfile.on('end', () => finalize(() => resolvePromise(results)));
+        zipfile.on('error', (zipErr: Error) => finalize(() => rejectPromise(zipErr)));
         zipfile.readEntry();
       });
     });
@@ -71,6 +83,18 @@ export class YauzlArtifactArchiveReader implements ArtifactArchiveReader {
           rejectPromise(new Error('zipfile is null'));
           return;
         }
+        // zipfile.close()漏れ + resolve/reject二重呼び出しを防ぐための終端ハンドラ。
+        let settled = false;
+        const finalize = (action: () => void): void => {
+          if (settled) return;
+          settled = true;
+          try {
+            zipfile.close();
+          } catch {
+            // closeの二重呼び出しや内部状態エラーは無視する
+          }
+          action();
+        };
         let found = false;
         zipfile.on('entry', (entry: yauzl.Entry) => {
           if (entry.fileName !== innerPath) {
@@ -80,16 +104,21 @@ export class YauzlArtifactArchiveReader implements ArtifactArchiveReader {
           found = true;
           zipfile.openReadStream(entry, (streamErr, stream) => {
             if (streamErr || !stream) {
-              zipfile.close();
-              rejectPromise(streamErr ?? new Error('read stream is null'));
+              finalize(() => rejectPromise(streamErr ?? new Error('read stream is null')));
               return;
             }
             const chunks: Buffer[] = [];
             let total = 0;
             let truncated = false;
+            // maxBytes到達時にストリームをdestroy()してI/O・解凍コストを中断する。
+            // destroyed=true以降のdata/errorイベントは無視し、end/closeで一度だけfinalizeする。
+            let destroyed = false;
             stream.on('data', (chunk: Buffer) => {
+              if (destroyed) return;
               if (total >= options.maxBytes) {
                 truncated = true;
+                destroyed = true;
+                stream.destroy();
                 return;
               }
               const remaining = options.maxBytes - total;
@@ -97,27 +126,36 @@ export class YauzlArtifactArchiveReader implements ArtifactArchiveReader {
                 chunks.push(chunk.subarray(0, remaining));
                 total += remaining;
                 truncated = true;
+                destroyed = true;
+                stream.destroy();
               } else {
                 chunks.push(chunk);
                 total += chunk.length;
               }
             });
             stream.on('end', () => {
-              zipfile.close();
-              resolvePromise({ data: Buffer.concat(chunks), truncated });
+              finalize(() => resolvePromise({ data: Buffer.concat(chunks), truncated }));
+            });
+            stream.on('close', () => {
+              if (destroyed) {
+                finalize(() => resolvePromise({ data: Buffer.concat(chunks), truncated }));
+              }
             });
             stream.on('error', (streamEndErr: Error) => {
-              zipfile.close();
-              rejectPromise(streamEndErr);
+              if (destroyed) {
+                // destroy()に伴う擬似エラーは無視（close/endハンドラ側で解決済み）
+                return;
+              }
+              finalize(() => rejectPromise(streamEndErr));
             });
           });
         });
         zipfile.on('end', () => {
           if (!found) {
-            rejectPromise(new Error(`artifact entry not found: ${innerPath}`));
+            finalize(() => rejectPromise(new Error(`artifact entry not found: ${innerPath}`)));
           }
         });
-        zipfile.on('error', rejectPromise);
+        zipfile.on('error', (zipErr: Error) => finalize(() => rejectPromise(zipErr)));
         zipfile.readEntry();
       });
     });
