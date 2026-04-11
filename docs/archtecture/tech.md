@@ -13,10 +13,20 @@
 チェックロジックに必要な環境変数やファイルを用意し、チェックロジックを本プロジェクトの`dist`よりダウンロードし実行する
 
 ## チェックロジック
-2つのモードで動作する:
+本プロジェクトはAIレビュー以外の機能も同一パッケージでホストできる「マルチ機能ホスト」構成を採用している。新機能の追加手順は `docs/archtecture/feature-extension.md` を参照。
+
+CLIはサブコマンド方式で動作する。`aikata-pr review [options]` のように機能名サブコマンドを必須とし、`src/cli/dispatch.ts` のディスパッチャが対象機能の `CliFeatureModule.run(args)` を呼び出す。現時点では `review` サブコマンドのみが登録されている。
+
+レビュー機能（`review`サブコマンド）は2つのモードで動作する:
 - **ローカルモード**: `AI_API_KEY`、`AI_API_ENDPOINT_URL`、`AI_MODEL_NAME`が全て設定されている場合。CLIが全処理をローカルで実行する（開発用・後方互換）
 - **APIモード**: 上記3変数のいずれかが未設定の場合。CLIは外部APIサーバー（`AIKATA_API_URL`）にレビュー実行を委譲し、コメント投稿・品質ゲート評価はCLI側で実行する。`AIKATA_API_URL`と`AIKATA_JWT`が必要
   - `JWT_*`が設定されてない場合は、JWT認証無効で動作する（開発時のみ許容、デバッグ用）
+
+### 機能モジュール登録パターン
+各機能は2種類のモジュールをエクスポートし、それぞれCLI/APIサーバ起動時にレジストリに登録される。
+- **CliFeatureModule**: `{ name, description, run(args) }`。`src/cli/dispatch.ts` の `defaultFeatures = [reviewCliModule]` に追加
+- **ApiFeatureModule**: `{ name, register(app) }`。`src/server.ts` の `apiFeatures = [reviewApiModule]` に追加
+- 新機能を追加する場合は、各レイヤーに `<feature>/` フォルダを作成した上で、両配列にモジュールを追加するだけで配線が完了する
 
 一般的なクリーンアーキテクチャに従う。
 用語集(`docs/domain`)と整合するよう注意すること。
@@ -35,7 +45,7 @@
 - インフラ層
   - Mastra層（`src/mastra`）についてはAIワークフロー実行基盤としてインフラ層の一種とみなす※ポートは`src/application/shared/port/workflow`
 - プレゼンテーション層
-  - CLIインターフェース: `node dist/index.js [options]`
+  - CLIインターフェース: `node dist/index.js <feature> [options]`（例: `node dist/index.js review --user-id ...`）。サブコマンドは必須で、`src/cli/dispatch.ts` のディスパッチャが対応する `CliFeatureModule` を呼び出す
   - APIサーバーインターフェース: `node dist/server.js`
     - Honoフレームワーク
     - `POST /api/v1/review` — SSEストリーミングレスポンス
@@ -87,7 +97,7 @@ APIサーバーは複数ユーザからのリクエストを処理するため�
 - **`AsyncLocalStorage`ベースのリクエスト単位バインディング**: `src/lib/logger.ts`の`runWithLogContext(bindings, fn)`を用いて、リクエストハンドラ内部で追加バインディングを確立する。同じ非同期チェーン内の`getLogger()`呼び出しは、下流のインフラ層（CloneManager、Gateway、Mastra workflow等）に至るまで自動的にバインディングが適用された子ロガーを返す。
 - **ユーザ情報の主ソース**: リクエストボディの`userId`（CLIから渡される`$GITLAB_USER_LOGIN`相当）。JWT認証をスキップする開発モードでも取得可能。
 - **ユーザ情報の補助ソース**: JWT認証有効時は`jwtPayload`から`user_id`/`user_email`/`project_path`/`pipeline_id`/`job_id`を抽出し、`gitlabUserId`等として追加でログにバインドする。JWTの`user_login`とリクエストボディの`userId`が不一致の場合は警告ログを出力する（拒否はしない）。
-- **リクエストID**: `src/presentation/api/requestIdMiddleware.ts`で全リクエストに`requestId`（UUID v4、`X-Request-Id`ヘッダがあれば継承）を付与し、ログ/レスポンスヘッダ両方に出力する。`gitlabJobId`は任意かつJWT認証時のみ得られるため、一意な識別子として`requestId`を常時採用する。
+- **リクエストID**: `src/presentation/api/shared/requestIdMiddleware.ts`で全リクエストに`requestId`（UUID v4、`X-Request-Id`ヘッダがあれば継承）を付与し、ログ/レスポンスヘッダ両方に出力する。`gitlabJobId`は任意かつJWT認証時のみ得られるため、一意な識別子として`requestId`を常時採用する。
 
 ## エラーログ出力方法
 エラーオブジェクトをログ出力する際は、`pino-std-serializers`の`errWithCause`シリアライザーを利用

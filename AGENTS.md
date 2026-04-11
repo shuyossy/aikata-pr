@@ -13,11 +13,11 @@
 # 外部設計
 ## ユビキタス用語集
 ### エンティティ
-`docs/domain/entity.md`
+`docs/domain/review/entity.md`
 ### ビジネスルール
-`docs/domain/business_rule.md`
+`docs/domain/review/business_rule.md`
 ### ユースケース
-`docs/domain/usecase.md`
+`docs/domain/review/usecase.md`
 
 ## 環境変数設計
 `docs/config/env_val.md`
@@ -60,8 +60,8 @@ npm run format:check      # Prettier フォーマットチェック
 # ビルド
 npm run build:cli         # CLI用バンドル（dist/index.js）
 
-# 実行
-node dist/index.js --user-id <userId> [options]
+# 実行（サブコマンド必須）
+node dist/index.js review --user-id <userId> [options]
 ```
 
 # 作業時の注意点
@@ -94,6 +94,8 @@ node dist/index.js --user-id <userId> [options]
 - このシステムはまだリリースされていないので、コードを変更する際、後方互換製を考慮する必要はない
 - デフォルトの環境変数は.env.exampleと`.ci-template/variable/variables.yml`に入れておくこと
 - 関数の引数は特別な理由がない限りオプショナルは避けること（バグの温床になるため）
+- 新機能（AIレビュー以外のジョブ）を追加する場合は `docs/archtecture/feature-extension.md` を参照すること
+  - CLIはサブコマンド方式（`node dist/index.js <feature> [options]`）で動作するので、新機能のCLI実装は `src/cli/<feature>/` に配置し `CliFeatureModule` をエクスポートして `src/cli/dispatch.ts` の `defaultFeatures` に追加する
 
 # PBI
 @PBI.md
