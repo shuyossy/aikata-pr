@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parsePipelineReportSettings } from '../parsePipelineReportSettings.js';
 import { PipelineReportSettingsParseError } from '../PipelineReportSettingsParseError.js';
-import { DEFAULT_JOB_REPORT_FORMAT } from '../../../pipeline-report/pipelineAnalysis/defaultReportFormat.js';
+import { PipelineReportSettings } from '../../../../domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.js';
 
 describe('parsePipelineReportSettings', () => {
   it('全フィールドを指定した JSON を正常にパースできる', () => {
@@ -27,7 +27,7 @@ describe('parsePipelineReportSettings', () => {
   it('空 JSON の場合は全フィールドにデフォルト値が適用される', () => {
     const settings = parsePipelineReportSettings('{}');
 
-    expect(settings.jobReportFormat).toBe(DEFAULT_JOB_REPORT_FORMAT);
+    expect(settings.jobReportFormat).toBe(PipelineReportSettings.default().jobReportFormat);
     expect(settings.additionalInstructions).toBeNull();
     expect(settings.includeJobPatterns).toEqual([]);
     expect(settings.excludeJobPatterns).toEqual([]);

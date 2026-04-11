@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { PipelineReportSettings } from '../../../domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.js';
-import { DEFAULT_JOB_REPORT_FORMAT } from '../../pipeline-report/pipelineAnalysis/defaultReportFormat.js';
 import { PipelineReportSettingsParseError } from './PipelineReportSettingsParseError.js';
 
 /**
@@ -58,9 +57,11 @@ export function parsePipelineReportSettings(jsonText: string): PipelineReportSet
     });
   };
 
+  const defaults = PipelineReportSettings.default();
+
   return PipelineReportSettings.of({
-    jobReportFormat: parsed.data.jobReportFormat ?? DEFAULT_JOB_REPORT_FORMAT,
-    additionalInstructions: parsed.data.additionalInstructions ?? null,
+    jobReportFormat: parsed.data.jobReportFormat ?? defaults.jobReportFormat,
+    additionalInstructions: parsed.data.additionalInstructions ?? defaults.additionalInstructions,
     includeJobPatterns: compile(parsed.data.includeJobPatterns),
     excludeJobPatterns: compile(parsed.data.excludeJobPatterns),
   });
