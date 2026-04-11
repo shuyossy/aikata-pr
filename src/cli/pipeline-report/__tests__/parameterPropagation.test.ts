@@ -13,6 +13,7 @@ import type { PipelineReportApiRequest } from '../../../infrastructure/adapter/p
 import type { PipelineReportApiResult } from '../../../infrastructure/adapter/pipeline-report/apiClient/index.js';
 import { AnalysisReport } from '../../../domain/pipeline-report/analysisReport/index.js';
 import { Pipeline } from '../../../domain/pipeline-report/pipeline/Pipeline.js';
+import { Job } from '../../../domain/pipeline-report/job/Job.js';
 import { resetLogger } from '../../../lib/logger.js';
 
 /**
@@ -295,14 +296,28 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       const settings = capturedCommand!.settings;
 
       // include: build:* / test:*, exclude: skip:*, selfJobId=999
-      const jobs = [
-        { id: 1, name: 'build:frontend' },
-        { id: 2, name: 'test:unit' },
-        { id: 3, name: 'deploy:staging' },
-        { id: 4, name: 'skip:manual' },
-        { id: 5, name: 'build:backend' },
-        { id: 999, name: 'build:self' }, // selfJobId で除外
-      ] as Parameters<typeof settings.filterJobs>[0];
+      const makeJob = (id: number, name: string): Job =>
+        Job.of({
+          id,
+          name,
+          stage: 'test-stage',
+          status: 'success',
+          startedAt: null,
+          finishedAt: null,
+          duration: null,
+          webUrl: `https://gitlab.example.com/jobs/${id}`,
+          failureReason: null,
+          hasArtifacts: false,
+          artifactsSize: 0,
+        });
+      const jobs: Job[] = [
+        makeJob(1, 'build:frontend'),
+        makeJob(2, 'test:unit'),
+        makeJob(3, 'deploy:staging'),
+        makeJob(4, 'skip:manual'),
+        makeJob(5, 'build:backend'),
+        makeJob(999, 'build:self'), // selfJobId で除外
+      ];
 
       const result = settings.filterJobs(jobs, 999);
       const resultIds = result.map((j) => j.id).sort((a, b) => a - b);
