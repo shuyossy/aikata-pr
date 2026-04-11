@@ -6,7 +6,7 @@ import { RequestContext } from '@mastra/core/request-context';
 import type { Agent, MastraDBMessage, MastraMessagePart } from '@mastra/core/agent';
 import { IndexedChecklist } from '../../../indexedCheckItem.js';
 import type { IndexedCheckItem } from '../../../indexedCheckItem.js';
-import type { ReviewAgentRequestContext } from '../../../../shared/requestContext.js';
+import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 import { initializeLogger, resetLogger } from '../../../../../lib/logger.js';
 import { RateLimiter } from '../../../../../infrastructure/adapter/rateLimiter/RateLimiter.js';
 import { initializeRateLimiter, resetRateLimiter } from '../../../../../lib/rateLimiterGlobal.js';

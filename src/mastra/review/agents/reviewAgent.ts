@@ -5,7 +5,7 @@ import type { RequestContext } from '@mastra/core/request-context';
 import type { ProcessInputStepArgs, ProcessInputStepResult } from '@mastra/core/processors';
 import { Workspace, LocalFilesystem, LocalSandbox } from '@mastra/core/workspace';
 import { Memory } from '@mastra/memory';
-import type { ReviewAgentRequestContext } from '../../shared/requestContext.js';
+import type { ReviewAgentRequestContext } from '../requestContext.js';
 import { createModelFromContext } from '../../shared/requestContext.js';
 import { storeReviewResultTool } from '../tools/storeReviewResult.js';
 import { getReviewResultsTool } from '../tools/getReviewResults.js';

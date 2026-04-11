@@ -5,8 +5,8 @@ import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
 import { Rating } from '../../../../domain/review/rating/index.js';
 import { CheckItem } from '../../../../domain/review/checkItem/index.js';
+import type { ReviewAgentRequestContext } from '../../requestContext.js';
 import {
-  type ReviewAgentRequestContext,
   type WorkflowRequestContext,
   buildGenerateOptions,
   sanitizeForLog,

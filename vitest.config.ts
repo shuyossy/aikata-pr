@@ -12,7 +12,7 @@ export default defineConfig({
       exclude: [
         'src/**/__tests__/**',
         'src/mastra/review/agents/**',
-        'src/index.ts',
+        'src/cli.ts',
         'src/mastra/index.ts',
         'src/**/index.ts',
       ],

@@ -13,7 +13,7 @@ import {
   getLastRateLimitContinuationMessageId,
 } from '../reviewExecution.js';
 import type { Agent, MastraDBMessage } from '@mastra/core/agent';
-import type { ReviewAgentRequestContext } from '../../../../shared/requestContext.js';
+import type { ReviewAgentRequestContext } from '../../../requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../../lib/rateLimitRetry.js';
 import {
   UNEXPECTED_ERROR_MESSAGE,

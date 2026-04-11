@@ -4,10 +4,8 @@ import { z } from 'zod';
 import { splitChecklist } from './steps/checklistSplit.js';
 import { executeReview } from './steps/reviewExecution.js';
 import { IndexedChecklist } from '../indexedCheckItem.js';
-import type {
-  ReviewAgentRequestContext,
-  WorkflowRequestContext,
-} from '../../shared/requestContext.js';
+import type { ReviewAgentRequestContext } from '../requestContext.js';
+import type { WorkflowRequestContext } from '../../shared/requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
 
 /**

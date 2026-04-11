@@ -1,5 +1,5 @@
 import { Agent } from '@mastra/core/agent';
-import type { ChecklistSplitAgentRequestContext } from '../../shared/requestContext.js';
+import type { ChecklistSplitAgentRequestContext } from '../requestContext.js';
 import { createModelFromContext } from '../../shared/requestContext.js';
 
 /**

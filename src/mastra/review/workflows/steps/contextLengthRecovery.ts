@@ -6,7 +6,7 @@ import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import type {
   ReviewAgentRequestContext,
   SummarizationAgentRequestContext,
-} from '../../../shared/requestContext.js';
+} from '../../requestContext.js';
 import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
 import { readStoredResults } from '../../types.js';
 import { buildSummarizationUserPrompt } from '../../agents/summarizationAgent.js';
