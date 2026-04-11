@@ -3,9 +3,12 @@ import { streamSSE } from 'hono/streaming';
 import { reviewRequestSchema } from './reviewHandler.js';
 import type { ReviewHandlerDeps } from './reviewHandler.js';
 import { createReviewHandler } from './reviewHandler.js';
-import type { JwtAuthEnv, GitLabIdTokenPayload } from '../../infrastructure/adapter/auth/index.js';
-import type { RequestIdEnv } from './requestIdMiddleware.js';
-import { getLogger, runWithLogContext } from '../../lib/logger.js';
+import type {
+  JwtAuthEnv,
+  GitLabIdTokenPayload,
+} from '../../../infrastructure/adapter/auth/index.js';
+import type { RequestIdEnv } from '../shared/requestIdMiddleware.js';
+import { getLogger, runWithLogContext } from '../../../lib/logger.js';
 
 /**
  * レビューAPIルートの環境型定義

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { createReviewRoute } from '../reviewRoute.js';
 import type { ReviewRouteEnv } from '../reviewRoute.js';
-import { createRequestIdMiddleware } from '../requestIdMiddleware.js';
+import { createRequestIdMiddleware } from '../../shared/requestIdMiddleware.js';
 import type {
   ReviewHandlerDeps,
   PerRequestServiceFactory,
@@ -12,14 +12,14 @@ import type {
 import type {
   CloneManagerPort,
   CloneResult,
-} from '../../../application/shared/port/clone/index.js';
-import type { RateLimiterPort } from '../../../application/shared/port/rateLimiter/index.js';
-import type { ReviewExecutionDto } from '../../../application/review/reviewExecution/index.js';
-import type { GitLabIdTokenPayload } from '../../../infrastructure/adapter/auth/index.js';
-import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
-import { CheckItem } from '../../../domain/review/checkItem/index.js';
-import { Rating } from '../../../domain/review/rating/index.js';
-import { initializeLogger, resetLogger } from '../../../lib/logger.js';
+} from '../../../../application/shared/port/clone/index.js';
+import type { RateLimiterPort } from '../../../../application/shared/port/rateLimiter/index.js';
+import type { ReviewExecutionDto } from '../../../../application/review/reviewExecution/index.js';
+import type { GitLabIdTokenPayload } from '../../../../infrastructure/adapter/auth/index.js';
+import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+import { CheckItem } from '../../../../domain/review/checkItem/index.js';
+import { Rating } from '../../../../domain/review/rating/index.js';
+import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 
 /**
  * SSEレスポンスをパースしてイベントオブジェクトの配列に変換するヘルパー
