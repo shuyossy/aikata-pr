@@ -1,5 +1,5 @@
-import { Checklist } from '../../domain/review/checklist/index.js';
-import { ReviewSettings } from '../../domain/review/reviewSettings/index.js';
+import { Checklist } from '../../../domain/review/checklist/index.js';
+import { ReviewSettings } from '../../../domain/review/reviewSettings/index.js';
 
 /**
  * ReviewExecutionServiceの入力DTO

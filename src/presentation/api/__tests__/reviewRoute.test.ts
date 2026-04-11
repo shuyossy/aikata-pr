@@ -14,7 +14,7 @@ import type {
   CloneResult,
 } from '../../../application/shared/port/clone/index.js';
 import type { RateLimiterPort } from '../../../application/shared/port/rateLimiter/index.js';
-import type { ReviewExecutionDto } from '../../../application/reviewExecution/index.js';
+import type { ReviewExecutionDto } from '../../../application/review/reviewExecution/index.js';
 import type { GitLabIdTokenPayload } from '../../../infrastructure/adapter/auth/index.js';
 import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
 import { CheckItem } from '../../../domain/review/checkItem/index.js';

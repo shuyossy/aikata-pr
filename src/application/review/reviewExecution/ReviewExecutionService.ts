@@ -1,21 +1,21 @@
 import * as fs from 'node:fs';
-import type { MrGateway } from '../shared/port/gateway/index.js';
-import type { MrDiscussionGateway } from '../shared/port/gateway/index.js';
-import type { ProjectTreeGateway } from '../shared/port/gateway/index.js';
+import type { MrGateway } from '../../shared/port/gateway/index.js';
+import type { MrDiscussionGateway } from '../../shared/port/gateway/index.js';
+import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
 import type {
   ReviewWorkflowParams,
   ReviewWorkflowResult,
   ReviewWorkflowRunner,
-} from '../shared/port/workflow/index.js';
-import { CommentParser } from '../shared/comment/index.js';
+} from '../../shared/port/workflow/index.js';
+import { CommentParser } from '../../shared/comment/index.js';
 import type { ReviewExecutionCommand } from './ReviewExecutionCommand.js';
 import type { ReviewExecutionDto } from './ReviewExecutionDto.js';
-import { ReviewResult } from '../../domain/review/reviewResult/index.js';
-import { Rating } from '../../domain/review/rating/index.js';
-import type { MrContext } from '../../domain/review/mrContext/index.js';
-import { compressDiffIfNeeded } from '../shared/diffCompression/index.js';
-import type { TokenCounter } from '../shared/port/tokenCounter/index.js';
-import { buildUserPromptTemplate } from '../shared/prompt/index.js';
+import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
+import { Rating } from '../../../domain/review/rating/index.js';
+import type { MrContext } from '../../../domain/review/mrContext/index.js';
+import { compressDiffIfNeeded } from '../../shared/diffCompression/index.js';
+import type { TokenCounter } from '../../shared/port/tokenCounter/index.js';
+import { buildUserPromptTemplate } from '../../shared/prompt/index.js';
 
 /**
  * buildPriorContextの返り値型

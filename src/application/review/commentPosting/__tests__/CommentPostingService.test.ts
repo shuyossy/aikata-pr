@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CommentPostingService } from '../CommentPostingService.js';
 import type { CommentPostingCommand } from '../CommentPostingCommand.js';
-import type { MrDiscussionGateway } from '../../shared/port/gateway/MrDiscussionGateway.js';
-import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
-import { Rating } from '../../../domain/review/rating/index.js';
-import { CheckItem } from '../../../domain/review/checkItem/index.js';
-import { CommentFormatter } from '../../shared/comment/index.js';
-import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
+import type { MrDiscussionGateway } from '../../../shared/port/gateway/MrDiscussionGateway.js';
+import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+import { Rating } from '../../../../domain/review/rating/index.js';
+import { CheckItem } from '../../../../domain/review/checkItem/index.js';
+import { CommentFormatter } from '../../../shared/comment/index.js';
+import type { QualityGateResult } from '../../../../domain/review/qualityGate/index.js';
 
 describe('CommentPostingService', () => {
   let mrDiscussionGateway: MrDiscussionGateway;

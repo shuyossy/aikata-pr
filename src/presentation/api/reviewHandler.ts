@@ -3,8 +3,8 @@ import { z } from 'zod';
 import type { CloneManagerPort } from '../../application/shared/port/clone/index.js';
 import type { RateLimiterPort } from '../../application/shared/port/rateLimiter/index.js';
 import type { ReviewWorkflowRunner } from '../../application/shared/port/workflow/index.js';
-import type { ReviewExecutionDto } from '../../application/reviewExecution/index.js';
-import { ReviewExecutionService } from '../../application/reviewExecution/index.js';
+import type { ReviewExecutionDto } from '../../application/review/reviewExecution/index.js';
+import { ReviewExecutionService } from '../../application/review/reviewExecution/index.js';
 import { GitLabApiClient } from '../../infrastructure/adapter/httpClient/index.js';
 import {
   GitLabMrGateway,
@@ -17,7 +17,7 @@ import { Rating } from '../../domain/review/rating/index.js';
 import { QualityGate } from '../../domain/review/qualityGate/index.js';
 import { Checklist } from '../../domain/review/checklist/index.js';
 import { CheckItem } from '../../domain/review/checkItem/index.js';
-import type { ReviewExecutionCommand } from '../../application/reviewExecution/index.js';
+import type { ReviewExecutionCommand } from '../../application/review/reviewExecution/index.js';
 import type { ReviewApiResponse } from '../../infrastructure/adapter/apiClient/ReviewApiClient.js';
 import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
 import { getLogger } from '../../lib/logger.js';

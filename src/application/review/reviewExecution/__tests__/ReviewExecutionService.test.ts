@@ -3,20 +3,20 @@ import { ReviewExecutionService } from '../ReviewExecutionService.js';
 import type {
   ReviewWorkflowRunner,
   ReviewWorkflowResult,
-} from '../../shared/port/workflow/index.js';
+} from '../../../shared/port/workflow/index.js';
 import type { ReviewExecutionCommand } from '../ReviewExecutionCommand.js';
-import type { MrGateway } from '../../shared/port/gateway/index.js';
-import type { MrDiscussionGateway, MrComment } from '../../shared/port/gateway/index.js';
-import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
-import { MrContext } from '../../../domain/review/mrContext/index.js';
-import { CheckItem } from '../../../domain/review/checkItem/index.js';
-import { Checklist } from '../../../domain/review/checklist/index.js';
-import { Rating } from '../../../domain/review/rating/index.js';
-import { ReviewSettings } from '../../../domain/review/reviewSettings/index.js';
-import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
-import { QualityGate } from '../../../domain/review/qualityGate/index.js';
-import { CommentFormatter } from '../../shared/comment/index.js';
-import type { TokenCounter } from '../../shared/port/tokenCounter/index.js';
+import type { MrGateway } from '../../../shared/port/gateway/index.js';
+import type { MrDiscussionGateway, MrComment } from '../../../shared/port/gateway/index.js';
+import type { ProjectTreeGateway } from '../../../shared/port/gateway/index.js';
+import { MrContext } from '../../../../domain/review/mrContext/index.js';
+import { CheckItem } from '../../../../domain/review/checkItem/index.js';
+import { Checklist } from '../../../../domain/review/checklist/index.js';
+import { Rating } from '../../../../domain/review/rating/index.js';
+import { ReviewSettings } from '../../../../domain/review/reviewSettings/index.js';
+import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+import { QualityGate } from '../../../../domain/review/qualityGate/index.js';
+import { CommentFormatter } from '../../../shared/comment/index.js';
+import type { TokenCounter } from '../../../shared/port/tokenCounter/index.js';
 
 // ヘルパー: テスト用のMrContextを生成
 function createMrContext(

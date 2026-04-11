@@ -8,8 +8,8 @@ import {
 } from './lib/commandBuilder.js';
 import { ChecklistParser } from './application/shared/parser/index.js';
 import { ReviewSettingsParser } from './application/shared/parser/index.js';
-import { ReviewExecutionService } from './application/reviewExecution/index.js';
-import { CommentPostingService } from './application/commentPosting/index.js';
+import { ReviewExecutionService } from './application/review/reviewExecution/index.js';
+import { CommentPostingService } from './application/review/commentPosting/index.js';
 import { ReviewResult } from './domain/review/reviewResult/index.js';
 import { Rating } from './domain/review/rating/index.js';
 import { GitLabApiClient } from './infrastructure/adapter/httpClient/index.js';
