@@ -20,14 +20,14 @@ describe('cli dispatcher', () => {
   it('プリントusageして非0終了: サブコマンド無し', async () => {
     const fakeFeatures: CliFeatureModule[] = [{ name: 'review', description: 'x', run: vi.fn() }];
     await expect(dispatch([], fakeFeatures)).rejects.toThrow('process.exit:1');
-    const combined = errorSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+    const combined = errorSpy.mock.calls.map((c: unknown[]) => c.join(' ')).join('\n');
     expect(combined).toContain('Usage: aikata-pr');
   });
 
   it('プリントusageして非0終了: 未知サブコマンド', async () => {
     const fakeFeatures: CliFeatureModule[] = [{ name: 'review', description: 'x', run: vi.fn() }];
     await expect(dispatch(['unknown'], fakeFeatures)).rejects.toThrow('process.exit:1');
-    const combined = errorSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+    const combined = errorSpy.mock.calls.map((c: unknown[]) => c.join(' ')).join('\n');
     expect(combined).toContain('Unknown command: unknown');
   });
 
