@@ -2,6 +2,25 @@
 
 本プロジェクトにAIレビュー以外の新しいCI/CD機能（以下「機能」）を追加するための手順。
 
+## 既存機能の実例
+
+実装の参考として、以下の 2 機能がすでに同構造で実装されている。新機能追加時は、より近い性質の機能を参考にすると良い。
+
+- **`review`** — MRのAIレビュー機能
+  - CLI: `src/cli/review/`
+  - Application: `src/application/review/{reviewExecution,commentPosting}/`
+  - Mastra: `src/mastra/review/{agents,tools,workflows}/`
+  - Infrastructure: `src/infrastructure/adapter/review/`
+  - Presentation API: `src/presentation/api/review/`
+  - Docs: `docs/domain/review/`, `docs/archtecture/review/overallflow_concept.md`
+- **`pipeline-report`** — CIパイプライン結果のAI分析レポート生成機能
+  - CLI: `src/cli/pipeline-report/`
+  - Application: `src/application/pipeline-report/pipelineAnalysis/`
+  - Mastra: `src/mastra/pipeline-report/{agents,tools,workflows}/`
+  - Infrastructure: `src/infrastructure/adapter/pipeline-report/`
+  - Presentation API: `src/presentation/api/pipeline-report/`
+  - Docs: `docs/domain/pipeline-report/`, `docs/archtecture/pipeline-report/overallflow_concept.md`
+
 ## 全体像
 
 1. 機能固有のドメイン・アプリケーション・Mastra・プレゼンテーション層コードを各レイヤーの `<feature>/` サブフォルダに配置する
@@ -124,3 +143,7 @@ depsはHonoコンテキスト経由でリクエストハンドラに流すため
 - 異なる機能同士は直接参照しない（連携が必要なら `shared` に抽出）
 - プロンプトは英語で書く（AGENTS.md方針）
 - 新規追加した部分についてTypeScript型エラーがないこと、すべてのテストがパスすること
+
+## shared と feature の切り出し判断
+
+レート制御・トークンカウンタ・クローン管理・folderTreeビルダー・圧縮ヘルパのように複数機能で同じ意味を持つコンポーネントは、最初から `shared/` に置くか、最初は `<feature>/` に置いておき 2 つ目の機能で必要になった時点で `shared/` に上げる。判断基準は「責務が機能非依存でドメイン用語を持ち込まないか」「インターフェースを変えずに両機能から呼べるか」の 2 点。依存方向（`shared → <feature>` は禁止）を守れない場合は安易に上げず、一旦各 feature に重複実装を置いて後で refactor する方が安全。例えば pipeline-report の `ArtifactCacheManager` は現時点では `application/pipeline-report/pipelineAnalysis/` に置いているが、将来他機能でも artifacts を触るようになれば `application/shared/` へ昇格させる余地がある。

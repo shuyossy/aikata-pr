@@ -4,6 +4,7 @@
 機能固有の用語は各機能配下のglossaryを参照すること。
 
 - review: `docs/domain/review/glossary.md`
+- pipeline-report: `docs/domain/pipeline-report/glossary.md`
 
 ## 横断用語
 
