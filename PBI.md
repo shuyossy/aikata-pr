@@ -28,5 +28,4 @@
     - `.ci-template/pipelines/template.yml`にはレビュー機能をincludeしておいて、従来ここからレビュージョブをincludeしていたユーザも継続して利用できる様にすること
   - ドキュメント類（`docs/`、`AGENTS.md`）も漏れなく更新すること
   - 様々なファイルをmvする必要が出てくると思うが、最終的にgit diffで無駄な差分ばかり出ない様に気をつけること
-- 指摘事項（in progressの場合のみ）
 

@@ -73,6 +73,7 @@ src/
       tools/                # ツール定義
       workflows/            # ワークフロー定義
       indexedCheckItem.ts
+      requestContext.ts     # review固有のAgent Request Context型（shared/requestContext.tsのWorkflowRequestContextを拡張）
       types.ts
   infrastructure/
     adapter/
@@ -99,8 +100,9 @@ docs/
     tech.md                 # 横断アーキテクチャ
     folder_structure.md     # 本ファイル
     feature-extension.md    # 新機能追加ガイド
-    overallflow_concept.md
-    logger-investigation.md
+    logger-investigation.md # ロガー設計調査資料
+    review/
+      overallflow_concept.md  # review機能の処理フロー概念設計
   config/
     env_val.md
   plans/                    # 設計書・実装計画の保存先

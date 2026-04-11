@@ -1,6 +1,7 @@
 # 本プロジェクトの概要
-本プロジェクトはGitLabのプロジェクトにおいて、チェックリストに沿ったMRのAIレビューを実行するためのCI/CDパイプラインテンプレートを提供するプロジェクトである。
-任意のGitLabプロジェクトにおいて、本プロジェクトの`.ci-template/piplines/template.yml`を`.gitlab-ci.yml`上で`include`することで、MRのAIレビューを実行することができる。
+本プロジェクトは、GitLabプロジェクト向けに AI を活用したCI/CDジョブのパイプラインテンプレートを集約して提供する「マルチ機能ホスト」プロジェクトである。
+同一パッケージで複数の機能をホストできる構成となっており、現時点では `review`（チェックリストに沿ったMRのAIレビュー）機能を提供している。将来的にはレビュー以外のAI CI/CDジョブも同じ仕組みで追加できる。
+任意のGitLabプロジェクトは、本プロジェクトの`.ci-template/pipelines/template.yml`（または機能別ファサード）を`.gitlab-ci.yml`上で`include`することで、対象の機能を実行できる。
 
 # 用語集
 @docs/domain/glossary.md
@@ -11,19 +12,19 @@
   - クリーンアーキテクチャを採用
 
 # 外部設計
-## ユビキタス用語集
-### エンティティ
-`docs/domain/review/entity.md`
-### ビジネスルール
-`docs/domain/review/business_rule.md`
-### ユースケース
-`docs/domain/review/usecase.md`
+外部設計は「共通（全機能横断）」と「機能ごと」の2階層で管理する。新機能を追加する場合は、`## <feature> 機能` セクションを追加し、その配下にユビキタス用語集・処理フロー概念設計などを配置する。
 
-## 環境変数設計
+## 共通（全機能横断）
+### 環境変数設計
 `docs/config/env_val.md`
 
-## 処理フロー概念設計
-`docs/archtecture/overallflow_concept.md`
+## review 機能
+### ユビキタス用語集
+- エンティティ: `docs/domain/review/entity.md`
+- ビジネスルール: `docs/domain/review/business_rule.md`
+- ユースケース: `docs/domain/review/usecase.md`
+### 処理フロー概念設計
+`docs/archtecture/review/overallflow_concept.md`
 
 # 内部設計
 ## アーキテクチャ設計
