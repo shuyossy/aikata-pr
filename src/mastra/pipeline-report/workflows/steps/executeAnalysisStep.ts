@@ -105,7 +105,7 @@ export async function executeAnalysisStep(
   await writeInitialTemplate(resultFilePath, overallTemplate);
 
   // スレッド管理: 実行ごとにユニークなthreadIdを生成
-  let currentThreadId = randomUUID();
+  let currentThreadId: string = randomUUID();
   let prompt = initialUserPrompt;
   let contextLengthRecoveries = 0;
 
