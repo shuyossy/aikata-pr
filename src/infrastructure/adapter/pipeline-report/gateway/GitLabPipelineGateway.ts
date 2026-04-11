@@ -101,6 +101,12 @@ export class GitLabPipelineGateway implements PipelineGateway {
     destPath: string,
     options: { maxBytes: number },
   ): Promise<{ bytesWritten: number; truncated: boolean }> {
+    // 呼び出し側のバグを早期検出するための事前ガード
+    // （0 以下だと空ファイルを作って即 truncate することになり意図が不明瞭なため弾く）
+    if (options.maxBytes <= 0) {
+      throw new Error('maxBytes must be positive');
+    }
+
     const response = await this.client.getResponse(
       `/projects/${projectId}/jobs/${jobId}/artifacts`,
     );
@@ -195,8 +201,9 @@ export class GitLabPipelineGateway implements PipelineGateway {
    * GitLab API のジョブレスポンスを Job entity に変換する。
    */
   private toJobEntity(job: GitLabJobResponse): Job {
-    const hasArtifacts = job.artifacts_file !== undefined && job.artifacts_file !== null;
-    const artifactsSize = hasArtifacts && job.artifacts_file ? job.artifacts_file.size : 0;
+    const artifactsFile = job.artifacts_file ?? null;
+    const hasArtifacts = artifactsFile !== null;
+    const artifactsSize = artifactsFile?.size ?? 0;
     return Job.of({
       id: job.id,
       name: job.name,

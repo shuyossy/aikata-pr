@@ -390,5 +390,42 @@ describe('GitLabPipelineGateway', () => {
       ).rejects.toThrow('GitLab API error: 403 Forbidden');
       expect(fs.existsSync(destPath)).toBe(false);
     });
+
+    it('maxBytes が 0 の場合、呼び出し側のバグ検出のためエラーを throw する', async () => {
+      const destPath = path.join(tmpDir, 'zero.zip');
+
+      // 事前ガードで弾かれるため fetch は呼ばれない想定
+      await expect(
+        gateway.downloadArtifactArchive(42, 1001, destPath, { maxBytes: 0 }),
+      ).rejects.toThrow('maxBytes must be positive');
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(fs.existsSync(destPath)).toBe(false);
+    });
+
+    it('maxBytes が負の場合、エラーを throw する', async () => {
+      const destPath = path.join(tmpDir, 'negative.zip');
+
+      await expect(
+        gateway.downloadArtifactArchive(42, 1001, destPath, { maxBytes: -1 }),
+      ).rejects.toThrow('maxBytes must be positive');
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(fs.existsSync(destPath)).toBe(false);
+    });
+
+    it('response.body が null の場合、エラーを throw する', async () => {
+      // fetch のレスポンスから body ストリームが得られないケース
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        body: null,
+        headers: { get: () => null },
+      });
+
+      const destPath = path.join(tmpDir, 'no-body.zip');
+      await expect(
+        gateway.downloadArtifactArchive(42, 1001, destPath, { maxBytes: 1000 }),
+      ).rejects.toThrow('GitLab artifacts response did not include a body stream');
+    });
   });
 });
