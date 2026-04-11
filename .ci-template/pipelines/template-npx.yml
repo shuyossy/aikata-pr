@@ -1,59 +1,16 @@
 # .ci-template/pipelines/template-npx.yml
-# 提供先プロジェクトで include して利用するCIテンプレート（npx方式）
+# 後方互換用のファサード。review(npx方式)ジョブの実体は review/template-npx.yml を参照。
+# 既存ユーザはこのファイルをincludeし続けることで変更不要で動作する。
 #
-# 使い方:
+# 使い方（既存ユーザ）:
 #   include:
 #     - project: '<本プロジェクトのパス>'
 #       file: '.ci-template/pipelines/template-npx.yml'
+#
+# 新規ユーザは機能別ファイルを直接includeすることを推奨:
+#   include:
+#     - project: '<本プロジェクトのパス>'
+#       file: '.ci-template/pipelines/review/template-npx.yml'
 
 include:
-  - local: '.ci-template/variable/variables.yml'
-
-stages:
-  - review
-
-aikata-pr-review:
-  stage: review
-  image: node:22-slim
-  variables:
-    NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
-  cache:
-    key: "aikata-pr-v${AIKATA_VERSION}"
-    paths:
-      - .npm/
-  # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
-  # ローカル実行モード（上記3変数が全て設定されている場合）ではJWTは使用されない
-  id_tokens:
-    AIKATA_JWT:
-      aud: "${AIKATA_API_URL}"
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  script:
-    # AIKATA_PR_DISABLED=trueの場合、AIレビューをスキップ
-    - |
-      if [ "$AIKATA_PR_DISABLED" = "true" ]; then
-        echo "AIKATA_PR_DISABLED is set to true. Skipping AI review."
-        exit 0
-      fi
-    # AIKATA_PR_GITLAB_TOKENが設定されているかチェック
-    - |
-      if [ -z "$AIKATA_PR_GITLAB_TOKEN" ]; then
-        echo "Error: AIKATA_PR_GITLAB_TOKEN is not set. Please configure AIKATA_PR_GITLAB_TOKEN." >&2
-        exit 1
-      fi
-    # ローカルgit diff用にgit履歴とターゲットブランチを取得（失敗時はAPIフォールバック）
-    - git fetch --unshallow || true
-    - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" || true
-    # GitLab npm Registryの認証設定
-    - echo "@aikata:registry=https://${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/" > .npmrc
-    - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${AIKATA_PR_GITLAB_TOKEN}" >> .npmrc
-    # npx経由でaikata-prを実行（キャッシュによりバージョンが同じ場合は高速）
-    - |
-      npx @aikata/aikata-pr@${AIKATA_VERSION} \
-        --user-id "${USER_ID}" \
-        --project-id "${GITLAB_PROJECT_ID}" \
-        --mr-iid "${GITLAB_MR_IID}" \
-        --checklist "${CHECKLIST_PATH}" \
-        --review-settings "${REVIEW_SETTINGS_PATH}" \
-        --skills "${SKILLS_PATH}" \
-        --log-level "${AIKATA_LOG_LEVEL}"
+  - local: '.ci-template/pipelines/review/template-npx.yml'

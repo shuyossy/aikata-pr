@@ -1,0 +1,53 @@
+# .ci-template/pipelines/review/template.yml
+# 提供先プロジェクトで include して利用するCIテンプレート（Docker方式、review機能）
+#
+# 使い方:
+#   include:
+#     - project: '<本プロジェクトのパス>'
+#       file: '.ci-template/pipelines/review/template.yml'
+
+include:
+  - local: '.ci-template/variable/variables.yml'
+
+stages:
+  - review
+
+aikata-pr-review:
+  stage: review
+  image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
+  # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
+  # ローカル実行モード（上記3変数が全て設定されている場合）ではJWTは使用されない
+  id_tokens:
+    AIKATA_JWT:
+      aud: "${AIKATA_API_URL}"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  # NOTE: APIモード（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが未設定時）では
+  # これらの変数はCI/CD環境変数に設定不要（APIサーバー側で管理される）
+  # APIモード時はAIKATA_API_URLとAIKATA_JWT（自動生成）が必要
+  script:
+    # AIKATA_PR_DISABLED=trueの場合、AIレビューをスキップ
+    - |
+      if [ "$AIKATA_PR_DISABLED" = "true" ]; then
+        echo "AIKATA_PR_DISABLED is set to true. Skipping AI review."
+        exit 0
+      fi
+    # AIKATA_PR_GITLAB_TOKENが設定されているかチェック
+    - |
+      if [ -z "$AIKATA_PR_GITLAB_TOKEN" ]; then
+        echo "Error: AIKATA_PR_GITLAB_TOKEN is not set. Please configure AIKATA_PR_GITLAB_TOKEN." >&2
+        exit 1
+      fi
+    # ローカルgit diff用にgit履歴とターゲットブランチを取得（失敗時はAPIフォールバック）
+    - git fetch --unshallow || true
+    - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}" || true
+    # コンテナイメージ内のaikata-prコマンドを実行（reviewサブコマンド）
+    - |
+      aikata-pr review \
+        --user-id "${USER_ID}" \
+        --project-id "${GITLAB_PROJECT_ID}" \
+        --mr-iid "${GITLAB_MR_IID}" \
+        --checklist "${CHECKLIST_PATH}" \
+        --review-settings "${REVIEW_SETTINGS_PATH}" \
+        --skills "${SKILLS_PATH}" \
+        --log-level "${AIKATA_LOG_LEVEL}"
