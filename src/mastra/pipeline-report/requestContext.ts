@@ -46,6 +46,12 @@ export interface PipelineAnalysisAgentRequestContext {
    * テスト用フック: 未指定時はデフォルト 5000ms。本番では `undefined` を明示的に渡す。
    */
   reportLockTimeoutMs: number | undefined;
+  /**
+   * workspace tools（read-file/list-dir/read-image 等）が agent に登録されているかどうか。
+   * workflow 層が workspace の利用可否を決定し、本フラグを true にセットした場合のみ
+   * system プロンプトで workspace 関連セクションを案内する。
+   */
+  workspaceAvailable: boolean;
 }
 
 /**

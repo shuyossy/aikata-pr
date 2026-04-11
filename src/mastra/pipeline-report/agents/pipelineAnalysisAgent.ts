@@ -98,20 +98,31 @@ function renderToolCatalog(ctx: PipelineAnalysisAgentRequestContext): string {
   if (ctx.hasImages) {
     lines.push('');
     lines.push('### Image Handling');
-    lines.push(
-      '- When get-artifact-content returns a supported image, its data is delivered as a separate user message on the next turn. Use that visual information to support your analysis of the owning job. Never fabricate image contents — if you did not actually receive an image turn, do not claim to have seen it.',
-    );
-    lines.push(
-      '- If you are inspecting image files that live in the project source tree (not in artifacts), use the workspace **read-image** capability instead of get-artifact-content.',
-    );
+    if (ctx.workspaceAvailable) {
+      lines.push(
+        '- When get-artifact-content returns a supported image, its data is delivered as a separate user message on the next turn. Use that visual information to support your analysis of the owning job. Never fabricate image contents — if you did not actually receive an image turn, do not claim to have seen it.',
+      );
+      lines.push(
+        '- If you are inspecting image files that live in the project source tree (not in artifacts), use the workspace **read-image** capability instead of get-artifact-content.',
+      );
+    } else {
+      lines.push(
+        '- When get-artifact-content returns a supported image, its data is delivered as a separate user message on the next turn. Use that visual information to support your analysis of the owning job. Never fabricate image contents — if you did not actually receive an image turn, do not claim to have seen it.',
+      );
+      lines.push(
+        '- Project source tree images are not directly accessible in this run. Limit image analysis to artifacts retrieved via get-artifact-content.',
+      );
+    }
   }
 
-  lines.push('');
-  lines.push('### Workspace Tools');
-  lines.push(
-    'You also have access to workspace tools for reading source files, listing directories, and running sandboxed commands inside the project repository. Use them when the job log or artifacts alone are not enough to understand what a job did — for example, when you need to look at the failing test file or the build script referenced in a log line.',
-  );
-  lines.push('The workspace root is the project repository root directory.');
+  if (ctx.workspaceAvailable) {
+    lines.push('');
+    lines.push('### Workspace Tools');
+    lines.push(
+      'You also have access to workspace tools for reading source files, listing directories, and running sandboxed commands inside the project repository. Use them when the job log or artifacts alone are not enough to understand what a job did — for example, when you need to look at the failing test file or the build script referenced in a log line.',
+    );
+    lines.push('The workspace root is the project repository root directory.');
+  }
   return lines.join('\n');
 }
 
@@ -141,9 +152,15 @@ function renderCompressionNotes(ctx: PipelineAnalysisAgentRequestContext): strin
     if (needsJobLogNote) {
       lines.push('');
     }
-    lines.push(
-      'The project folder tree has been **stripped** of individual file entries to save context space. Only directory structure remains. Use the workspace file listing and file reading tools to inspect actual files when you need to cross-reference a log line against real source code.',
-    );
+    if (ctx.workspaceAvailable) {
+      lines.push(
+        'The project folder tree has been **stripped** of individual file entries to save context space. Only directory structure remains. Use the workspace file listing and file reading tools to inspect actual files when you need to cross-reference a log line against real source code.',
+      );
+    } else {
+      lines.push(
+        'The project folder tree has been **stripped** of individual file entries to save context space. Only directory structure remains. Rely on job logs and artifacts for detailed source-level evidence in this run.',
+      );
+    }
   }
 
   return lines.join('\n');

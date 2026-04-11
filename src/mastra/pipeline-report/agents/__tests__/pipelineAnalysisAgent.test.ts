@@ -47,6 +47,7 @@ function createTestContextObject(
     hasImages: false,
     pendingImages: new Map(),
     reportLockTimeoutMs: undefined,
+    workspaceAvailable: true,
     ...overrides,
   };
 }
@@ -304,6 +305,64 @@ describe('buildInstructions', () => {
     expect(result).not.toContain('read-image');
     expect(result).not.toContain('Compression Notes');
     expect(result).not.toContain('HIGHEST PRIORITY');
+  });
+
+  it('workspaceAvailable=true の場合、Workspace Toolsセクションが含まれる', () => {
+    const ctx = createTestRequestContext({ workspaceAvailable: true });
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toContain('Workspace Tools');
+    expect(result).toMatch(/workspace tools|sandboxed commands/i);
+  });
+
+  it('workspaceAvailable=false の場合、Workspace Toolsセクションが含まれない', () => {
+    const ctx = createTestRequestContext({ workspaceAvailable: false });
+
+    const result = buildInstructions(ctx);
+
+    expect(result).not.toContain('Workspace Tools');
+    // read-image は workspace 由来なので hasImages=true でも workspace 無効時は言及しない
+    expect(result).not.toContain('read-image');
+  });
+
+  it('hasImages=true かつ workspaceAvailable=false の場合、read-imageには触れずget-artifact-contentだけを案内する', () => {
+    const ctx = createTestRequestContext({
+      hasImages: true,
+      workspaceAvailable: false,
+    });
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toContain('Image Handling');
+    expect(result).toContain('get-artifact-content');
+    expect(result).not.toContain('read-image');
+    expect(result).toMatch(/staged for visual analysis/);
+  });
+
+  it('hasImages=true かつ workspaceAvailable=true の場合、read-imageによるソースツリー画像参照も案内される', () => {
+    const ctx = createTestRequestContext({
+      hasImages: true,
+      workspaceAvailable: true,
+    });
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toContain('Image Handling');
+    expect(result).toContain('read-image');
+  });
+
+  it('folderTreeStripped=true かつ workspaceAvailable=false の場合、workspace tools への言及は含まれない', () => {
+    const ctx = createTestRequestContext({
+      folderTreeStripped: true,
+      workspaceAvailable: false,
+    });
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toContain('Compression Notes');
+    expect(result).toMatch(/stripped|strip/i);
+    expect(result).not.toContain('Workspace Tools');
   });
 });
 
