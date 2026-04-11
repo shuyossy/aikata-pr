@@ -1,3 +1,4 @@
+import type { CliFeatureModule } from '../dispatch.js';
 import { parseCliOptions, buildChecklistParseOptions } from './parseReviewArgs.js';
 import { initializeLogger, getLogger, flushLogger, runWithLogContext } from '../../lib/logger.js';
 import {
@@ -299,7 +300,7 @@ export async function run(args: string[]): Promise<void> {
   }
 }
 
-export const reviewCliModule = {
+export const reviewCliModule: CliFeatureModule = {
   name: 'review',
   description: 'Run AI review on a GitLab MR',
   run,

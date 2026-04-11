@@ -12,7 +12,7 @@ const bannerLines = [
 ].join('\n');
 
 await build({
-  entryPoints: ['src/index.ts'],
+  entryPoints: ['src/cli.ts'],
   bundle: true,
   platform: 'node',
   target: 'node22',
