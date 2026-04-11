@@ -9,16 +9,16 @@ import { GitLabApiClient } from '../../infrastructure/adapter/httpClient/index.j
 import {
   GitLabMrGateway,
   LocalGitDiffMrGateway,
-  GitLabMrDiscussionGateway,
   LocalProjectTreeGateway,
 } from '../../infrastructure/adapter/gateway/index.js';
+import { GitLabMrDiscussionGateway } from '../../infrastructure/adapter/review/gateway/index.js';
 import { ReviewSettings } from '../../domain/review/reviewSettings/index.js';
 import { Rating } from '../../domain/review/rating/index.js';
 import { QualityGate } from '../../domain/review/qualityGate/index.js';
 import { Checklist } from '../../domain/review/checklist/index.js';
 import { CheckItem } from '../../domain/review/checkItem/index.js';
 import type { ReviewExecutionCommand } from '../../application/review/reviewExecution/index.js';
-import type { ReviewApiResponse } from '../../infrastructure/adapter/apiClient/ReviewApiClient.js';
+import type { ReviewApiResponse } from '../../infrastructure/adapter/review/apiClient/ReviewApiClient.js';
 import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
 import { getLogger } from '../../lib/logger.js';
 

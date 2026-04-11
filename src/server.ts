@@ -8,7 +8,7 @@ import type { ReviewHandlerDeps } from './presentation/api/index.js';
 import { DefaultPerRequestServiceFactory } from './presentation/api/index.js';
 import { CloneManager } from './infrastructure/adapter/clone/CloneManager.js';
 import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
-import { MastraReviewWorkflowRunner } from './infrastructure/adapter/workflow/index.js';
+import { MastraReviewWorkflowRunner } from './infrastructure/adapter/review/workflow/index.js';
 import { initializeRateLimiter } from './lib/rateLimiterGlobal.js';
 import { initializeLogger, getLogger } from './lib/logger.js';
 

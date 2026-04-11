@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ReviewWorkflowParams } from '../../../../application/shared/port/workflow/index.js';
+import type { ReviewWorkflowParams } from '../../../../../application/shared/port/workflow/index.js';
 import { MastraReviewWorkflowRunner } from '../MastraReviewWorkflowRunner.js';
 
 // vi.hoistedでモック関数をvi.mockより先に初期化
@@ -14,7 +14,7 @@ const { mockStart, mockGetWorkflow } = vi.hoisted(() => {
 });
 
 // mastraモジュールをモック
-vi.mock('../../../../mastra/index.js', () => ({
+vi.mock('../../../../../mastra/index.js', () => ({
   mastra: {
     getWorkflow: mockGetWorkflow,
   },

@@ -2,10 +2,10 @@ import type {
   ReviewWorkflowRunner,
   ReviewWorkflowParams,
   ReviewWorkflowResult,
-} from '../../../application/shared/port/workflow/index.js';
+} from '../../../../application/shared/port/workflow/index.js';
 import { RequestContext } from '@mastra/core/request-context';
-import type { WorkflowRequestContext } from '../../../mastra/shared/requestContext.js';
-import { mastra } from '../../../mastra/index.js';
+import type { WorkflowRequestContext } from '../../../../mastra/shared/requestContext.js';
+import { mastra } from '../../../../mastra/index.js';
 
 /**
  * Mastra reviewWorkflowをReviewWorkflowRunnerインターフェースにラップする

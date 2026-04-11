@@ -1,8 +1,8 @@
 import type {
   MrDiscussionGateway,
   MrComment,
-} from '../../../application/shared/port/gateway/index.js';
-import type { GitLabApiClient } from '../httpClient/index.js';
+} from '../../../../application/shared/port/gateway/index.js';
+import type { GitLabApiClient } from '../../httpClient/index.js';
 
 /**
  * GitLab APIから返却されるノート情報の型定義
