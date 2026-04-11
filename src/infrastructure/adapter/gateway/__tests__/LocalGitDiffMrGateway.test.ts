@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { LocalGitDiffMrGateway } from '../LocalGitDiffMrGateway.js';
-import { MrContext } from '../../../../domain/mrContext/index.js';
+import { MrContext } from '../../../../domain/review/mrContext/index.js';
 import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 import type { MrGateway } from '../../../../application/shared/port/gateway/index.js';
 import type { GitLabApiClient } from '../../../adapter/httpClient/index.js';

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { CommentParser } from '../CommentParser.js';
 import { CommentFormatter, FOLD_THRESHOLD } from '../CommentFormatter.js';
-import { ReviewResult } from '../../../../domain/reviewResult/index.js';
-import { CheckItem } from '../../../../domain/checkItem/index.js';
-import { Rating } from '../../../../domain/rating/index.js';
+import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+import { CheckItem } from '../../../../domain/review/checkItem/index.js';
+import { Rating } from '../../../../domain/review/rating/index.js';
 
 describe('CommentParser', () => {
   const ratings = [

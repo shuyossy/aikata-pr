@@ -1,4 +1,4 @@
-import { MrContext } from '../../../../domain/mrContext/index.js';
+import { MrContext } from '../../../../domain/review/mrContext/index.js';
 
 /**
  * MR情報を取得するためのゲートウェイインターフェース

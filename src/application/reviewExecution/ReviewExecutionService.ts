@@ -10,9 +10,9 @@ import type {
 import { CommentParser } from '../shared/comment/index.js';
 import type { ReviewExecutionCommand } from './ReviewExecutionCommand.js';
 import type { ReviewExecutionDto } from './ReviewExecutionDto.js';
-import { ReviewResult } from '../../domain/reviewResult/index.js';
-import { Rating } from '../../domain/rating/index.js';
-import type { MrContext } from '../../domain/mrContext/index.js';
+import { ReviewResult } from '../../domain/review/reviewResult/index.js';
+import { Rating } from '../../domain/review/rating/index.js';
+import type { MrContext } from '../../domain/review/mrContext/index.js';
 import { compressDiffIfNeeded } from '../shared/diffCompression/index.js';
 import type { TokenCounter } from '../shared/port/tokenCounter/index.js';
 import { buildUserPromptTemplate } from '../shared/prompt/index.js';

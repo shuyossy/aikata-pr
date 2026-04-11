@@ -12,11 +12,11 @@ import {
   GitLabMrDiscussionGateway,
   LocalProjectTreeGateway,
 } from '../../infrastructure/adapter/gateway/index.js';
-import { ReviewSettings } from '../../domain/reviewSettings/index.js';
-import { Rating } from '../../domain/rating/index.js';
-import { QualityGate } from '../../domain/qualityGate/index.js';
-import { Checklist } from '../../domain/checklist/index.js';
-import { CheckItem } from '../../domain/checkItem/index.js';
+import { ReviewSettings } from '../../domain/review/reviewSettings/index.js';
+import { Rating } from '../../domain/review/rating/index.js';
+import { QualityGate } from '../../domain/review/qualityGate/index.js';
+import { Checklist } from '../../domain/review/checklist/index.js';
+import { CheckItem } from '../../domain/review/checkItem/index.js';
 import type { ReviewExecutionCommand } from '../../application/reviewExecution/index.js';
 import type { ReviewApiResponse } from '../../infrastructure/adapter/apiClient/ReviewApiClient.js';
 import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';

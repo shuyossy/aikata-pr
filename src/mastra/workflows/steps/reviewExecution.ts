@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { Agent, MastraDBMessage } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
-import { ReviewResult } from '../../../domain/reviewResult/index.js';
-import { Rating } from '../../../domain/rating/index.js';
-import { CheckItem } from '../../../domain/checkItem/index.js';
+import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
+import { Rating } from '../../../domain/review/rating/index.js';
+import { CheckItem } from '../../../domain/review/checkItem/index.js';
 import {
   type ReviewAgentRequestContext,
   type WorkflowRequestContext,

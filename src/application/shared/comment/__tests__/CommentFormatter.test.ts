@@ -6,10 +6,10 @@ import {
   REVIEW_DATA_SUFFIX,
   FOLD_THRESHOLD,
 } from '../CommentFormatter.js';
-import { ReviewResult } from '../../../../domain/reviewResult/index.js';
-import { CheckItem } from '../../../../domain/checkItem/index.js';
-import { Rating } from '../../../../domain/rating/index.js';
-import type { QualityGateResult } from '../../../../domain/qualityGate/index.js';
+import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+import { CheckItem } from '../../../../domain/review/checkItem/index.js';
+import { Rating } from '../../../../domain/review/rating/index.js';
+import type { QualityGateResult } from '../../../../domain/review/qualityGate/index.js';
 
 /** 品質ゲート通過時のデフォルト結果 */
 const PASSED_GATE: QualityGateResult = { passed: true, violations: [] };

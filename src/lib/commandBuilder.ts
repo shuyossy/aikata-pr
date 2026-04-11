@@ -1,8 +1,8 @@
 import type { CliOptions } from './cli.js';
 import type { ReviewExecutionCommand } from '../application/reviewExecution/ReviewExecutionCommand.js';
 import type { ReviewApiRequest } from '../infrastructure/adapter/apiClient/ReviewApiClient.js';
-import type { Checklist } from '../domain/checklist/index.js';
-import type { ReviewSettings } from '../domain/reviewSettings/index.js';
+import type { Checklist } from '../domain/review/checklist/index.js';
+import type { ReviewSettings } from '../domain/review/reviewSettings/index.js';
 
 /**
  * ローカルモード判定

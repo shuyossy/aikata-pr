@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GitLabMrGateway } from '../GitLabMrGateway.js';
-import { MrContext } from '../../../../domain/mrContext/index.js';
+import { MrContext } from '../../../../domain/review/mrContext/index.js';
 
 /**
  * GitLabApiClientのモックインターフェース

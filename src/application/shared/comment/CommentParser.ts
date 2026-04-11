@@ -1,6 +1,6 @@
-import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/reviewResult/index.js';
-import { CheckItem } from '../../../domain/checkItem/index.js';
-import { Rating } from '../../../domain/rating/index.js';
+import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/review/reviewResult/index.js';
+import { CheckItem } from '../../../domain/review/checkItem/index.js';
+import { Rating } from '../../../domain/review/rating/index.js';
 import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './CommentFormatter.js';
 
 /** メタデータのJSON構造 */

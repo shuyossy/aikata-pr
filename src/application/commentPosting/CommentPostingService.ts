@@ -1,6 +1,6 @@
 import type { MrDiscussionGateway } from '../shared/port/gateway/index.js';
 import { CommentFormatter } from '../shared/comment/index.js';
-import { ReviewResult } from '../../domain/reviewResult/index.js';
+import { ReviewResult } from '../../domain/review/reviewResult/index.js';
 import type { CommentPostingCommand } from './CommentPostingCommand.js';
 
 /**

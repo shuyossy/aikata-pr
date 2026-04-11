@@ -6,11 +6,11 @@ import {
   isLocalMode,
 } from '../commandBuilder.js';
 import type { CliOptions } from '../cli.js';
-import { Checklist } from '../../domain/checklist/index.js';
-import { CheckItem } from '../../domain/checkItem/index.js';
-import { Rating } from '../../domain/rating/index.js';
-import { ReviewSettings } from '../../domain/reviewSettings/index.js';
-import { QualityGate } from '../../domain/qualityGate/index.js';
+import { Checklist } from '../../domain/review/checklist/index.js';
+import { CheckItem } from '../../domain/review/checkItem/index.js';
+import { Rating } from '../../domain/review/rating/index.js';
+import { ReviewSettings } from '../../domain/review/reviewSettings/index.js';
+import { QualityGate } from '../../domain/review/qualityGate/index.js';
 
 // ヘルパー: テスト用のCliOptionsを生成
 function createCliOptions(overrides?: Partial<CliOptions>): CliOptions {

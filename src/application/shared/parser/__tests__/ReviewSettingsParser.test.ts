@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ReviewSettingsParser } from '../ReviewSettingsParser.js';
-import { ReviewSettings } from '../../../../domain/reviewSettings/index.js';
+import { ReviewSettings } from '../../../../domain/review/reviewSettings/index.js';
 
 describe('ReviewSettingsParser', () => {
   it('全フィールド指定のJSONをパースできる', () => {

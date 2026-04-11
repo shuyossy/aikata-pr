@@ -16,9 +16,9 @@ import type {
 import type { RateLimiterPort } from '../../../application/shared/port/rateLimiter/index.js';
 import type { ReviewExecutionDto } from '../../../application/reviewExecution/index.js';
 import type { GitLabIdTokenPayload } from '../../../infrastructure/adapter/auth/index.js';
-import { ReviewResult } from '../../../domain/reviewResult/index.js';
-import { CheckItem } from '../../../domain/checkItem/index.js';
-import { Rating } from '../../../domain/rating/index.js';
+import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
+import { CheckItem } from '../../../domain/review/checkItem/index.js';
+import { Rating } from '../../../domain/review/rating/index.js';
 import { initializeLogger, resetLogger } from '../../../lib/logger.js';
 
 /**

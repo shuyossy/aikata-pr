@@ -1,6 +1,6 @@
 import { parse } from 'csv-parse/sync';
-import { Checklist } from '../../../domain/checklist/index.js';
-import { CheckItem } from '../../../domain/checkItem/index.js';
+import { Checklist } from '../../../domain/review/checklist/index.js';
+import { CheckItem } from '../../../domain/review/checkItem/index.js';
 import type { ChecklistParseOptions } from './ChecklistParseOptions.js';
 
 /**

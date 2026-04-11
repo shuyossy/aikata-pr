@@ -1,4 +1,4 @@
-import { ReviewResult } from '../../domain/reviewResult/index.js';
+import { ReviewResult } from '../../domain/review/reviewResult/index.js';
 
 /**
  * ReviewExecutionServiceの出力DTO

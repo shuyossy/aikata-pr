@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { ReviewSettings } from '../../../domain/reviewSettings/index.js';
-import { Rating } from '../../../domain/rating/index.js';
-import { QualityGate } from '../../../domain/qualityGate/index.js';
+import { ReviewSettings } from '../../../domain/review/reviewSettings/index.js';
+import { Rating } from '../../../domain/review/rating/index.js';
+import { QualityGate } from '../../../domain/review/qualityGate/index.js';
 
 /**
  * レビュー設定JSONのバリデーションスキーマ

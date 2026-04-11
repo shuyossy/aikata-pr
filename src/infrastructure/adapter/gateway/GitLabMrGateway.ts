@@ -1,4 +1,4 @@
-import { MrContext } from '../../../domain/mrContext/index.js';
+import { MrContext } from '../../../domain/review/mrContext/index.js';
 import type { MrGateway } from '../../../application/shared/port/gateway/index.js';
 import type { GitLabApiClient } from '../httpClient/index.js';
 import { combineDiffs } from './combineDiffs.js';

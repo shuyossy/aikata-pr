@@ -1,6 +1,6 @@
-import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/reviewResult/index.js';
-import { Rating } from '../../../domain/rating/index.js';
-import type { QualityGateResult } from '../../../domain/qualityGate/index.js';
+import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/review/reviewResult/index.js';
+import { Rating } from '../../../domain/review/rating/index.js';
+import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
 
 /** aikataレビューコメント識別用マーカー */
 export const REVIEW_MARKER = '<!-- aikata-review -->';
