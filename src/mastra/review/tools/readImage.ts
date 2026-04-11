@@ -7,12 +7,14 @@ import {
   getMediaType,
   getSupportedFormatsMessage,
 } from '../../../lib/imageFormat.js';
+import {
+  PENDING_IMAGES_KEY,
+  READ_IMAGE_TOOL_KEY,
+  IMAGE_MESSAGE_PREFIX,
+} from '../../shared/readImageCommon.js';
 
-/**
- * ツールキー名（reviewAgentToolsオブジェクトのキー名）
- * メッセージシリアライズ時のtoolName照合にも使用する
- */
-export const READ_IMAGE_TOOL_KEY = 'readImage';
+// 複数機能で共用する定数は shared から import して再エクスポートする
+export { PENDING_IMAGES_KEY, READ_IMAGE_TOOL_KEY, IMAGE_MESSAGE_PREFIX };
 
 /**
  * RequestContextに蓄積される画像データの型
@@ -23,17 +25,6 @@ export interface PendingImageData {
   base64Data: string;
   mediaType: string;
 }
-
-/**
- * RequestContextのpendingImagesキー名
- */
-export const PENDING_IMAGES_KEY = 'pendingImages';
-
-/**
- * prepareStepで注入される画像付きuserメッセージの識別プレフィックス
- * contextLengthRecoveryでの画像抽出時にも使用する
- */
-export const IMAGE_MESSAGE_PREFIX = 'The readImage tool was used to retrieve';
 
 /**
  * readImageツールの出力スキーマ
