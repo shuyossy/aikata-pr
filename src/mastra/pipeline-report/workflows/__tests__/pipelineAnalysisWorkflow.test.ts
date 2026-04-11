@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { pipelineAnalysisWorkflow } from '../pipelineAnalysisWorkflow.js';
+import {
+  pipelineAnalysisWorkflow,
+  workflowInputSchema,
+  workflowOutputSchema,
+} from '../pipelineAnalysisWorkflow.js';
 
 describe('pipelineAnalysisWorkflow', () => {
   it('正しい id と schema を持つ', () => {
@@ -28,7 +32,7 @@ describe('pipelineAnalysisWorkflow', () => {
       maxCompletenessRetries: 3,
     };
 
-    const result = pipelineAnalysisWorkflow.inputSchema.safeParse(validInput);
+    const result = workflowInputSchema.safeParse(validInput);
 
     expect(result.success).toBe(true);
   });
@@ -39,7 +43,7 @@ describe('pipelineAnalysisWorkflow', () => {
       // targetJobs 等が欠落
     };
 
-    const result = pipelineAnalysisWorkflow.inputSchema.safeParse(invalidInput);
+    const result = workflowInputSchema.safeParse(invalidInput);
 
     expect(result.success).toBe(false);
   });
@@ -56,7 +60,7 @@ describe('pipelineAnalysisWorkflow', () => {
       maxCompletenessRetries: 0,
     };
 
-    const result = pipelineAnalysisWorkflow.inputSchema.safeParse(input);
+    const result = workflowInputSchema.safeParse(input);
 
     expect(result.success).toBe(true);
   });
@@ -68,7 +72,7 @@ describe('pipelineAnalysisWorkflow', () => {
       completenessRetries: 0,
     };
 
-    const result = pipelineAnalysisWorkflow.outputSchema.safeParse(validOutput);
+    const result = workflowOutputSchema.safeParse(validOutput);
 
     expect(result.success).toBe(true);
   });
@@ -79,7 +83,7 @@ describe('pipelineAnalysisWorkflow', () => {
       completenessRetries: 0,
     };
 
-    const result = pipelineAnalysisWorkflow.outputSchema.safeParse(invalid);
+    const result = workflowOutputSchema.safeParse(invalid);
 
     expect(result.success).toBe(false);
   });

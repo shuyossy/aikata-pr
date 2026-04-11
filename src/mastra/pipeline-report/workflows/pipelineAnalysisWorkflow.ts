@@ -40,7 +40,7 @@ const targetJobSummarySchema: z.ZodType<TargetJobSummary> = z.object({
  * ワークフローはプレゼンテーション/インフラ層で準備済みの serializable な値のみを受け取る。
  * 複雑な Map / 画像データ / アーティファクトキャッシュ等は RequestContext 側に載せる。
  */
-const workflowInputSchema = z.object({
+export const workflowInputSchema = z.object({
   /** 完全に組み立て済みのユーザプロンプト（パイプラインコンテキスト + folder tree + target jobs 等） */
   initialUserPrompt: z.string(),
   /** 対象ジョブ一覧 */
@@ -62,7 +62,7 @@ const workflowInputSchema = z.object({
 /**
  * ワークフロー出力スキーマ
  */
-const workflowOutputSchema = z.object({
+export const workflowOutputSchema = z.object({
   reportContent: z.string(),
   completenessVerified: z.boolean(),
   completenessRetries: z.number(),
