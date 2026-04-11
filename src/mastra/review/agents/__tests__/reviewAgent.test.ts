@@ -9,7 +9,7 @@ import {
   buildUserPrompt,
   buildPrepareStepForImageInjection,
 } from '../reviewAgent.js';
-import type { ReviewAgentRequestContext } from '../../requestContext.js';
+import type { ReviewAgentRequestContext } from '../../../shared/requestContext.js';
 import { PENDING_IMAGES_KEY } from '../../tools/readImage.js';
 
 /**

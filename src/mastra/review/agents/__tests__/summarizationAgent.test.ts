@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { RequestContext } from '@mastra/core/request-context';
-import type { SummarizationAgentRequestContext } from '../../requestContext.js';
+import type { SummarizationAgentRequestContext } from '../../../shared/requestContext.js';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import {
   buildSummarizationInstructions,

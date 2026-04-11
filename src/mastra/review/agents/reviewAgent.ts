@@ -5,14 +5,14 @@ import type { RequestContext } from '@mastra/core/request-context';
 import type { ProcessInputStepArgs, ProcessInputStepResult } from '@mastra/core/processors';
 import { Workspace, LocalFilesystem, LocalSandbox } from '@mastra/core/workspace';
 import { Memory } from '@mastra/memory';
-import type { ReviewAgentRequestContext } from '../requestContext.js';
-import { createModelFromContext } from '../requestContext.js';
+import type { ReviewAgentRequestContext } from '../../shared/requestContext.js';
+import { createModelFromContext } from '../../shared/requestContext.js';
 import { storeReviewResultTool } from '../tools/storeReviewResult.js';
 import { getReviewResultsTool } from '../tools/getReviewResults.js';
 import { readImageTool, PENDING_IMAGES_KEY, IMAGE_MESSAGE_PREFIX } from '../tools/readImage.js';
 import { getDiffDetailTool } from '../tools/getDiffDetail.js';
-import { containsImageFiles } from '../../lib/imageFormat.js';
-import { buildUserPromptTemplate } from '../../application/shared/prompt/index.js';
+import { containsImageFiles } from '../../../lib/imageFormat.js';
+import { buildUserPromptTemplate } from '../../../application/shared/prompt/index.js';
 
 // レビューエージェントのツールセット型（readImage, getDiffDetailは条件付き登録）
 type ReviewAgentToolSet = {

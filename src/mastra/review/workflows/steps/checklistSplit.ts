@@ -2,13 +2,13 @@ import { z } from 'zod';
 import type { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
-import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
+import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
 import {
   buildGenerateOptions,
   sanitizeForLog,
   type WorkflowRequestContext,
-} from '../../requestContext.js';
-import { getLogger } from '../../../lib/logger.js';
+} from '../../../shared/requestContext.js';
+import { getLogger } from '../../../../lib/logger.js';
 
 /**
  * AI分割結果のスキーマ（ID番号のグループ）

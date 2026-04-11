@@ -2,22 +2,22 @@ import { randomUUID } from 'node:crypto';
 import type { Agent, MastraDBMessage } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { IndexedCheckItem } from '../../indexedCheckItem.js';
-import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
-import { Rating } from '../../../domain/review/rating/index.js';
-import { CheckItem } from '../../../domain/review/checkItem/index.js';
+import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+import { Rating } from '../../../../domain/review/rating/index.js';
+import { CheckItem } from '../../../../domain/review/checkItem/index.js';
 import {
   type ReviewAgentRequestContext,
   type WorkflowRequestContext,
   buildGenerateOptions,
   sanitizeForLog,
-} from '../../requestContext.js';
+} from '../../../shared/requestContext.js';
 import { readStoredResults, type StoredReviewResult } from '../../types.js';
 import { buildUserPrompt, buildPrepareStepForImageInjection } from '../../agents/reviewAgent.js';
-import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
-import { classifyError, REVIEW_MISSED_MESSAGE } from '../../../lib/errorClassifier.js';
+import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
+import { classifyError, REVIEW_MISSED_MESSAGE } from '../../../../lib/errorClassifier.js';
 import { recoverFromContextLength } from './contextLengthRecovery.js';
-import { getLogger } from '../../../lib/logger.js';
-import { RateLimitExhaustedError } from '../../../lib/rateLimiterGlobal.js';
+import { getLogger } from '../../../../lib/logger.js';
+import { RateLimitExhaustedError } from '../../../../lib/rateLimiterGlobal.js';
 
 /**
  * レビュー実行ステップの設定

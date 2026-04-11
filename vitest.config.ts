@@ -11,7 +11,7 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: [
         'src/**/__tests__/**',
-        'src/mastra/agents/**',
+        'src/mastra/review/agents/**',
         'src/index.ts',
         'src/mastra/index.ts',
         'src/**/index.ts',

@@ -13,15 +13,15 @@ import {
   getLastRateLimitContinuationMessageId,
 } from '../reviewExecution.js';
 import type { Agent, MastraDBMessage } from '@mastra/core/agent';
-import type { ReviewAgentRequestContext } from '../../../requestContext.js';
-import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../lib/rateLimitRetry.js';
+import type { ReviewAgentRequestContext } from '../../../../shared/requestContext.js';
+import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../../../lib/rateLimitRetry.js';
 import {
   UNEXPECTED_ERROR_MESSAGE,
   REVIEW_MISSED_MESSAGE,
-} from '../../../../lib/errorClassifier.js';
-import { initializeLogger, resetLogger, getLogger } from '../../../../lib/logger.js';
-import { RateLimiter } from '../../../../infrastructure/adapter/rateLimiter/RateLimiter.js';
-import { initializeRateLimiter, resetRateLimiter } from '../../../../lib/rateLimiterGlobal.js';
+} from '../../../../../lib/errorClassifier.js';
+import { initializeLogger, resetLogger, getLogger } from '../../../../../lib/logger.js';
+import { RateLimiter } from '../../../../../infrastructure/adapter/rateLimiter/RateLimiter.js';
+import { initializeRateLimiter, resetRateLimiter } from '../../../../../lib/rateLimiterGlobal.js';
 
 /**
  * 結果ファイルにレビュー結果を書き込むヘルパー

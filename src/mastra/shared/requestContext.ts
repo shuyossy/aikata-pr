@@ -1,6 +1,6 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { IndexedCheckItem } from './indexedCheckItem.js';
-import type { PendingImageData } from './tools/readImage.js';
+import type { IndexedCheckItem } from '../review/indexedCheckItem.js';
+import type { PendingImageData } from '../review/tools/readImage.js';
 
 /**
  * ワークフローレベルのRequestContext型（モデル設定 + プロジェクト情報）

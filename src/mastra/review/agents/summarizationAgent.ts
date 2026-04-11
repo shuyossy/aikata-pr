@@ -1,7 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
-import type { SummarizationAgentRequestContext } from '../requestContext.js';
-import { createModelFromContext } from '../requestContext.js';
+import type { SummarizationAgentRequestContext } from '../../shared/requestContext.js';
+import { createModelFromContext } from '../../shared/requestContext.js';
 
 /**
  * RequestContextから要約エージェントのsystemプロンプト（instructions）を組み立てる

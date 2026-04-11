@@ -6,13 +6,13 @@ import type { IndexedCheckItem } from '../../indexedCheckItem.js';
 import type {
   ReviewAgentRequestContext,
   SummarizationAgentRequestContext,
-} from '../../requestContext.js';
-import { buildGenerateOptions, sanitizeForLog } from '../../requestContext.js';
+} from '../../../shared/requestContext.js';
+import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
 import { readStoredResults } from '../../types.js';
 import { buildSummarizationUserPrompt } from '../../agents/summarizationAgent.js';
-import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../lib/rateLimitRetry.js';
-import { getLogger } from '../../../lib/logger.js';
-import { isImageCountExceededError } from '../../../lib/aiApiError.js';
+import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
+import { getLogger } from '../../../../lib/logger.js';
+import { isImageCountExceededError } from '../../../../lib/aiApiError.js';
 import { IMAGE_MESSAGE_PREFIX } from '../../tools/readImage.js';
 
 /**

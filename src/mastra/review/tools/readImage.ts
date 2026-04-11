@@ -6,7 +6,7 @@ import {
   isSupportedImageFormat,
   getMediaType,
   getSupportedFormatsMessage,
-} from '../../lib/imageFormat.js';
+} from '../../../lib/imageFormat.js';
 
 /**
  * ツールキー名（reviewAgentToolsオブジェクトのキー名）
