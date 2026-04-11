@@ -262,13 +262,13 @@ export const reviewAgent = new Agent<
     if (hasDiffCompression) return reviewAgentToolsWithDiffDetail;
     return baseReviewAgentTools;
   },
-  // workspace: ({ requestContext }) => {
-  //   const ctx = requestContext?.all as ReviewAgentRequestContext | undefined;
-  //   if (!ctx?.projectDir) {
-  //     return undefined;
-  //   }
-  //   return createWorkspaceFromContext(ctx);
-  // },
+  workspace: ({ requestContext }) => {
+    const ctx = requestContext?.all as ReviewAgentRequestContext | undefined;
+    if (!ctx?.projectDir) {
+      return undefined;
+    }
+    return createWorkspaceFromContext(ctx);
+  },
 });
 
 /**
