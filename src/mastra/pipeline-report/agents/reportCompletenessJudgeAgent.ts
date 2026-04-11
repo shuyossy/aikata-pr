@@ -1,7 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 import type { ReportCompletenessJudgeRequestContext } from '../requestContext.js';
-import { createModelFromAiConfig } from './pipelineReportSummarizationAgent.js';
+import { createModelFromAiConfig } from '../model.js';
 
 /**
  * レポート完全性判定の出力スキーマ

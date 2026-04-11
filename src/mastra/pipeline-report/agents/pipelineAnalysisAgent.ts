@@ -16,7 +16,7 @@ import { patchReportTool } from '../tools/patchReport.js';
 import { getReportTool } from '../tools/getReport.js';
 import { getJobLogDetailTool } from '../tools/getJobLogDetail.js';
 import { getArtifactContentTool } from '../tools/getArtifactContent.js';
-import { createModelFromAiConfig } from './pipelineReportSummarizationAgent.js';
+import { createModelFromAiConfig } from '../model.js';
 
 /**
  * pipelineAnalysisAgent 用のツールセット型

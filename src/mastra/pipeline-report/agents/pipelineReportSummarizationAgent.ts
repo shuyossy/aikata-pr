@@ -1,24 +1,8 @@
 import { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type {
-  PipelineReportSummarizationRequestContext,
-  WorkflowAiConfig,
-} from '../requestContext.js';
+import type { PipelineReportSummarizationRequestContext } from '../requestContext.js';
 import type { TargetJobSummary } from '../types.js';
-
-/**
- * pipeline-reportのaiConfigからAIモデルを動的に作成するヘルパー
- * review側のcreateModelFromContext相当だが、aiConfigがネストしているため
- * pipeline-report専用のファクトリとして定義している
- */
-export function createModelFromAiConfig(config: WorkflowAiConfig) {
-  return createOpenAICompatible({
-    name: 'openai',
-    apiKey: config.apiKey,
-    baseURL: config.endpointUrl,
-  }).chatModel(config.modelName);
-}
+import { createModelFromAiConfig } from '../model.js';
 
 /**
  * 対象ジョブ一覧をMarkdownの箇条書きとしてレンダリングする
