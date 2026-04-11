@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 import type { ReportCompletenessJudgeRequestContext } from '../requestContext.js';
+import type { TargetJobSummary } from '../types.js';
 import { createModelFromAiConfig } from '../model.js';
 
 /**
@@ -62,6 +63,91 @@ Apply every rule below. The report is complete only when every rule passes.
 - Otherwise \`isComplete\` MUST be \`false\`.
 
 Be strict. Do not downgrade issues just because they look minor. When in doubt, mark the report as not complete and populate \`missingItems\` / \`formatDeviations\` with precise, actionable reasons so the analysis agent can fix them.`;
+
+/**
+ * レポート完全性判定 Agent の user プロンプトビルダー入力
+ */
+export interface BuildReportCompletenessJudgeUserPromptInputs {
+  /** 現在のレポート本文（resultFilePath の中身） */
+  currentReportContent: string;
+  /** 対象ジョブ一覧 */
+  targetJobs: TargetJobSummary[];
+  /** ジョブ1件分のレポートブロックフォーマット */
+  jobReportFormat: string;
+  /** レポート全体のスケルトン */
+  overallTemplate: string;
+  /** ユーザ指定の追加指示（未指定なら null） */
+  additionalInstructions: string | null;
+}
+
+/**
+ * 対象ジョブ一覧を Markdown テーブルにレンダリング
+ */
+function renderTargetJobsTable(jobs: TargetJobSummary[]): string {
+  if (jobs.length === 0) {
+    return '_(no target jobs)_';
+  }
+  const header = '| jobId | stage | name | status |';
+  const divider = '| --- | --- | --- | --- |';
+  const rows = jobs.map((job) => `| ${job.id} | ${job.stage} | ${job.name} | ${job.status} |`);
+  return [header, divider, ...rows].join('\n');
+}
+
+/**
+ * 完全性判定 Agent の user プロンプトを組み立てる
+ *
+ * reportCompletenessJudgeAgent に渡すべき情報は以下の4点:
+ * 1. Target job list
+ * 2. Expected per-job block format (`jobReportFormat`)
+ * 3. Optional `additionalInstructions`
+ * 4. 現在のレポート本文
+ *
+ * `overallTemplate` はスケルトン理解のための補助情報として添付する。
+ */
+export function buildReportCompletenessJudgeUserPrompt(
+  inputs: BuildReportCompletenessJudgeUserPromptInputs,
+): string {
+  const parts: string[] = [];
+
+  parts.push('## Target Jobs');
+  parts.push('');
+  parts.push(renderTargetJobsTable(inputs.targetJobs));
+  parts.push('');
+
+  parts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
+  parts.push('');
+  parts.push('```');
+  parts.push(inputs.jobReportFormat);
+  parts.push('```');
+  parts.push('');
+
+  parts.push('## Overall Report Skeleton (`overallTemplate`)');
+  parts.push('');
+  parts.push('```');
+  parts.push(inputs.overallTemplate);
+  parts.push('```');
+  parts.push('');
+
+  if (inputs.additionalInstructions && inputs.additionalInstructions.trim() !== '') {
+    parts.push('## additionalInstructions');
+    parts.push('');
+    parts.push(inputs.additionalInstructions);
+    parts.push('');
+  } else {
+    parts.push('## additionalInstructions');
+    parts.push('');
+    parts.push('_(none)_');
+    parts.push('');
+  }
+
+  parts.push('## Current Report Contents');
+  parts.push('');
+  parts.push('```');
+  parts.push(inputs.currentReportContent);
+  parts.push('```');
+
+  return parts.join('\n');
+}
 
 /**
  * レポート完全性判定エージェント（シングルトン）
