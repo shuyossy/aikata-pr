@@ -26,6 +26,35 @@ export class GitLabApiClient {
   }
 
   /**
+   * GETリクエストを送信しプレーンテキストを取得する
+   * （例: ジョブトレースなど `text/plain` レスポンス用）
+   */
+  async getText(path: string): Promise<string> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      headers: { 'PRIVATE-TOKEN': this.token },
+    });
+    if (!response.ok) {
+      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+    }
+    return response.text();
+  }
+
+  /**
+   * GETリクエストを送信し生の Response を取得する
+   * （例: アーティファクト zip をストリーミング保存する用途）
+   * 呼び出し側は `response.body` をストリーム処理する責務を負う。
+   */
+  async getResponse(path: string): Promise<Response> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      headers: { 'PRIVATE-TOKEN': this.token },
+    });
+    if (!response.ok) {
+      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+    }
+    return response;
+  }
+
+  /**
    * ページネーション付きGETリクエストを送信する
    * GitLab APIのLinkヘッダを辿って全ページのデータを結合する
    */
