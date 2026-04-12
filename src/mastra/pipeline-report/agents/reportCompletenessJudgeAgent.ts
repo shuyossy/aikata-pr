@@ -2,7 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 import type { ReportCompletenessJudgeRequestContext } from '../requestContext.js';
 import type { TargetJobSummary } from '../types.js';
-import { createModelFromAiConfig } from '../model.js';
+import { createModelFromContext } from '../../shared/requestContext.js';
 
 /**
  * レポート完全性判定の出力スキーマ
@@ -165,7 +165,7 @@ export const reportCompletenessJudgeAgent = new Agent<
   name: 'Report Completeness Judge Agent',
   model: ({ requestContext }) => {
     const ctx = requestContext.all as ReportCompletenessJudgeRequestContext;
-    return createModelFromAiConfig(ctx.aiConfig);
+    return createModelFromContext(ctx);
   },
   instructions: REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS,
 });

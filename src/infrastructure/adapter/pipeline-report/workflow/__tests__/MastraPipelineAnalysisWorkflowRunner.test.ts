@@ -164,10 +164,13 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
     // requestContext: PipelineAnalysisAgentRequestContext の主要フィールド
     const ctx = startArg.requestContext;
     expect(ctx.get('userId')).toBe('test-user');
-    expect(ctx.get('projectId')).toBe(42);
+    expect(ctx.get('projectId')).toBe('42');
     expect(ctx.get('pipelineId')).toBe(1001);
     expect(ctx.get('projectDir')).toBe('/workspace/project');
-    expect(ctx.get('aiConfig')).toEqual(params.aiConfig);
+    expect(ctx.get('aiApiKey')).toBe(params.aiConfig.apiKey);
+    expect(ctx.get('aiApiEndpointUrl')).toBe(params.aiConfig.endpointUrl);
+    expect(ctx.get('aiModelName')).toBe(params.aiConfig.modelName);
+    expect(ctx.get('openaiReasoningEffort')).toBeUndefined();
     expect(ctx.get('overallTemplate')).toBe(params.overallTemplate);
     expect(ctx.get('jobReportFormat')).toBe(params.jobReportFormat);
     expect(ctx.get('additionalInstructions')).toBeNull();
@@ -185,7 +188,7 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
       '/tmp/cache/5001.zip',
     );
     expect(ctx.get('hasImages')).toBe(false);
-    expect(ctx.get('pendingImages')).toBeInstanceOf(Map);
+    expect(ctx.get('pendingImages')).toEqual([]);
     expect(ctx.get('workspaceAvailable')).toBe(false);
 
     // 結果

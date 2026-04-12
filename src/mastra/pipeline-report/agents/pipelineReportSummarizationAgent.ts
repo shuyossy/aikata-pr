@@ -2,7 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
 import type { PipelineReportSummarizationRequestContext } from '../requestContext.js';
 import type { TargetJobSummary } from '../types.js';
-import { createModelFromAiConfig } from '../model.js';
+import { createModelFromContext } from '../../shared/requestContext.js';
 
 /**
  * 対象ジョブ一覧をMarkdownの箇条書きとしてレンダリングする
@@ -111,7 +111,7 @@ export const pipelineReportSummarizationAgent = new Agent<
   name: 'Pipeline Report Summarization Agent',
   model: ({ requestContext }) => {
     const ctx = requestContext.all as PipelineReportSummarizationRequestContext;
-    return createModelFromAiConfig(ctx.aiConfig);
+    return createModelFromContext(ctx);
   },
   instructions: ({ requestContext }) => {
     return buildPipelineReportSummarizationInstructions(requestContext);

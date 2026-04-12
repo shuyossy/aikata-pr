@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { RequestContext } from '@mastra/core/request-context';
 import { getArtifactContentTool } from '../getArtifactContent.js';
 import type { ArtifactArchiveReader } from '../../../../application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
+import type { PendingImageData } from '../../../shared/readImageCommon.js';
 
 type GetArtifactContentResult =
   | { kind: 'text'; content: string; truncated: boolean }
@@ -46,16 +47,15 @@ const executeGetArtifactContent = (
   options: {
     artifactCachePaths: Map<number, string | null>;
     archiveReader: ArtifactArchiveReader;
-    pendingImages?: Map<string, { base64: string; mimeType: string }>;
+    pendingImages?: PendingImageData[];
   },
 ): Promise<{
   result: GetArtifactContentResult;
-  pendingImages: Map<string, { base64: string; mimeType: string }>;
+  pendingImages: PendingImageData[];
 }> => {
   const executeFn = getArtifactContentTool.execute;
   if (!executeFn) throw new Error('execute is not defined');
-  const pendingImages =
-    options.pendingImages ?? new Map<string, { base64: string; mimeType: string }>();
+  const pendingImages: PendingImageData[] = options.pendingImages ?? [];
   const requestContext = new RequestContext([
     ['artifactCachePaths', options.artifactCachePaths],
     ['artifactArchiveReader', options.archiveReader],
@@ -126,12 +126,11 @@ describe('getArtifactContentTool', () => {
     if (result.kind === 'image') {
       expect(result.mimeType).toBe('image/png');
     }
-    expect(pendingImages.size).toBe(1);
-    const key = '20:screenshot.png';
-    expect(pendingImages.has(key)).toBe(true);
-    const entry = pendingImages.get(key)!;
-    expect(entry.mimeType).toBe('image/png');
-    expect(entry.base64).toBe(pngData.toString('base64'));
+    expect(pendingImages.length).toBe(1);
+    const entry = pendingImages.find((e) => e.filePath === '20:screenshot.png');
+    expect(entry).toBeDefined();
+    expect(entry!.mediaType).toBe('image/png');
+    expect(entry!.base64Data).toBe(pngData.toString('base64'));
   });
 
   it('バイナリ（非画像）は kind=unsupportedを返す', async () => {
@@ -152,7 +151,7 @@ describe('getArtifactContentTool', () => {
       expect(result.size).toBe(binData.length);
       expect(result.reason).toMatch(/binary/i);
     }
-    expect(pendingImages.size).toBe(0);
+    expect(pendingImages.length).toBe(0);
   });
 
   it('zipPathがnullの場合 kind=errorを返す', async () => {
@@ -187,7 +186,7 @@ describe('getArtifactContentTool', () => {
     // UTF-8としてデコードできるのでtextになる、バイナリならunsupportedになる
     expect(['text', 'unsupported']).toContain(result.kind);
     // 画像としては扱われないのでpendingImagesは空のままであること
-    expect(pendingImages.size).toBe(0);
+    expect(pendingImages.length).toBe(0);
     if (result.kind === 'text') {
       expect(result.content).toBe('not a real png');
     }

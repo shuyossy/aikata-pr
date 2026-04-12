@@ -51,7 +51,7 @@ export function sanitizeForLog(ctx: Record<string, any>): Record<string, unknown
  *
  * review / pipeline-report どちらからも利用可能な汎用シグネチャ。
  * - review: `buildGenerateOptions(ctx.openaiReasoningEffort)`
- * - pipeline-report: `buildGenerateOptions(ctx.aiConfig.reasoningEffort)`
+ * - pipeline-report: `buildGenerateOptions(ctx.openaiReasoningEffort)`
  */
 export function buildGenerateOptions(reasoningEffort: string | null | undefined): {
   modelSettings?: { temperature: number };

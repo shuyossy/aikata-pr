@@ -12,19 +12,11 @@ import {
   READ_IMAGE_TOOL_KEY,
   IMAGE_MESSAGE_PREFIX,
 } from '../../shared/readImageCommon.js';
+import type { PendingImageData } from '../../shared/readImageCommon.js';
 
-// 複数機能で共用する定数は shared から import して再エクスポートする
+// 複数機能で共用する定数・型は shared から import して再エクスポートする
 export { PENDING_IMAGES_KEY, READ_IMAGE_TOOL_KEY, IMAGE_MESSAGE_PREFIX };
-
-/**
- * RequestContextに蓄積される画像データの型
- * prepareStepで取得してuserメッセージとして注入する
- */
-export interface PendingImageData {
-  filePath: string;
-  base64Data: string;
-  mediaType: string;
-}
+export type { PendingImageData };
 
 /**
  * readImageツールの出力スキーマ

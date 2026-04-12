@@ -10,7 +10,7 @@ import {
   verifyCompletenessStep,
   buildFeedbackWithReportPrompt,
 } from './steps/verifyCompletenessStep.js';
-import { createToolset } from '../agents/pipelineAnalysisAgent.js';
+import { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
 import { getLogger } from '../../../lib/logger.js';
 
@@ -76,15 +76,13 @@ export const workflowOutputSchema = z.object({
  */
 const requestContextSchema = z.object({
   userId: z.string(),
-  projectId: z.number(),
-  pipelineId: z.number(),
+  projectId: z.string(),
+  aiApiKey: z.string(),
+  aiApiEndpointUrl: z.string(),
+  aiModelName: z.string(),
   projectDir: z.string(),
-  aiConfig: z.object({
-    apiKey: z.string(),
-    endpointUrl: z.string(),
-    modelName: z.string(),
-    reasoningEffort: z.enum(['low', 'medium', 'high']).nullable(),
-  }),
+  openaiReasoningEffort: z.string().optional(),
+  pipelineId: z.number(),
   targetJobs: z.array(targetJobSummarySchema),
   overallTemplate: z.string(),
   jobReportFormat: z.string(),
@@ -97,7 +95,7 @@ const requestContextSchema = z.object({
   omittedJobLogs: z.instanceof(Map),
   artifactCachePaths: z.instanceof(Map),
   hasImages: z.boolean(),
-  pendingImages: z.instanceof(Map),
+  pendingImages: z.array(z.any()),
   reportLockTimeoutMs: z.number().optional(),
   workspaceAvailable: z.boolean(),
 });
@@ -165,10 +163,10 @@ const analyzeAndVerifyStep = createStep({
     const judgeAgent = mastra.getAgent('reportCompletenessJudgeAgent');
     const summarizationAgent = mastra.getAgent('pipelineReportSummarizationAgent');
     const typedContext = requestContext as RequestContext<PipelineAnalysisAgentRequestContext>;
-    const ctx = typedContext.all;
-    const toolset = createToolset(ctx);
 
     // 1. analysis agent を実行
+    // ツールはAgent定義のtoolsコールバックで動的に構築されるため、toolsets不要
+    // 画像注入はprepareStepでpendingImagesをuserメッセージとして差し込む
     const analysis = await executeAnalysisStep({
       analysisAgent,
       summarizationAgent,
@@ -178,8 +176,8 @@ const analyzeAndVerifyStep = createStep({
       initialUserPromptForRecovery: initData.initialUserPrompt,
       feedbackPromptForRecovery: inputData.feedbackPrompt,
       extraGenerateOptions: {
-        toolsets: { pipelineAnalysis: toolset },
         maxSteps: 50,
+        prepareStep: buildPrepareStepForImageInjection(typedContext),
       },
       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     });

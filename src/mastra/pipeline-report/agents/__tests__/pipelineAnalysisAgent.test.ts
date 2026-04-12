@@ -23,15 +23,13 @@ function createTestContextObject(
   ];
   return {
     userId: 'test-user',
-    projectId: 1234,
+    projectId: '1234',
     pipelineId: 9999,
     projectDir: '/test/project',
-    aiConfig: {
-      apiKey: 'test-key',
-      endpointUrl: 'http://localhost',
-      modelName: 'test-model',
-      reasoningEffort: null,
-    },
+    aiApiKey: 'test-key',
+    aiApiEndpointUrl: 'http://localhost',
+    aiModelName: 'test-model',
+    openaiReasoningEffort: undefined,
     targetJobs,
     overallTemplate: '# パイプライン分析レポート\n{{job-sections}}',
     jobReportFormat:
@@ -45,7 +43,7 @@ function createTestContextObject(
     omittedJobLogs: new Map<number, string>(),
     artifactCachePaths: new Map<number, string | null>(),
     hasImages: false,
-    pendingImages: new Map(),
+    pendingImages: [],
     reportLockTimeoutMs: undefined,
     workspaceAvailable: true,
     ...overrides,
@@ -369,7 +367,7 @@ describe('buildInstructions', () => {
 describe('buildUserPrompt', () => {
   it('pipelineContextBuilderへパラメータが正しく委譲される', () => {
     const ctx = createTestRequestContext({
-      projectId: 111,
+      projectId: '111',
       pipelineId: 222,
       folderTree: 'SRC_TREE_MARKER',
       folderTreeStripped: true,
@@ -445,14 +443,34 @@ describe('createToolset', () => {
     expect(Object.keys(tools)).toHaveLength(5);
   });
 
-  it('hasImages=trueでも、Phase 8時点ではreadImageは追加されない（workspace tool導入対象外）', () => {
-    // 注: 設計書では readImage を Phase 9 の workflow 層で workspace tools と一緒に統合予定。
-    // Phase 8 ではツールセットに readImage を含めず、systemプロンプトの説明のみに留める。
+  it('hasImages=true の場合、readImageが追加される', () => {
     const ctx = createTestContextObject({ hasImages: true });
 
     const tools = createToolset(ctx);
 
+    expect(Object.keys(tools)).toContain('readImage');
+    expect(Object.keys(tools)).toHaveLength(5);
+  });
+
+  it('hasImages=false の場合、readImageは追加されない', () => {
+    const ctx = createTestContextObject({ hasImages: false });
+
+    const tools = createToolset(ctx);
+
     expect(Object.keys(tools)).not.toContain('readImage');
+  });
+
+  it('hasImages=true かつ omittedJobLogs.size > 0 の場合、readImageとgetJobLogDetailの両方が追加される', () => {
+    const ctx = createTestContextObject({
+      hasImages: true,
+      omittedJobLogs: new Map<number, string>([[1, 'omitted']]),
+    });
+
+    const tools = createToolset(ctx);
+
+    expect(Object.keys(tools)).toContain('readImage');
+    expect(Object.keys(tools)).toContain('getJobLogDetail');
+    expect(Object.keys(tools)).toHaveLength(6);
   });
 });
 

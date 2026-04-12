@@ -128,7 +128,7 @@ export async function executeAnalysisStep(
 
   const ctx = requestContext.all;
   const resultFilePath = ctx.resultFilePath;
-  const projectIdStr = String(ctx.projectId);
+  const projectIdStr = ctx.projectId;
   const resourceId = ctx.userId;
 
   let currentThreadId: string = config.threadId;
@@ -144,7 +144,7 @@ export async function executeAnalysisStep(
             ...(extraGenerateOptions ?? {}),
             requestContext,
             memory: { thread: currentThreadId, resource: resourceId },
-            ...buildGenerateOptions(ctx.aiConfig.reasoningEffort),
+            ...buildGenerateOptions(ctx.openaiReasoningEffort),
           };
           return analysisAgent.generate(prompt, generateOptions);
         },

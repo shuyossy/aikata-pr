@@ -126,7 +126,12 @@ async function callJudgeAgent(params: {
 
   const judgeContext = new RequestContext<ReportCompletenessJudgeRequestContext>([
     ['userId', ctx.userId],
-    ['aiConfig', ctx.aiConfig],
+    ['projectId', ctx.projectId],
+    ['aiApiKey', ctx.aiApiKey],
+    ['aiApiEndpointUrl', ctx.aiApiEndpointUrl],
+    ['aiModelName', ctx.aiModelName],
+    ['projectDir', ctx.projectDir],
+    ['openaiReasoningEffort', ctx.openaiReasoningEffort],
   ]);
 
   const generateOptions: Record<string, unknown> = {
@@ -135,13 +140,13 @@ async function callJudgeAgent(params: {
       schema: reportCompletenessJudgementSchema,
       errorStrategy: 'strict',
     },
-    ...buildGenerateOptions(ctx.aiConfig.reasoningEffort),
+    ...buildGenerateOptions(ctx.openaiReasoningEffort),
   };
 
   const result = await withRateLimitRetry(
     () => judgeAgent.generate(userPrompt, generateOptions),
     rateLimitRetryConfig,
-    { projectId: String(ctx.projectId) },
+    { projectId: ctx.projectId },
   );
 
   // Mastra の structuredOutput は result.object に乗る

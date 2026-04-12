@@ -2,6 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getMediaType, isSupportedImageFormat } from '../../../lib/imageFormat.js';
 import type { ArtifactArchiveReader } from '../../../application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
+import { PENDING_IMAGES_KEY, type PendingImageData } from '../../shared/readImageCommon.js';
 
 /**
  * RequestContextでアーティファクトzipキャッシュパスを保持するキー
@@ -13,12 +14,6 @@ export const ARTIFACT_CACHE_PATHS_KEY = 'artifactCachePaths';
  * テスト時はfake readerを注入可能
  */
 export const ARTIFACT_ARCHIVE_READER_KEY = 'artifactArchiveReader';
-
-/**
- * RequestContextで画像base64データを蓄積するキー
- * readImageToolと同様に `Map<string, { base64, mimeType }>` 形式
- */
-export const PENDING_IMAGES_KEY = 'pendingImages';
 
 /**
  * デフォルトの最大読み取りバイト数（2 MiB）
@@ -181,12 +176,14 @@ export const getArtifactContentTool = createTool({
     const imageMime = detectImageMime(artifactPath, data);
     if (imageMime) {
       const base64 = data.toString('base64');
-      const pendingImages = context?.requestContext?.get(PENDING_IMAGES_KEY) as
-        | Map<string, { base64: string; mimeType: string }>
-        | undefined;
-      if (pendingImages instanceof Map) {
-        pendingImages.set(`${jobId}:${artifactPath}`, { base64, mimeType: imageMime });
-      }
+      const existing = context?.requestContext?.get(PENDING_IMAGES_KEY);
+      const pendingImages: PendingImageData[] = Array.isArray(existing) ? existing : [];
+      pendingImages.push({
+        filePath: `${jobId}:${artifactPath}`,
+        base64Data: base64,
+        mediaType: imageMime,
+      });
+      context?.requestContext?.set(PENDING_IMAGES_KEY, pendingImages);
       return { kind: 'image' as const, mimeType: imageMime };
     }
 

@@ -440,7 +440,7 @@ describe('buildPrepareStepForImageInjection', () => {
     );
     expect((textPart as { text: string }).text).toContain('1 image(s)');
     expect((textPart as { text: string }).text).toContain('assets/logo.png');
-    expect((textPart as { text: string }).text).toContain('Please continue your review');
+    expect((textPart as { text: string }).text).toContain('Please continue your analysis');
 
     // ファイルパート（v4 FileUIPart形式）
     const filePart = imageMessage.content.parts[1] as {

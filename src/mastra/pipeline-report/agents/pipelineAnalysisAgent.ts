@@ -16,11 +16,12 @@ import { patchReportTool } from '../tools/patchReport.js';
 import { getReportTool } from '../tools/getReport.js';
 import { getJobLogDetailTool } from '../tools/getJobLogDetail.js';
 import { getArtifactContentTool } from '../tools/getArtifactContent.js';
-import { createModelFromAiConfig } from '../model.js';
+import { readImageTool } from '../../review/tools/readImage.js';
+import { createModelFromContext } from '../../shared/requestContext.js';
 
 /**
  * pipelineAnalysisAgent 用のツールセット型
- * 常時登録されるツールに加え、条件付きでgetJobLogDetailが登録される
+ * 常時登録されるツールに加え、条件付きでgetJobLogDetail / readImageが登録される
  */
 export type PipelineAnalysisAgentToolSet = {
   writeReport: typeof writeReportTool;
@@ -28,6 +29,7 @@ export type PipelineAnalysisAgentToolSet = {
   getReport: typeof getReportTool;
   getArtifactContent: typeof getArtifactContentTool;
   getJobLogDetail?: typeof getJobLogDetailTool;
+  readImage?: typeof readImageTool;
 };
 
 /**
@@ -308,22 +310,24 @@ export function buildUserPrompt(
  *
  * - 常時登録: writeReport / patchReport / getReport / getArtifactContent
  * - omittedJobLogs.size > 0 のとき: getJobLogDetail を追加
- * - hasImages の場合も Phase 8 では readImage を toolset に含めない
- *   （workspace tools と一緒に Phase 9 の workflow 層で統合する予定）
+ * - hasImages のとき: readImage を追加（review機能と同じツールを共用）
  */
 export function createToolset(
   ctx: PipelineAnalysisAgentRequestContext,
 ): PipelineAnalysisAgentToolSet {
-  const base: PipelineAnalysisAgentToolSet = {
+  const toolset: PipelineAnalysisAgentToolSet = {
     writeReport: writeReportTool,
     patchReport: patchReportTool,
     getReport: getReportTool,
     getArtifactContent: getArtifactContentTool,
   };
   if (ctx.omittedJobLogs.size > 0) {
-    return { ...base, getJobLogDetail: getJobLogDetailTool };
+    toolset.getJobLogDetail = getJobLogDetailTool;
   }
-  return base;
+  if (ctx.hasImages) {
+    toolset.readImage = readImageTool;
+  }
+  return toolset;
 }
 
 /**
@@ -357,7 +361,7 @@ export const pipelineAnalysisAgent = new Agent<
   memory: pipelineAnalysisAgentMemory,
   model: ({ requestContext }) => {
     const ctx = requestContext.all as PipelineAnalysisAgentRequestContext;
-    return createModelFromAiConfig(ctx.aiConfig);
+    return createModelFromContext(ctx);
   },
   instructions: ({ requestContext }) => {
     return buildInstructions(requestContext);

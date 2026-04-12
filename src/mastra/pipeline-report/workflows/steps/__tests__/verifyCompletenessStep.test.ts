@@ -26,15 +26,13 @@ function createTestRequestContext(
   ];
   const all: PipelineAnalysisAgentRequestContext = {
     userId: 'test-user',
-    projectId: 1234,
+    projectId: '1234',
     pipelineId: 9999,
     projectDir: '/test/project',
-    aiConfig: {
-      apiKey: 'test-key',
-      endpointUrl: 'http://localhost',
-      modelName: 'test-model',
-      reasoningEffort: null,
-    },
+    aiApiKey: 'test-key',
+    aiApiEndpointUrl: 'http://localhost',
+    aiModelName: 'test-model',
+    openaiReasoningEffort: undefined,
     targetJobs,
     overallTemplate: '# Report\n{{job-sections}}',
     jobReportFormat: '### Job <jobId>',
@@ -47,7 +45,7 @@ function createTestRequestContext(
     omittedJobLogs: new Map(),
     artifactCachePaths: new Map(),
     hasImages: false,
-    pendingImages: new Map(),
+    pendingImages: [],
     reportLockTimeoutMs: undefined,
     workspaceAvailable: false,
     ...overrides,
@@ -252,12 +250,7 @@ describe('verifyCompletenessStep', () => {
       judgeAgent: createMockAgent(judgeGenerate),
       requestContext: createTestRequestContext({
         resultFilePath,
-        aiConfig: {
-          apiKey: 'test-key',
-          endpointUrl: 'http://localhost',
-          modelName: 'test-model',
-          reasoningEffort: 'medium',
-        },
+        openaiReasoningEffort: 'medium',
       }),
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };

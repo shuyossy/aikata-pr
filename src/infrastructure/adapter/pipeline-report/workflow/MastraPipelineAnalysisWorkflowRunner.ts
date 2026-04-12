@@ -56,11 +56,16 @@ function buildAgentRequestContext(
   targetJobSummaries: TargetJobSummary[],
 ): PipelineAnalysisAgentRequestContext {
   return {
+    // WorkflowRequestContext 共通フィールド（review機能と同一構造）
     userId: params.userId,
-    projectId: params.projectId,
-    pipelineId: params.pipelineMeta.pipelineId,
+    projectId: String(params.projectId),
+    aiApiKey: params.aiConfig.apiKey,
+    aiApiEndpointUrl: params.aiConfig.endpointUrl,
+    aiModelName: params.aiConfig.modelName,
     projectDir: params.projectDir,
-    aiConfig: params.aiConfig,
+    openaiReasoningEffort: params.aiConfig.reasoningEffort ?? undefined,
+    // pipeline-report 固有フィールド
+    pipelineId: params.pipelineMeta.pipelineId,
     targetJobs: targetJobSummaries,
     overallTemplate: params.overallTemplate,
     jobReportFormat: params.jobReportFormat,
@@ -73,10 +78,9 @@ function buildAgentRequestContext(
     omittedJobLogs: params.omittedJobLogs,
     artifactCachePaths: params.artifactCachePaths,
     hasImages: false,
-    pendingImages: new Map(),
+    pendingImages: [],
     reportLockTimeoutMs: undefined,
-    // Phase 9 時点で workspace tools は未登録のため false 固定。
-    // 将来 workspace を workflow 層で構築する際に本フラグを切り替える。
+    // 将来 workspace を workflow 層で構築する際に本フラグを切り替える
     workspaceAvailable: false,
   };
 }
@@ -127,12 +131,16 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
 
       // RequestContext: workflow の requestContextSchema に合致するフィールドを詰める
       const agentRequestContext = buildAgentRequestContext(params, targetJobSummaries);
+      // RequestContext: WorkflowRequestContext共通フィールド + pipeline-report固有フィールド
       const requestContext = new RequestContext<PipelineAnalysisAgentRequestContext>([
         ['userId', agentRequestContext.userId],
         ['projectId', agentRequestContext.projectId],
-        ['pipelineId', agentRequestContext.pipelineId],
+        ['aiApiKey', agentRequestContext.aiApiKey],
+        ['aiApiEndpointUrl', agentRequestContext.aiApiEndpointUrl],
+        ['aiModelName', agentRequestContext.aiModelName],
         ['projectDir', agentRequestContext.projectDir],
-        ['aiConfig', agentRequestContext.aiConfig],
+        ['openaiReasoningEffort', agentRequestContext.openaiReasoningEffort],
+        ['pipelineId', agentRequestContext.pipelineId],
         ['targetJobs', agentRequestContext.targetJobs],
         ['overallTemplate', agentRequestContext.overallTemplate],
         ['jobReportFormat', agentRequestContext.jobReportFormat],

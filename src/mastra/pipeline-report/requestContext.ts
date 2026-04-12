@@ -1,29 +1,18 @@
+import type { WorkflowRequestContext } from '../shared/requestContext.js';
+import type { PendingImageData } from '../shared/readImageCommon.js';
 import type { TargetJobSummary } from './types.js';
-
-/**
- * ワークフローで使用するAI API設定
- * reviewのWorkflowRequestContextが各項目をトップレベルに持っているのに対し、
- * pipeline-reportはaiConfigとしてまとめることで注入/参照箇所の見通しを良くしている
- */
-export interface WorkflowAiConfig {
-  apiKey: string;
-  endpointUrl: string;
-  modelName: string;
-  reasoningEffort: 'low' | 'medium' | 'high' | null;
-}
 
 /**
  * PipelineAnalysisAgent用のRequestContext型
  *
+ * review機能と同様にWorkflowRequestContextを継承し、AI設定（aiApiKey / aiApiEndpointUrl / aiModelName /
+ * openaiReasoningEffort）およびuserId / projectId / projectDirを共通インターフェースから受け取る。
+ *
  * 各種Tool（writeReport/patchReport/getReport/getJobLogDetail/getArtifactContent）は
  * ここから必要な値を引き出して動作する。
  */
-export interface PipelineAnalysisAgentRequestContext {
-  userId: string;
-  projectId: number;
+export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestContext {
   pipelineId: number;
-  projectDir: string;
-  aiConfig: WorkflowAiConfig;
   targetJobs: TargetJobSummary[];
   overallTemplate: string;
   jobReportFormat: string;
@@ -39,8 +28,8 @@ export interface PipelineAnalysisAgentRequestContext {
   artifactCachePaths: Map<number, string | null>;
   /** 画像アーティファクトが1つ以上参照可能かどうか */
   hasImages: boolean;
-  /** 画像取得Tool経由で蓄積された画像データ（key = `${jobId}:${artifactPath}`） */
-  pendingImages: Map<string, { base64: string; mimeType: string }>;
+  /** 画像取得Tool経由で蓄積された画像データ（review機能と同形式のPendingImageData配列） */
+  pendingImages: PendingImageData[];
   /**
    * ファイルロック取得のタイムアウト（ミリ秒）。
    * テスト用フック: 未指定時はデフォルト 5000ms。本番では `undefined` を明示的に渡す。
@@ -56,19 +45,14 @@ export interface PipelineAnalysisAgentRequestContext {
 
 /**
  * ReportCompletenessJudgeAgent用のRequestContext型
- * 判定ロジックに必要なのはAI設定のみ
+ * 判定ロジックに必要なのはAI設定のみ（WorkflowRequestContextで充足）
  */
-export interface ReportCompletenessJudgeRequestContext {
-  userId: string;
-  aiConfig: WorkflowAiConfig;
-}
+export type ReportCompletenessJudgeRequestContext = WorkflowRequestContext;
 
 /**
  * PipelineReportSummarizationAgent用のRequestContext型
  * 要約時にターゲットジョブ情報を参照する
  */
-export interface PipelineReportSummarizationRequestContext {
-  userId: string;
-  aiConfig: WorkflowAiConfig;
+export interface PipelineReportSummarizationRequestContext extends WorkflowRequestContext {
   targetJobs: TargetJobSummary[];
 }

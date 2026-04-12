@@ -21,15 +21,12 @@ function createTestContext(
 
   return new RequestContext<PipelineReportSummarizationRequestContext>([
     ['userId', overrides.userId ?? 'test-user'],
-    [
-      'aiConfig',
-      overrides.aiConfig ?? {
-        apiKey: 'test-key',
-        endpointUrl: 'http://localhost',
-        modelName: 'test-model',
-        reasoningEffort: null,
-      },
-    ],
+    ['projectId', overrides.projectId ?? 'test-project'],
+    ['aiApiKey', overrides.aiApiKey ?? 'test-key'],
+    ['aiApiEndpointUrl', overrides.aiApiEndpointUrl ?? 'http://localhost'],
+    ['aiModelName', overrides.aiModelName ?? 'test-model'],
+    ['projectDir', overrides.projectDir ?? '/test'],
+    ['openaiReasoningEffort', overrides.openaiReasoningEffort ?? undefined],
     ['targetJobs', targetJobs],
   ]);
 }

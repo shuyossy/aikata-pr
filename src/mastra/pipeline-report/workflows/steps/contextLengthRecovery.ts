@@ -246,7 +246,7 @@ export async function recoverFromContextLength(
   } = config;
 
   const ctx = requestContext.all;
-  const projectIdStr = String(ctx.projectId);
+  const projectIdStr = ctx.projectId;
 
   logger.info({ threadId }, 'Starting pipeline-report context length recovery');
 
@@ -271,13 +271,18 @@ export async function recoverFromContextLength(
   // 3. 要約Agent用のRequestContextを構築
   const summarizationContext = new RequestContext<PipelineReportSummarizationRequestContext>([
     ['userId', ctx.userId],
-    ['aiConfig', ctx.aiConfig],
+    ['projectId', ctx.projectId],
+    ['aiApiKey', ctx.aiApiKey],
+    ['aiApiEndpointUrl', ctx.aiApiEndpointUrl],
+    ['aiModelName', ctx.aiModelName],
+    ['projectDir', ctx.projectDir],
+    ['openaiReasoningEffort', ctx.openaiReasoningEffort],
     ['targetJobs', ctx.targetJobs],
   ]);
 
   const generateOptions: Record<string, unknown> = {
     requestContext: summarizationContext,
-    ...buildGenerateOptions(ctx.aiConfig.reasoningEffort),
+    ...buildGenerateOptions(ctx.openaiReasoningEffort),
   };
 
   // 4. 要約Agent呼び出し

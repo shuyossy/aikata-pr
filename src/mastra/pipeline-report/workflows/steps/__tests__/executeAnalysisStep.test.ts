@@ -29,15 +29,13 @@ function createTestRequestContext(
   ];
   const all: PipelineAnalysisAgentRequestContext = {
     userId: 'test-user',
-    projectId: 1234,
+    projectId: '1234',
     pipelineId: 9999,
     projectDir: '/test/project',
-    aiConfig: {
-      apiKey: 'test-key',
-      endpointUrl: 'http://localhost',
-      modelName: 'test-model',
-      reasoningEffort: null,
-    },
+    aiApiKey: 'test-key',
+    aiApiEndpointUrl: 'http://localhost',
+    aiModelName: 'test-model',
+    openaiReasoningEffort: undefined,
     targetJobs,
     overallTemplate: '# Pipeline Report\n{{job-sections}}',
     jobReportFormat: '### Job <jobId>',
@@ -50,7 +48,7 @@ function createTestRequestContext(
     omittedJobLogs: new Map(),
     artifactCachePaths: new Map(),
     hasImages: false,
-    pendingImages: new Map(),
+    pendingImages: [],
     reportLockTimeoutMs: undefined,
     workspaceAvailable: false,
     ...overrides,
@@ -496,12 +494,7 @@ describe('executeAnalysisStep', () => {
   it('reasoningEffort が設定されている場合、generate オプションに含まれる', async () => {
     const requestContext = createTestRequestContext({
       resultFilePath,
-      aiConfig: {
-        apiKey: 'test-key',
-        endpointUrl: 'http://localhost',
-        modelName: 'test-model',
-        reasoningEffort: 'high',
-      },
+      openaiReasoningEffort: 'high',
     });
     const threadId = randomUUID();
 
