@@ -65,6 +65,25 @@ ${additional}
 }
 
 /**
+ * CI/CD Job Definitions セクションを組み立てる。
+ * mergedYaml が null の場合は空文字列を返し、非 null の場合はコードブロックで提示する。
+ */
+function renderJobDefinitionsSection(mergedYaml: string | null): string {
+  if (mergedYaml === null) {
+    return '';
+  }
+  return `## CI/CD Job Definitions (merged YAML)
+
+The following is the fully resolved CI/CD configuration. Use it to understand what each job is configured to do.
+
+\`\`\`yaml
+${mergedYaml}
+\`\`\`
+
+`;
+}
+
+/**
  * Tool Catalog セクションを組み立てる
  * 常時登録ツールに加え、omittedJobLogs / hasImages の状況に応じて説明を追加する
  */
@@ -200,10 +219,11 @@ export function buildInstructions(
   const ctx = requestContext.all;
   const targetJobsTable = renderTargetJobsTable(ctx.targetJobs);
   const additionalSection = renderAdditionalInstructionsSection(ctx.additionalInstructions);
+  const jobDefinitionsSection = renderJobDefinitionsSection(ctx.mergedYaml);
   const toolCatalog = renderToolCatalog(ctx);
   const compressionNotes = renderCompressionNotes(ctx);
 
-  return `You are a CI/CD pipeline analysis expert. You will receive pipeline metadata, a jobs summary table, each job's log output, artifact file listings for each job, and the project source code folder tree. Your job is to analyze every target job and write a single consolidated analysis report. Think and reason in English; write the report content in ${ctx.commentLanguage}.
+  return `You are a CI/CD pipeline analysis expert. You will receive pipeline metadata, a jobs summary table, CI/CD job definitions (merged YAML), each job's log output, artifact file listings for each job, and the project source code folder tree. Your job is to analyze every target job and write a single consolidated analysis report. Think and reason in English; write the report content in ${ctx.commentLanguage}.
 
 ## Mission
 
@@ -238,7 +258,7 @@ You must produce a block for every job in the following table:
 
 ${targetJobsTable}
 
-## Reasoning Framework (ReAct)
+${jobDefinitionsSection}## Reasoning Framework (ReAct)
 
 For each target job, apply the Reason-Act-Observe cycle until you can confidently write its block:
 

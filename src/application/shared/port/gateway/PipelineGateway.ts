@@ -27,6 +27,14 @@ export interface PipelineGateway {
   getJobTrace(projectId: number, jobId: number): Promise<string>;
 
   /**
+   * プロジェクトの CI/CD 設定（includes 展開済み merged YAML）を取得する。
+   * @param projectId GitLab プロジェクト ID
+   * @param ref ブランチ名または SHA（content_ref パラメータに使用）
+   * @returns merged YAML 文字列。取得に失敗した場合は null を返す。
+   */
+  getMergedYaml(projectId: number, ref: string): Promise<string | null>;
+
+  /**
    * 指定ジョブの artifacts zip を destPath にダウンロードする。
    * maxBytes を超えた分は切り捨て (truncated=true) とする。
    */

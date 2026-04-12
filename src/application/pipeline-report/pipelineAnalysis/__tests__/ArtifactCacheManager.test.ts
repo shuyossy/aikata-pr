@@ -55,6 +55,10 @@ class FakePipelineGateway implements PipelineGateway {
     throw new Error('not implemented for this test');
   }
 
+  async getMergedYaml(): Promise<string | null> {
+    throw new Error('not implemented for this test');
+  }
+
   async downloadArtifactArchive(
     projectId: number,
     jobId: number,

@@ -47,6 +47,7 @@ function createTestContextObject(
     pendingImages: [],
     reportLockTimeoutMs: undefined,
     workspaceAvailable: true,
+    mergedYaml: null,
     ...overrides,
   };
 }
@@ -388,6 +389,46 @@ describe('buildInstructions', () => {
 
     expect(result).toContain('Image Handling');
     expect(result).toContain('read-image');
+  });
+
+  it('mergedYaml=null の場合、CI/CD Job Definitions セクションが含まれない', () => {
+    const ctx = createTestRequestContext({ mergedYaml: null });
+
+    const result = buildInstructions(ctx);
+
+    expect(result).not.toContain('CI/CD Job Definitions');
+  });
+
+  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションが YAML コードブロック付きで含まれる', () => {
+    const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
+    const ctx = createTestRequestContext({ mergedYaml: yaml });
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toContain('CI/CD Job Definitions');
+    expect(result).toContain(yaml);
+    expect(result).toContain('```yaml');
+  });
+
+  it('mergedYaml が指定された場合、Role Definition に job definitions が含まれる', () => {
+    const ctx = createTestRequestContext({ mergedYaml: 'stages:\n  - build\n' });
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toMatch(/CI\/CD job definitions/i);
+  });
+
+  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションは Target Jobs の後、Reasoning Framework の前に配置される', () => {
+    const ctx = createTestRequestContext({ mergedYaml: 'stages:\n  - build\n' });
+
+    const result = buildInstructions(ctx);
+
+    const targetJobsIdx = result.indexOf('Target Jobs');
+    const jobDefsIdx = result.indexOf('CI/CD Job Definitions');
+    const reactIdx = result.indexOf('Reasoning Framework');
+    expect(targetJobsIdx).toBeGreaterThanOrEqual(0);
+    expect(jobDefsIdx).toBeGreaterThan(targetJobsIdx);
+    expect(jobDefsIdx).toBeLessThan(reactIdx);
   });
 
   it('folderTreeStripped=true かつ workspaceAvailable=false の場合、workspace tools への言及は含まれない', () => {

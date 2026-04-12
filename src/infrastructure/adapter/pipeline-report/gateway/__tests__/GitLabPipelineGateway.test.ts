@@ -324,6 +324,59 @@ describe('GitLabPipelineGateway', () => {
     });
   });
 
+  describe('getMergedYaml', () => {
+    it('CI Lint API から merged_yaml を取得して返す', async () => {
+      const lintResponse = {
+        valid: true,
+        merged_yaml: 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n',
+        errors: [],
+        warnings: [],
+      };
+      mockFetch.mockResolvedValueOnce(jsonResponse(lintResponse));
+
+      const result = await gateway.getMergedYaml(42, 'main');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://gitlab.example.com/api/v4/projects/42/ci/lint?content_ref=main',
+        { headers: { 'PRIVATE-TOKEN': 'test-token' } },
+      );
+      expect(result).toBe(lintResponse.merged_yaml);
+    });
+
+    it('HTTP エラーの場合、null を返す（エラーを throw しない）', async () => {
+      mockFetch.mockResolvedValueOnce(errorResponse(403, 'Forbidden'));
+
+      const result = await gateway.getMergedYaml(42, 'main');
+
+      expect(result).toBeNull();
+    });
+
+    it('ネットワークエラーの場合、null を返す', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const result = await gateway.getMergedYaml(42, 'main');
+
+      expect(result).toBeNull();
+    });
+
+    it('ref に特殊文字を含む場合、URL エンコードされる', async () => {
+      const lintResponse = {
+        valid: true,
+        merged_yaml: 'stages:\n  - build\n',
+        errors: [],
+        warnings: [],
+      };
+      mockFetch.mockResolvedValueOnce(jsonResponse(lintResponse));
+
+      await gateway.getMergedYaml(42, 'feature/my-branch');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://gitlab.example.com/api/v4/projects/42/ci/lint?content_ref=feature%2Fmy-branch',
+        { headers: { 'PRIVATE-TOKEN': 'test-token' } },
+      );
+    });
+  });
+
   describe('downloadArtifactArchive', () => {
     let tmpDir: string;
 

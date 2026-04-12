@@ -107,6 +107,7 @@ describe('PipelineAnalysisService', () => {
       getPipeline: vi.fn(),
       getJobs: vi.fn(),
       getJobTrace: vi.fn(),
+      getMergedYaml: vi.fn().mockResolvedValue('stages:\n  - build\n  - test\n'),
       downloadArtifactArchive: vi.fn(),
     };
     projectTreeGateway = {
@@ -226,6 +227,7 @@ describe('PipelineAnalysisService', () => {
     expect(runnerCall.jobLogsCompressed.get(5002)).toBe('log for 5002');
     expect(runnerCall.resultFilePath).toBe(command.resultFilePath);
     expect(runnerCall.aiConfig.modelName).toBe('openai/o4-mini');
+    expect(runnerCall.mergedYaml).toBe('stages:\n  - build\n  - test\n');
 
     // 結果
     expect(result.report.content).toBe('# Final report content\n- done');
@@ -531,5 +533,67 @@ describe('PipelineAnalysisService', () => {
     await service.analyze(command);
 
     expect(projectTreeGateway.getTree).toHaveBeenCalledWith('/tmp/custom-dir', { maxDepth: 7 });
+  });
+
+  it('getMergedYamlがnullを返しても分析は続行される', async () => {
+    const pipeline = createPipeline();
+    const jobA = createJob({ id: 5001, hasArtifacts: false, artifactsSize: 0 });
+
+    vi.mocked(pipelineGateway.getPipeline).mockResolvedValue(pipeline);
+    vi.mocked(pipelineGateway.getJobs).mockResolvedValue([jobA]);
+    vi.mocked(pipelineGateway.getJobTrace).mockResolvedValue('log');
+    vi.mocked(pipelineGateway.getMergedYaml).mockResolvedValue(null);
+    vi.mocked(workflowRunner.run).mockImplementation(async (params) => {
+      fs.writeFileSync(params.resultFilePath, '# Report without YAML');
+      return createWorkflowResult();
+    });
+
+    const command = createCommand();
+    createdResultFiles.push(command.resultFilePath);
+
+    const service = new PipelineAnalysisService(
+      pipelineGateway,
+      projectTreeGateway,
+      workflowRunner,
+      tokenCounter,
+      archiveReader,
+      cacheManager,
+    );
+
+    const result = await service.analyze(command);
+
+    expect(workflowRunner.run).toHaveBeenCalledOnce();
+    const runnerCall = vi.mocked(workflowRunner.run).mock.calls[0]![0];
+    expect(runnerCall.mergedYaml).toBeNull();
+    expect(result.report.content).toBe('# Report without YAML');
+  });
+
+  it('getMergedYamlにはpipelineのshaが渡される', async () => {
+    const pipeline = createPipeline({ sha: 'deadbeef1234' });
+    const jobA = createJob({ id: 5001, hasArtifacts: false, artifactsSize: 0 });
+
+    vi.mocked(pipelineGateway.getPipeline).mockResolvedValue(pipeline);
+    vi.mocked(pipelineGateway.getJobs).mockResolvedValue([jobA]);
+    vi.mocked(pipelineGateway.getJobTrace).mockResolvedValue('log');
+    vi.mocked(workflowRunner.run).mockImplementation(async (params) => {
+      fs.writeFileSync(params.resultFilePath, '# Report');
+      return createWorkflowResult();
+    });
+
+    const command = createCommand();
+    createdResultFiles.push(command.resultFilePath);
+
+    const service = new PipelineAnalysisService(
+      pipelineGateway,
+      projectTreeGateway,
+      workflowRunner,
+      tokenCounter,
+      archiveReader,
+      cacheManager,
+    );
+
+    await service.analyze(command);
+
+    expect(pipelineGateway.getMergedYaml).toHaveBeenCalledWith(100, 'deadbeef1234');
   });
 });

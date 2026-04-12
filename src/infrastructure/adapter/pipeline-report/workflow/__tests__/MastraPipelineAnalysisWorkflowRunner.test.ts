@@ -93,6 +93,7 @@ function createParams(
     resultFilePath: '/tmp/result.md',
     projectDir: '/workspace/project',
     artifactCachePaths,
+    mergedYaml: 'stages:\n  - build\n  - test\n',
     maxCompletenessRetries: 2,
     aiConfig: {
       apiKey: 'test-api-key',
@@ -190,6 +191,7 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
     expect(ctx.get('hasImages')).toBe(false);
     expect(ctx.get('pendingImages')).toEqual([]);
     expect(ctx.get('workspaceAvailable')).toBe(true);
+    expect(ctx.get('mergedYaml')).toBe('stages:\n  - build\n  - test\n');
 
     // 結果
     expect(result.reportContent).toBe('# Final Report\n');

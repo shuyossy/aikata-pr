@@ -103,6 +103,16 @@ export class PipelineAnalysisService {
         includeRetried: false,
       });
 
+      // Step 2b: CI/CD ジョブ定義（merged YAML）取得（失敗しても分析は続行する）
+      const mergedYaml = await this.pipelineGateway.getMergedYaml(command.projectId, pipeline.sha);
+      if (mergedYaml === null) {
+        const logger = getLogger();
+        logger.warn(
+          { projectId: command.projectId, pipelineId: command.pipelineId },
+          'Failed to fetch merged YAML for CI/CD job definitions; continuing without job definitions',
+        );
+      }
+
       // Step 3: 対象ジョブ絞り込み
       const targetJobs = command.settings.filterJobs(allJobs, command.selfJobId);
 
@@ -181,6 +191,7 @@ export class PipelineAnalysisService {
         targetJobs,
         jobLogsCompressed: compression.compressedJobLogs,
         omittedJobLogs: compression.omittedJobLogs,
+        mergedYaml,
         artifactTrees,
         folderTree: compression.effectiveFolderTree,
         folderTreeStripped: compression.folderTreeStripped,

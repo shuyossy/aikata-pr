@@ -41,6 +41,8 @@ export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestCont
    * system プロンプトで workspace 関連セクションを案内する。
    */
   workspaceAvailable: boolean;
+  /** CI/CD ジョブ定義（merged YAML）。取得できなかった場合は null */
+  mergedYaml: string | null;
 }
 
 /**

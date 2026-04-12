@@ -15,6 +15,8 @@ export interface PipelineAnalysisWorkflowParams {
   jobLogsCompressed: Map<number, string>;
   /** ジョブ ID -> 中央部省略部分の全文（Agent が tool 経由で取得するための保持領域） */
   omittedJobLogs: Map<number, string>;
+  /** CI/CD ジョブ定義（merged YAML）。取得できなかった場合は null */
+  mergedYaml: string | null;
   artifactTrees: ArtifactTree[];
   folderTree: string;
   folderTreeStripped: boolean;

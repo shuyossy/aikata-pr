@@ -77,6 +77,7 @@ function buildAgentRequestContext(
     folderTreeStripped: params.folderTreeStripped,
     omittedJobLogs: params.omittedJobLogs,
     artifactCachePaths: params.artifactCachePaths,
+    mergedYaml: params.mergedYaml,
     hasImages: false,
     pendingImages: [],
     reportLockTimeoutMs: undefined,
@@ -155,6 +156,7 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
         ['pendingImages', agentRequestContext.pendingImages],
         ['reportLockTimeoutMs', agentRequestContext.reportLockTimeoutMs],
         ['workspaceAvailable', agentRequestContext.workspaceAvailable],
+        ['mergedYaml', agentRequestContext.mergedYaml],
       ]);
 
       // Mastra workflow を実行

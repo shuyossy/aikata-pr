@@ -51,6 +51,7 @@ function createTestRequestContext(
     pendingImages: [],
     reportLockTimeoutMs: undefined,
     workspaceAvailable: false,
+    mergedYaml: null,
     ...overrides,
   };
   const entries = Object.entries(all) as Array<

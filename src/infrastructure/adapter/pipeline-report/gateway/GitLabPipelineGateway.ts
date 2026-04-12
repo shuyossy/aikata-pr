@@ -39,6 +39,16 @@ interface GitLabJobResponse {
 }
 
 /**
+ * GitLab CI Lint API から返却されるレスポンスの型定義
+ */
+interface GitLabCiLintResponse {
+  valid: boolean;
+  merged_yaml: string;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
  * GitLab API を利用した PipelineGateway の実装
  * パイプライン・ジョブ・トレース・アーティファクトアーカイブを取得する。
  */
@@ -82,6 +92,21 @@ export class GitLabPipelineGateway implements PipelineGateway {
       `/projects/${projectId}/pipelines/${pipelineId}/jobs?include_retried=${includeRetried}`,
     );
     return responses.map((job) => this.toJobEntity(job));
+  }
+
+  /**
+   * プロジェクトの CI/CD 設定（includes 展開済み merged YAML）を取得する。
+   * 取得失敗時は null を返し、呼び出し元が graceful degradation できるようにする。
+   */
+  async getMergedYaml(projectId: number, ref: string): Promise<string | null> {
+    try {
+      const response = await this.client.get<GitLabCiLintResponse>(
+        `/projects/${projectId}/ci/lint?content_ref=${encodeURIComponent(ref)}`,
+      );
+      return response.merged_yaml;
+    } catch {
+      return null;
+    }
   }
 
   /**
