@@ -268,7 +268,6 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
         const command = buildPipelineReportCommand(parsed, validated, {
           settings,
           projectDir,
-          resultFilePath,
           maxContextLength,
           openaiReasoningEffort,
           onProgress: (event) => {
@@ -290,7 +289,7 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
 
         const result = await deps.service.analyze(command);
 
-        // 結果ファイルへ書き込み（resultFilePath にも既に書き込まれているが、ユーザ指定パスが違う場合に備えて再保存）
+        // 結果ファイルへ書き込み（サービスは一時ファイルを使用するため、ユーザ指定パスに改めて保存）
         fs.mkdirSync(path.dirname(resultFilePath), { recursive: true });
         fs.writeFileSync(resultFilePath, result.report.content);
 

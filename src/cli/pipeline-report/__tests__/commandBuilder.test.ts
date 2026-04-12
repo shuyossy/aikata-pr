@@ -143,7 +143,6 @@ describe('buildPipelineReportCommand', () => {
     const command = buildPipelineReportCommand(options, validated, {
       settings,
       projectDir: '/tmp/project',
-      resultFilePath: '/tmp/report.md',
       maxContextLength: 100000,
       openaiReasoningEffort: 'medium',
       onProgress,
@@ -157,7 +156,6 @@ describe('buildPipelineReportCommand', () => {
     expect(command.projectDir).toBe('/tmp/project');
     expect(command.commentLanguage).toBe('English');
     expect(command.skillsPaths).toEqual(['/skills']);
-    expect(command.resultFilePath).toBe('/tmp/report.md');
     expect(command.aiConfig.apiKey).toBe('k');
     expect(command.aiConfig.endpointUrl).toBe('https://x');
     expect(command.aiConfig.modelName).toBe('openai/o4-mini');
@@ -177,7 +175,6 @@ describe('buildPipelineReportCommand', () => {
     const command = buildPipelineReportCommand(options, validated, {
       settings,
       projectDir: '/tmp/project',
-      resultFilePath: '/tmp/report.md',
       maxContextLength: null,
       openaiReasoningEffort: null,
       onProgress: () => {},

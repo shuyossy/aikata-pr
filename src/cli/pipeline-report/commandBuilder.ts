@@ -107,8 +107,6 @@ export interface BuildPipelineReportCommandOptions {
   settings: PipelineReportSettings;
   /** クローン済みプロジェクトのパス */
   projectDir: string;
-  /** 結果ファイルの書き込みパス */
-  resultFilePath: string;
   /** 圧縮上限（null なら圧縮しない） */
   maxContextLength: number | null;
   /** OpenAI reasoning モデルの reasoning effort */
@@ -135,7 +133,6 @@ export function buildPipelineReportCommand(
     projectDir: extras.projectDir,
     commentLanguage: parsed.commentLanguage,
     skillsPaths: parsed.skills ? [parsed.skills] : [],
-    resultFilePath: extras.resultFilePath,
     aiConfig: {
       apiKey: validated.aiApiKey!,
       endpointUrl: validated.aiApiEndpointUrl!,

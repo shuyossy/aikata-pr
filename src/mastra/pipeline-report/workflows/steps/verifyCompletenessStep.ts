@@ -10,7 +10,7 @@ import {
   buildReportCompletenessJudgeUserPrompt,
   reportCompletenessJudgementSchema,
 } from '../../agents/reportCompletenessJudgeAgent.js';
-import { buildGenerateOptions } from '../../../shared/requestContext.js';
+import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
 import { getLogger } from '../../../../lib/logger.js';
 
@@ -142,6 +142,12 @@ async function callJudgeAgent(params: {
     },
     ...buildGenerateOptions(ctx.openaiReasoningEffort),
   };
+
+  const logger = getLogger();
+  logger.debug(
+    { requestContext: sanitizeForLog(judgeContext.all) },
+    'Calling reportCompletenessJudgeAgent.generate',
+  );
 
   const result = await withRateLimitRetry(
     () => judgeAgent.generate(userPrompt, generateOptions),

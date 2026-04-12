@@ -140,7 +140,6 @@ function createTestApp(
   const deps: PipelineReportHandlerDeps = {
     cloneManager: createMockCloneManager(),
     serviceFactory: createMockServiceFactory(),
-    resultFilePathFactory: () => '/tmp/aikata-pipeline-report-test.md',
     gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
     aiApiKey: 'test-api-key',
     aiApiEndpointUrl: 'https://ai.example.com',

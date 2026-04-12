@@ -1,6 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createJwtAuthMiddleware } from './infrastructure/adapter/auth/index.js';
@@ -208,7 +205,6 @@ export async function startServer(): Promise<void> {
   const pipelineReportDeps: PipelineReportHandlerDeps = {
     cloneManager, // review と共有
     serviceFactory: pipelineReportServiceFactory,
-    resultFilePathFactory: () => join(tmpdir(), `aikata-pipeline-report-${randomUUID()}.md`),
     gitlabApiBaseUrl,
     aiApiKey,
     aiApiEndpointUrl,

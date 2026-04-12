@@ -31,7 +31,6 @@ export interface PipelineAnalyzeCommand {
   projectDir: string;
   commentLanguage: string;
   skillsPaths: string[];
-  resultFilePath: string;
   aiConfig: {
     apiKey: string;
     endpointUrl: string;
@@ -75,9 +74,9 @@ export interface PipelineAnalysisResult {
  * - ArtifactArchiveReader で zip 内容を ArtifactTree に変換
  * - ProjectTreeGateway でプロジェクトフォルダツリーを取得
  * - JobLogCompressor で閾値超過時にジョブログを段階的圧縮
- * - resultFilePath に全体レポートテンプレートを書き込み
+ * - 一時ファイルに全体レポートテンプレートを書き込み
  * - PipelineAnalysisWorkflowRunner に処理を委譲
- * - 最終的な resultFilePath の内容を読み AnalysisReport として返却
+ * - 最終的な一時ファイルの内容を読み AnalysisReport として返却
  * - finally で ArtifactCacheManager.cleanup を必ず呼ぶ
  */
 export class PipelineAnalysisService {
@@ -91,6 +90,8 @@ export class PipelineAnalysisService {
   ) {}
 
   async analyze(command: PipelineAnalyzeCommand): Promise<PipelineAnalysisResult> {
+    // 一時ファイルパスを事前に生成（finallyでのクリーンアップのため try 外で宣言）
+    const resultFilePath = `/tmp/aikata-pipeline-report-${command.projectId}-${command.pipelineId}-${Date.now()}.md`;
     try {
       // Step 1: Pipeline メタ情報取得
       const pipeline = await this.pipelineGateway.getPipeline(
@@ -180,8 +181,8 @@ export class PipelineAnalysisService {
         folderTree,
       );
 
-      // Step 10: resultFilePath に全体テンプレートを書き込み
-      fs.writeFileSync(command.resultFilePath, OVERALL_REPORT_TEMPLATE);
+      // Step 10: 一時ファイルにレポートテンプレートを書き込み（review機能と同パターン）
+      fs.writeFileSync(resultFilePath, OVERALL_REPORT_TEMPLATE);
 
       // Step 11: workflow 実行
       const workflowResult = await this.workflowRunner.run({
@@ -200,7 +201,7 @@ export class PipelineAnalysisService {
         additionalInstructions: command.settings.additionalInstructions,
         commentLanguage: command.commentLanguage,
         skillsPaths: command.skillsPaths,
-        resultFilePath: command.resultFilePath,
+        resultFilePath,
         projectDir: command.projectDir,
         artifactCachePaths: this.cacheManager.getCachePaths(),
         maxCompletenessRetries: command.options.maxCompletenessRetries,
@@ -209,7 +210,7 @@ export class PipelineAnalysisService {
       });
 
       // Step 12: 最終レポート本文を読み取り
-      const reportContent = fs.readFileSync(command.resultFilePath, 'utf-8');
+      const reportContent = fs.readFileSync(resultFilePath, 'utf-8');
 
       // Step 13: 戻り値
       return {
@@ -227,7 +228,7 @@ export class PipelineAnalysisService {
     } finally {
       // finally: artifactキャッシュと一時ファイルのクリーンアップ
       await this.cacheManager.cleanup();
-      this.cleanupTempFiles(command.resultFilePath);
+      this.cleanupTempFiles(resultFilePath);
     }
   }
 

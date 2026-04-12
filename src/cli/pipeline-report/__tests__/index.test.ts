@@ -123,7 +123,7 @@ describe('pipeline-report CLI module', () => {
       expect(cmd.userId).toBe('alice');
       expect(cmd.projectId).toBe(10);
       expect(cmd.pipelineId).toBe(20);
-      expect(cmd.resultFilePath).toBe(resultFilePath);
+      // resultFilePath はサービス内部で生成されるためコマンドには含まれない
 
       // resultFile に書き込まれている
       expect(fs.readFileSync(resultFilePath, 'utf-8')).toBe('# Pipeline Report\n\nall good');

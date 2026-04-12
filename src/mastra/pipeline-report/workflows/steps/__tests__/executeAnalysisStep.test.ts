@@ -16,6 +16,8 @@ import {
   type ExecuteAnalysisStepConfig,
   MAX_CONTEXT_LENGTH_RECOVERIES,
   buildContinuationPrompt,
+  buildRateLimitContinuationPrompt,
+  getLastRateLimitContinuationMessageId,
 } from '../executeAnalysisStep.js';
 
 /**
@@ -519,5 +521,238 @@ describe('executeAnalysisStep', () => {
     const opts = generateFn.mock.calls[0][1] as Record<string, unknown>;
     expect(opts.modelSettings).toEqual({ temperature: 1 });
     expect(opts.providerOptions).toEqual({ openai: { reasoningEffort: 'high' } });
+  });
+
+  it('レート制限時に onRateLimitHit で継続プロンプトに差し替わる', async () => {
+    const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
+
+    const rateLimitError = new APICallError({
+      message: 'Rate limit exceeded',
+      url: 'http://test-api/v1/chat',
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: 'rate limit exceeded',
+      isRetryable: true,
+    });
+
+    let call = 0;
+    const generateFn = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) {
+        throw rateLimitError;
+      }
+      // 2回目は成功
+    });
+    const analysisAgent = createMockAgent(generateFn);
+    const summarizationAgent = createMockAgent(vi.fn());
+
+    const config: ExecuteAnalysisStepConfig = {
+      analysisAgent,
+      summarizationAgent,
+      requestContext,
+      currentPrompt: 'Analyze the pipeline',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze the pipeline',
+      feedbackPromptForRecovery: null,
+      rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await executeAnalysisStep(config);
+
+    expect(generateFn).toHaveBeenCalledTimes(2);
+    // 2回目の呼び出しは継続プロンプト
+    const secondPrompt = generateFn.mock.calls[1][0] as string;
+    expect(secondPrompt).toBe(buildRateLimitContinuationPrompt());
+  });
+
+  it('連続レート制限時にメモリの重複継続プロンプトが削除される', async () => {
+    const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
+
+    const rateLimitError = new APICallError({
+      message: 'Rate limit exceeded',
+      url: 'http://test-api/v1/chat',
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: 'rate limit exceeded',
+      isRetryable: true,
+    });
+
+    let call = 0;
+    const generateFn = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call <= 2) {
+        throw rateLimitError;
+      }
+      // 3回目は成功
+    });
+    // 2回目のレート制限時、メモリには前回の継続プロンプトが積まれている
+    const mockMemory = createMockMemory();
+    // 1回目のonRateLimitHitではメッセージなし→削除不要
+    // 2回目のonRateLimitHitでは前回の継続プロンプトが末尾にある→削除
+    let recallCallCount = 0;
+    mockMemory.recall.mockImplementation(async () => {
+      recallCallCount++;
+      if (recallCallCount === 1) {
+        return { messages: [] };
+      }
+      // 2回目: 前回の継続プロンプトが末尾にある
+      return {
+        messages: [
+          {
+            id: 'dup-msg-1',
+            role: 'user',
+            createdAt: new Date(),
+            content: {
+              format: 2 as const,
+              parts: [{ type: 'text', text: buildRateLimitContinuationPrompt() } as never],
+            },
+          },
+        ],
+      };
+    });
+    const deleteMessagesFn = vi.fn().mockResolvedValue(undefined);
+    (mockMemory as unknown as { deleteMessages: typeof deleteMessagesFn }).deleteMessages =
+      deleteMessagesFn;
+    const analysisAgent = createMockAgent(generateFn, mockMemory);
+    const summarizationAgent = createMockAgent(vi.fn());
+
+    const config: ExecuteAnalysisStepConfig = {
+      analysisAgent,
+      summarizationAgent,
+      requestContext,
+      currentPrompt: 'Analyze the pipeline',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze the pipeline',
+      feedbackPromptForRecovery: null,
+      rateLimitRetryConfig: { maxRetries: 5, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await executeAnalysisStep(config);
+
+    expect(generateFn).toHaveBeenCalledTimes(3);
+    // 2回目の onRateLimitHit で重複メッセージが削除された
+    expect(deleteMessagesFn).toHaveBeenCalledWith(['dup-msg-1']);
+  });
+
+  it('onRateLimitHit内のメモリ操作失敗時にエラーが握りつぶされる', async () => {
+    const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
+
+    const rateLimitError = new APICallError({
+      message: 'Rate limit exceeded',
+      url: 'http://test-api/v1/chat',
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: 'rate limit exceeded',
+      isRetryable: true,
+    });
+
+    let call = 0;
+    const generateFn = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) {
+        throw rateLimitError;
+      }
+    });
+    // getMemory が例外をスローするケース
+    const analysisAgent = {
+      generate: generateFn,
+      getMemory: vi.fn().mockRejectedValue(new Error('Memory unavailable')),
+    } as unknown as Agent;
+    const summarizationAgent = createMockAgent(vi.fn());
+
+    const config: ExecuteAnalysisStepConfig = {
+      analysisAgent,
+      summarizationAgent,
+      requestContext,
+      currentPrompt: 'Analyze the pipeline',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze the pipeline',
+      feedbackPromptForRecovery: null,
+      rateLimitRetryConfig: { maxRetries: 3, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    // エラーが握りつぶされて正常終了する
+    await executeAnalysisStep(config);
+    expect(generateFn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('buildRateLimitContinuationPrompt', () => {
+  it('レート制限リカバリー通知と継続指示を含む', () => {
+    const prompt = buildRateLimitContinuationPrompt();
+    expect(prompt).toContain('Rate Limit Recovery Notice');
+    expect(prompt).toContain('conversation history is preserved');
+    expect(prompt).toContain('resume analyzing the remaining target jobs');
+    expect(prompt).toContain('patch-report');
+  });
+});
+
+describe('getLastRateLimitContinuationMessageId', () => {
+  it('空配列の場合はnullを返す', () => {
+    expect(getLastRateLimitContinuationMessageId([])).toBeNull();
+  });
+
+  it('末尾がassistantメッセージの場合はnullを返す', () => {
+    const messages: MastraDBMessage[] = [
+      {
+        id: 'msg-1',
+        role: 'assistant',
+        createdAt: new Date(),
+        content: {
+          format: 2 as const,
+          parts: [{ type: 'text', text: buildRateLimitContinuationPrompt() } as never],
+        },
+      },
+    ];
+    expect(getLastRateLimitContinuationMessageId(messages)).toBeNull();
+  });
+
+  it('末尾がuserメッセージだが継続プロンプトと一致しない場合はnullを返す', () => {
+    const messages: MastraDBMessage[] = [
+      {
+        id: 'msg-1',
+        role: 'user',
+        createdAt: new Date(),
+        content: {
+          format: 2 as const,
+          parts: [{ type: 'text', text: 'Some other message' } as never],
+        },
+      },
+    ];
+    expect(getLastRateLimitContinuationMessageId(messages)).toBeNull();
+  });
+
+  it('末尾がuserメッセージで継続プロンプトと一致する場合はIDを返す', () => {
+    const messages: MastraDBMessage[] = [
+      {
+        id: 'msg-1',
+        role: 'user',
+        createdAt: new Date(),
+        content: {
+          format: 2 as const,
+          parts: [{ type: 'text', text: buildRateLimitContinuationPrompt() } as never],
+        },
+      },
+    ];
+    expect(getLastRateLimitContinuationMessageId(messages)).toBe('msg-1');
+  });
+
+  it('content.content フォールバックでもテキストを抽出できる', () => {
+    const messages: MastraDBMessage[] = [
+      {
+        id: 'msg-fallback',
+        role: 'user',
+        createdAt: new Date(),
+        content: {
+          format: 2 as const,
+          parts: [],
+          content: buildRateLimitContinuationPrompt(),
+        },
+      },
+    ];
+    expect(getLastRateLimitContinuationMessageId(messages)).toBe('msg-fallback');
   });
 });

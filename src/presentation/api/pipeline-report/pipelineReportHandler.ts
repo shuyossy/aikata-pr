@@ -117,8 +117,6 @@ export interface PipelineReportHandlerDeps {
   cloneManager: CloneManagerPort;
   /** per-request サービスファクトリ（service は内部で gateway/workflow/archive 等を保持） */
   serviceFactory: PipelineReportServiceFactory;
-  /** 結果ファイル（markdown）の出力パス生成関数。リクエストごとに一意なパスを返すこと */
-  resultFilePathFactory: () => string;
   /** ai API の共通情報（api key / endpoint） */
   aiApiKey: string;
   aiApiEndpointUrl: string;
@@ -323,7 +321,6 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
           projectDir: cloneResult.projectDir,
           commentLanguage: request.commentLanguage,
           skillsPaths: request.skillsRelPaths,
-          resultFilePath: deps.resultFilePathFactory(),
           aiConfig: {
             apiKey: deps.aiApiKey,
             endpointUrl: deps.aiApiEndpointUrl,

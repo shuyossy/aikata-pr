@@ -7,7 +7,7 @@ import type {
   PipelineReportSummarizationRequestContext,
 } from '../../requestContext.js';
 import { buildPipelineReportSummarizationUserPrompt } from '../../agents/pipelineReportSummarizationAgent.js';
-import { buildGenerateOptions } from '../../../shared/requestContext.js';
+import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
 import { getLogger } from '../../../../lib/logger.js';
 import { isImageCountExceededError } from '../../../../lib/aiApiError.js';
@@ -305,6 +305,10 @@ export async function recoverFromContextLength(
       ],
     };
 
+    logger.debug(
+      { requestContext: sanitizeForLog(summarizationContext.all) },
+      'Calling pipelineReportSummarizationAgent.generate',
+    );
     result = await withRateLimitRetry(
       () => summarizationAgent.generate(userMessage, generateOptions),
       rateLimitRetryConfig,
@@ -317,6 +321,10 @@ export async function recoverFromContextLength(
     const userPrompt =
       buildPipelineReportSummarizationUserPrompt(adjustedText, wasTrimmed) + exclusionNotice;
 
+    logger.debug(
+      { requestContext: sanitizeForLog(summarizationContext.all) },
+      'Calling pipelineReportSummarizationAgent.generate',
+    );
     result = await withRateLimitRetry(
       () => summarizationAgent.generate(userPrompt, generateOptions),
       rateLimitRetryConfig,
@@ -324,6 +332,10 @@ export async function recoverFromContextLength(
     );
   } else {
     const userPrompt = buildPipelineReportSummarizationUserPrompt(serializedText, wasTrimmed);
+    logger.debug(
+      { requestContext: sanitizeForLog(summarizationContext.all) },
+      'Calling pipelineReportSummarizationAgent.generate',
+    );
     result = await withRateLimitRetry(
       () => summarizationAgent.generate(userPrompt, generateOptions),
       rateLimitRetryConfig,

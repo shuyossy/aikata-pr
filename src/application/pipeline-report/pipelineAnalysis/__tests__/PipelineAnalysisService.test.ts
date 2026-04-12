@@ -60,7 +60,6 @@ function createCommand(overrides?: Partial<PipelineAnalyzeCommand>): PipelineAna
     projectDir: '/tmp/test-project',
     commentLanguage: 'English',
     skillsPaths: [],
-    resultFilePath: `/tmp/aikata-pipeline-report-test-${Date.now()}-${Math.random()}.md`,
     aiConfig: {
       apiKey: 'test-key',
       endpointUrl: 'https://ai.example.com',
@@ -193,7 +192,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -225,7 +224,8 @@ describe('PipelineAnalysisService', () => {
     expect(runnerCall.targetJobs).toHaveLength(2);
     expect(runnerCall.jobLogsCompressed.get(5001)).toBe('log for 5001');
     expect(runnerCall.jobLogsCompressed.get(5002)).toBe('log for 5002');
-    expect(runnerCall.resultFilePath).toBe(command.resultFilePath);
+    // サービス内部で一時ファイルパスが生成される（/tmp/aikata-pipeline-report-...）
+    expect(runnerCall.resultFilePath).toMatch(/^\/tmp\/aikata-pipeline-report-/);
     expect(runnerCall.aiConfig.modelName).toBe('openai/o4-mini');
     expect(runnerCall.mergedYaml).toBe('stages:\n  - build\n  - test\n');
 
@@ -254,7 +254,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand({ selfJobId: 5002 });
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -278,7 +278,7 @@ describe('PipelineAnalysisService', () => {
     vi.mocked(pipelineGateway.getJobs).mockResolvedValue([]);
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -303,7 +303,7 @@ describe('PipelineAnalysisService', () => {
     vi.mocked(pipelineGateway.getPipeline).mockRejectedValue(error);
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -332,7 +332,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -365,7 +365,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -393,7 +393,7 @@ describe('PipelineAnalysisService', () => {
     vi.mocked(workflowRunner.run).mockRejectedValue(new Error('workflow crashed'));
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -430,7 +430,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand({ maxContextLength: 100 });
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -474,7 +474,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -519,7 +519,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand({ treeMaxDepth: 7, projectDir: '/tmp/custom-dir' });
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -549,7 +549,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,
@@ -581,7 +581,7 @@ describe('PipelineAnalysisService', () => {
     });
 
     const command = createCommand();
-    createdResultFiles.push(command.resultFilePath);
+    // サービスが内部で一時ファイルを生成・クリーンアップするため、テスト側でのクリーンアップ追跡は不要
 
     const service = new PipelineAnalysisService(
       pipelineGateway,

@@ -201,7 +201,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(cmd.projectId).toBe(100);
       expect(cmd.pipelineId).toBe(200);
       expect(cmd.selfJobId).toBe(999);
-      expect(cmd.resultFilePath).toBe(resultFilePath);
+      // resultFilePath はサービス内部で生成されるためコマンドには含まれない
       expect(cmd.projectDir).toBe(tmpDir);
 
       // 設定ファイル由来のフィールドが伝播している
