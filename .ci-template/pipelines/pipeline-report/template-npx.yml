@@ -52,5 +52,5 @@ aikata-pipeline-report:
   artifacts:
     when: always
     paths:
-      - aikata-pipeline-report.md
+      - ${PIPELINE_REPORT_RESULT_FILE}
     expire_in: 1 week
