@@ -235,7 +235,9 @@ async function executeWithErrorRecovery(params: {
             memory: memoryOption,
             maxSteps: 50,
             prepareStep: buildPrepareStepForImageInjection(requestContext),
-            ...buildGenerateOptions(requestContext.all as WorkflowRequestContext),
+            ...buildGenerateOptions(
+              (requestContext.all as WorkflowRequestContext).openaiReasoningEffort,
+            ),
           });
         },
         rateLimitRetryConfig,

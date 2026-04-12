@@ -46,18 +46,22 @@ export function sanitizeForLog(ctx: Record<string, any>): Record<string, unknown
 }
 
 /**
- * OPENAI_REASONING_EFFORTが設定されている場合のgenerate()オプションを構築する
+ * reasoningEffortが設定されている場合のgenerate()オプションを構築する
  * 未設定の場合は空オブジェクトを返す（spread時に影響なし）
+ *
+ * review / pipeline-report どちらからも利用可能な汎用シグネチャ。
+ * - review: `buildGenerateOptions(ctx.openaiReasoningEffort)`
+ * - pipeline-report: `buildGenerateOptions(ctx.aiConfig.reasoningEffort)`
  */
-export function buildGenerateOptions(ctx: WorkflowRequestContext): {
+export function buildGenerateOptions(reasoningEffort: string | null | undefined): {
   modelSettings?: { temperature: number };
   providerOptions?: { openai: { reasoningEffort: string } };
 } {
-  if (!ctx.openaiReasoningEffort) return {};
+  if (!reasoningEffort) return {};
   return {
     modelSettings: { temperature: 1 },
     providerOptions: {
-      openai: { reasoningEffort: ctx.openaiReasoningEffort },
+      openai: { reasoningEffort },
     },
   };
 }

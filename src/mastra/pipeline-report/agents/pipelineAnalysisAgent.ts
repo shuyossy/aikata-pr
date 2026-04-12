@@ -247,6 +247,8 @@ For each target job, apply the Reason-Act-Observe cycle until you can confidentl
 - Did the tool give you the information you needed? Did it raise new questions?
 - After writing a block, re-read the report with get-report if you are unsure whether the patch landed correctly.
 
+Before using any tool(s), explain to users the reasoning behind why you are using that tool(s).
+
 ## Quality Rules
 
 - **Treat success with suspicion**: GitLab may mark a job as success while the log hides skipped tests, swallowed errors, or unexpected warnings. Always read the log for warning signs before concluding that a job is healthy.

@@ -16,21 +16,23 @@ function createTestContext(overrides?: Partial<WorkflowRequestContext>): Workflo
 }
 
 describe('buildGenerateOptions', () => {
-  it('openaiReasoningEffortが未設定の場合、空オブジェクトを返す', () => {
-    const ctx = createTestContext({ openaiReasoningEffort: undefined });
-    const result = buildGenerateOptions(ctx);
+  it('reasoningEffortがundefinedの場合、空オブジェクトを返す', () => {
+    const result = buildGenerateOptions(undefined);
     expect(result).toEqual({});
   });
 
-  it('openaiReasoningEffortが空文字列の場合、空オブジェクトを返す', () => {
-    const ctx = createTestContext({ openaiReasoningEffort: '' });
-    const result = buildGenerateOptions(ctx);
+  it('reasoningEffortがnullの場合、空オブジェクトを返す', () => {
+    const result = buildGenerateOptions(null);
     expect(result).toEqual({});
   });
 
-  it('openaiReasoningEffortが設定されている場合、modelSettingsとproviderOptionsを返す', () => {
-    const ctx = createTestContext({ openaiReasoningEffort: 'low' });
-    const result = buildGenerateOptions(ctx);
+  it('reasoningEffortが空文字列の場合、空オブジェクトを返す', () => {
+    const result = buildGenerateOptions('');
+    expect(result).toEqual({});
+  });
+
+  it('reasoningEffortが"low"の場合、modelSettingsとproviderOptionsを返す', () => {
+    const result = buildGenerateOptions('low');
     expect(result).toEqual({
       modelSettings: { temperature: 1 },
       providerOptions: {
@@ -39,9 +41,8 @@ describe('buildGenerateOptions', () => {
     });
   });
 
-  it('openaiReasoningEffortが"high"の場合、正しい値を返す', () => {
-    const ctx = createTestContext({ openaiReasoningEffort: 'high' });
-    const result = buildGenerateOptions(ctx);
+  it('reasoningEffortが"high"の場合、正しい値を返す', () => {
+    const result = buildGenerateOptions('high');
     expect(result).toEqual({
       modelSettings: { temperature: 1 },
       providerOptions: {

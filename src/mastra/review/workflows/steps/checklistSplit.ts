@@ -102,7 +102,9 @@ async function callAgent(
         {
           structuredOutput: { schema: aiSplitOutputSchema },
           requestContext: agentContext.requestContext,
-          ...buildGenerateOptions(agentContext.requestContext.all as WorkflowRequestContext),
+          ...buildGenerateOptions(
+            (agentContext.requestContext.all as WorkflowRequestContext).openaiReasoningEffort,
+          ),
         },
       ),
     agentContext.rateLimitRetryConfig,

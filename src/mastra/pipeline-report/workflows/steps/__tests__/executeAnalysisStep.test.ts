@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { APICallError } from 'ai';
 import { RequestContext } from '@mastra/core/request-context';
 import type { Agent, MastraDBMessage } from '@mastra/core/agent';
@@ -102,13 +103,46 @@ function createContextLengthError(): APICallError {
 }
 
 describe('buildContinuationPrompt', () => {
-  it('要約テキストと継続指示が含まれる', () => {
-    const result = buildContinuationPrompt('Summary: analyzed build and test jobs so far.');
+  it('初期ユーザプロンプト・レポート現物・要約テキスト・継続指示が含まれる', () => {
+    const result = buildContinuationPrompt(
+      'Analyze pipeline #123 with jobs: build, test',
+      '# Report\n## Job 101\nAnalysis done.',
+      'Summary: analyzed build job so far.',
+      null,
+    );
 
+    expect(result).toContain('Analyze pipeline #123 with jobs: build, test');
+    expect(result).toContain('Current Report Progress');
+    expect(result).toContain('# Report\n## Job 101\nAnalysis done.');
     expect(result).toContain('Context Length Recovery Notice');
-    expect(result).toContain('Summary: analyzed build and test jobs so far.');
+    expect(result).toContain('Summary: analyzed build job so far.');
     expect(result).toContain('Continue analyzing the remaining target jobs');
-    expect(result).toContain('get-report');
+  });
+
+  it('feedbackPrompt が指定されている場合、プロンプト末尾に含まれる', () => {
+    const result = buildContinuationPrompt(
+      'Initial prompt',
+      'Report content',
+      'Summary text',
+      '## Completeness Review Feedback\nJob #102 is missing.',
+    );
+
+    expect(result).toContain('Initial prompt');
+    expect(result).toContain('Report content');
+    expect(result).toContain('Summary text');
+    expect(result).toContain('## Completeness Review Feedback');
+    expect(result).toContain('Job #102 is missing.');
+  });
+
+  it('feedbackPrompt が null の場合、フィードバックセクションが含まれない', () => {
+    const result = buildContinuationPrompt(
+      'Initial prompt',
+      'Report content',
+      'Summary text',
+      null,
+    );
+
+    expect(result).not.toContain('Completeness Review Feedback');
   });
 });
 
@@ -119,6 +153,8 @@ describe('executeAnalysisStep', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-analysis-test-'));
     resultFilePath = path.join(tmpDir, 'pipeline-report.md');
+    // テンプレートを事前に書き込む（prepare step の責務）
+    fs.writeFileSync(resultFilePath, '# Pipeline Report\n{{job-sections}}', 'utf8');
     vi.clearAllMocks();
     initializeLogger({ userId: 'test-user', level: 'silent' });
     resetRateLimiter();
@@ -133,10 +169,10 @@ describe('executeAnalysisStep', () => {
     resetRateLimiter();
   });
 
-  it('正常系: 初期テンプレート書き込み → generate呼び出し → レポート内容を返却', async () => {
+  it('正常系: generate呼び出し → レポート内容を返却', async () => {
     const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
 
-    // Agent の generate 内で write-report tool を使ったかのように resultFilePath を上書き
     const generateFn = vi.fn().mockImplementation(async () => {
       await fs.promises.writeFile(
         resultFilePath,
@@ -151,7 +187,10 @@ describe('executeAnalysisStep', () => {
       analysisAgent,
       summarizationAgent,
       requestContext,
-      initialUserPrompt: 'Analyze the pipeline',
+      currentPrompt: 'Analyze the pipeline',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze the pipeline',
+      feedbackPromptForRecovery: null,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
@@ -160,21 +199,16 @@ describe('executeAnalysisStep', () => {
     expect(generateFn).toHaveBeenCalledTimes(1);
     expect(result.reportContent).toBe('# Pipeline Report\n\n## Summary\nAll 1 jobs analyzed.');
     expect(result.contextLengthRecoveries).toBe(0);
-    // 最初の呼び出しでは initialUserPrompt が渡されている
+    expect(result.finalThreadId).toBe(threadId);
+    // 最初の呼び出しでは currentPrompt が渡されている
     expect(generateFn.mock.calls[0][0]).toBe('Analyze the pipeline');
   });
 
-  it('初期テンプレートが overallTemplate で書き込まれる', async () => {
-    const requestContext = createTestRequestContext({
-      resultFilePath,
-      overallTemplate: '## SKELETON\n{{job-sections}}',
-    });
+  it('呼び出し元から渡された threadId を使用する', async () => {
+    const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = 'custom-thread-id-123';
 
-    // generate 呼び出しの時点で resultFilePath が存在することを確認する
-    const generateFn = vi.fn().mockImplementation(async () => {
-      const content = await fs.promises.readFile(resultFilePath, 'utf8');
-      expect(content).toBe('## SKELETON\n{{job-sections}}');
-    });
+    const generateFn = vi.fn().mockResolvedValue(undefined);
     const analysisAgent = createMockAgent(generateFn);
     const summarizationAgent = createMockAgent(vi.fn());
 
@@ -182,19 +216,25 @@ describe('executeAnalysisStep', () => {
       analysisAgent,
       summarizationAgent,
       requestContext,
-      initialUserPrompt: 'Analyze',
+      currentPrompt: 'Analyze',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze',
+      feedbackPromptForRecovery: null,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
     const result = await executeAnalysisStep(config);
 
-    expect(generateFn).toHaveBeenCalled();
-    // 最後まで agent が書き戻さなければ初期テンプレートがそのまま残る
-    expect(result.reportContent).toBe('## SKELETON\n{{job-sections}}');
+    expect(result.finalThreadId).toBe(threadId);
+    const opts = generateFn.mock.calls[0][1] as {
+      memory: { thread: string; resource: string };
+    };
+    expect(opts.memory.thread).toBe(threadId);
   });
 
   it('context length エラー1回 → リカバリー → リトライ成功', async () => {
     const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
 
     let call = 0;
     const generateFn = vi.fn().mockImplementation(async () => {
@@ -224,7 +264,10 @@ describe('executeAnalysisStep', () => {
       analysisAgent,
       summarizationAgent,
       requestContext,
-      initialUserPrompt: 'Analyze the pipeline',
+      currentPrompt: 'Analyze the pipeline',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze the pipeline',
+      feedbackPromptForRecovery: null,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
@@ -234,17 +277,119 @@ describe('executeAnalysisStep', () => {
     expect(result.reportContent).toBe('final report');
     expect(result.contextLengthRecoveries).toBe(1);
 
-    // 2 回目の呼び出しは継続プロンプトが渡される
+    // 2 回目の呼び出しは continuation prompt
     const secondPrompt = generateFn.mock.calls[1][0] as string;
     expect(secondPrompt).toContain('Context Length Recovery Notice');
     expect(secondPrompt).toContain('partial summary');
+    // 初期ユーザプロンプトが先頭に含まれる（review 同パターン）
+    expect(secondPrompt).toContain('Analyze the pipeline');
+    // レポート現物が含まれる
+    expect(secondPrompt).toContain('Current Report Progress');
+  });
+
+  it('context length recovery 時にレポート現物が continuation prompt に含まれる', async () => {
+    const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
+
+    let call = 0;
+    const generateFn = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) {
+        // 1回目のgenerate でレポートを部分的に更新
+        await fs.promises.writeFile(
+          resultFilePath,
+          '# Report\n## Job 101\nBuild succeeded.',
+          'utf8',
+        );
+        throw createContextLengthError();
+      }
+    });
+    const memoryWithMessages = createMockMemory([
+      {
+        id: 'm1',
+        role: 'user',
+        createdAt: new Date(),
+        content: {
+          format: 2 as const,
+          parts: [{ type: 'text', text: 'Analyze' } as never],
+        },
+      },
+    ]);
+    const analysisAgent = createMockAgent(generateFn, memoryWithMessages);
+    const summarizationAgent = createMockAgent(
+      vi.fn().mockResolvedValue({ text: 'analyzed job 101' }),
+    );
+
+    const config: ExecuteAnalysisStepConfig = {
+      analysisAgent,
+      summarizationAgent,
+      requestContext,
+      currentPrompt: 'Analyze pipeline with build and test jobs',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze pipeline with build and test jobs',
+      feedbackPromptForRecovery: null,
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await executeAnalysisStep(config);
+
+    const secondPrompt = generateFn.mock.calls[1][0] as string;
+    // レポート現物が continuation prompt に含まれる
+    expect(secondPrompt).toContain('# Report\n## Job 101\nBuild succeeded.');
+    // 初期ユーザプロンプトが先頭にある
+    expect(secondPrompt.indexOf('Analyze pipeline with build and test jobs')).toBe(0);
+  });
+
+  it('feedback 再実行中の context length recovery で feedbackPrompt が含まれる', async () => {
+    const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
+
+    let call = 0;
+    const generateFn = vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) {
+        throw createContextLengthError();
+      }
+    });
+    const memoryWithMessages = createMockMemory([
+      {
+        id: 'm1',
+        role: 'user',
+        createdAt: new Date(),
+        content: {
+          format: 2 as const,
+          parts: [{ type: 'text', text: 'Feedback' } as never],
+        },
+      },
+    ]);
+    const analysisAgent = createMockAgent(generateFn, memoryWithMessages);
+    const summarizationAgent = createMockAgent(vi.fn().mockResolvedValue({ text: 'summary' }));
+
+    const feedbackText = '## Completeness Review Feedback\nJob #102 missing';
+    const config: ExecuteAnalysisStepConfig = {
+      analysisAgent,
+      summarizationAgent,
+      requestContext,
+      currentPrompt: feedbackText,
+      threadId,
+      initialUserPromptForRecovery: 'Initial pipeline prompt',
+      feedbackPromptForRecovery: feedbackText,
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await executeAnalysisStep(config);
+
+    const secondPrompt = generateFn.mock.calls[1][0] as string;
+    expect(secondPrompt).toContain('Initial pipeline prompt');
+    expect(secondPrompt).toContain('## Completeness Review Feedback');
+    expect(secondPrompt).toContain('Job #102 missing');
   });
 
   it('context length エラー上限到達時は現状のレポートを返す（throwしない）', async () => {
     const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
 
     const generateFn = vi.fn().mockImplementation(async () => {
-      // 常にコンテキスト長エラー
       throw createContextLengthError();
     });
     const memoryWithMessages = createMockMemory([
@@ -265,7 +410,10 @@ describe('executeAnalysisStep', () => {
       analysisAgent,
       summarizationAgent,
       requestContext,
-      initialUserPrompt: 'Analyze',
+      currentPrompt: 'Analyze',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze',
+      feedbackPromptForRecovery: null,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
@@ -280,6 +428,7 @@ describe('executeAnalysisStep', () => {
 
   it('非コンテキスト長エラーは呼び出し元に再スローされる', async () => {
     const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
 
     const generateFn = vi.fn().mockRejectedValue(new Error('Unknown agent failure'));
     const analysisAgent = createMockAgent(generateFn);
@@ -289,7 +438,10 @@ describe('executeAnalysisStep', () => {
       analysisAgent,
       summarizationAgent,
       requestContext,
-      initialUserPrompt: 'Analyze',
+      currentPrompt: 'Analyze',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze',
+      feedbackPromptForRecovery: null,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
@@ -298,6 +450,7 @@ describe('executeAnalysisStep', () => {
 
   it('extraGenerateOptions が generate にマージされて渡される', async () => {
     const requestContext = createTestRequestContext({ resultFilePath });
+    const threadId = randomUUID();
 
     const generateFn = vi.fn().mockResolvedValue(undefined);
     const analysisAgent = createMockAgent(generateFn);
@@ -310,7 +463,10 @@ describe('executeAnalysisStep', () => {
       analysisAgent,
       summarizationAgent,
       requestContext,
-      initialUserPrompt: 'Analyze',
+      currentPrompt: 'Analyze',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze',
+      feedbackPromptForRecovery: null,
       extraGenerateOptions: {
         prepareStep: prepareStepSentinel,
         toolsets: toolsetsSentinel,
@@ -334,6 +490,40 @@ describe('executeAnalysisStep', () => {
     expect(opts.maxSteps).toBe(50);
     expect(opts.requestContext).toBe(requestContext);
     expect(opts.memory.resource).toBe('test-user');
-    expect(typeof opts.memory.thread).toBe('string');
+    expect(opts.memory.thread).toBe(threadId);
+  });
+
+  it('reasoningEffort が設定されている場合、generate オプションに含まれる', async () => {
+    const requestContext = createTestRequestContext({
+      resultFilePath,
+      aiConfig: {
+        apiKey: 'test-key',
+        endpointUrl: 'http://localhost',
+        modelName: 'test-model',
+        reasoningEffort: 'high',
+      },
+    });
+    const threadId = randomUUID();
+
+    const generateFn = vi.fn().mockResolvedValue(undefined);
+    const analysisAgent = createMockAgent(generateFn);
+    const summarizationAgent = createMockAgent(vi.fn());
+
+    const config: ExecuteAnalysisStepConfig = {
+      analysisAgent,
+      summarizationAgent,
+      requestContext,
+      currentPrompt: 'Analyze',
+      threadId,
+      initialUserPromptForRecovery: 'Analyze',
+      feedbackPromptForRecovery: null,
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await executeAnalysisStep(config);
+
+    const opts = generateFn.mock.calls[0][1] as Record<string, unknown>;
+    expect(opts.modelSettings).toEqual({ temperature: 1 });
+    expect(opts.providerOptions).toEqual({ openai: { reasoningEffort: 'high' } });
   });
 });

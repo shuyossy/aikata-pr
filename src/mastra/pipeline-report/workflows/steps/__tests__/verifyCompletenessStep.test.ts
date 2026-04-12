@@ -12,6 +12,7 @@ import { initializeRateLimiter, resetRateLimiter } from '../../../../../lib/rate
 import {
   verifyCompletenessStep,
   buildCompletenessFeedbackPrompt,
+  buildFeedbackWithReportPrompt,
   type VerifyCompletenessStepConfig,
   type ReportCompletenessJudgement,
 } from '../verifyCompletenessStep.js';
@@ -110,6 +111,28 @@ describe('buildCompletenessFeedbackPrompt', () => {
   });
 });
 
+describe('buildFeedbackWithReportPrompt', () => {
+  it('レポート現物とフィードバックの両方が含まれる', () => {
+    const reportContent = '# Report\n## Job 101\nBuild succeeded.';
+    const feedbackPrompt = '## Completeness Review Feedback\nJob #102 is missing.';
+
+    const result = buildFeedbackWithReportPrompt(reportContent, feedbackPrompt);
+
+    expect(result).toContain('Current Report Progress');
+    expect(result).toContain('# Report\n## Job 101\nBuild succeeded.');
+    expect(result).toContain('## Completeness Review Feedback');
+    expect(result).toContain('Job #102 is missing.');
+  });
+
+  it('レポート現物が markdown コードブロック内に含まれる', () => {
+    const result = buildFeedbackWithReportPrompt('report text', 'feedback');
+
+    expect(result).toContain('```markdown');
+    expect(result).toContain('report text');
+    expect(result).toContain('```');
+  });
+});
+
 describe('verifyCompletenessStep', () => {
   let tmpDir: string;
   let resultFilePath: string;
@@ -132,7 +155,7 @@ describe('verifyCompletenessStep', () => {
     resetRateLimiter();
   });
 
-  it('isComplete=true で即座に完了する（analysis agent は呼ばれない）', async () => {
+  it('isComplete=true の場合、完了で feedbackPrompt=null を返す', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       object: {
         isComplete: true,
@@ -140,159 +163,109 @@ describe('verifyCompletenessStep', () => {
         formatDeviations: [],
       },
     });
-    const analysisGenerate = vi.fn();
 
     const config: VerifyCompletenessStepConfig = {
-      analysisAgent: createMockAgent(analysisGenerate),
       judgeAgent: createMockAgent(judgeGenerate),
-      summarizationAgent: createMockAgent(vi.fn()),
       requestContext: createTestRequestContext({ resultFilePath }),
-      threadId: 'thread-1',
-      maxCompletenessRetries: 3,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
     const result = await verifyCompletenessStep(config);
 
-    expect(result.completenessVerified).toBe(true);
-    expect(result.completenessRetries).toBe(0);
+    expect(result.isComplete).toBe(true);
+    expect(result.feedbackPrompt).toBeNull();
     expect(result.reportContent).toBe('# Report\n(initial)');
+    expect(result.lastJudgement?.isComplete).toBe(true);
     expect(judgeGenerate).toHaveBeenCalledTimes(1);
-    expect(analysisGenerate).not.toHaveBeenCalled();
   });
 
-  it('1 回 isComplete=false → analysis再実行 → 2 回目で isComplete=true', async () => {
-    let judgeCall = 0;
-    const judgeGenerate = vi.fn().mockImplementation(async () => {
-      judgeCall++;
-      if (judgeCall === 1) {
-        return {
-          object: {
-            isComplete: false,
-            missingItems: [
-              { jobId: 102, jobName: 'test', reason: 'job block missing from the report' },
-            ],
-            formatDeviations: [],
-          },
-        };
-      }
-      return {
-        object: {
-          isComplete: true,
-          missingItems: [],
-          formatDeviations: [],
-        },
-      };
-    });
-    const analysisGenerate = vi.fn().mockImplementation(async () => {
-      // 分析agentが新たにジョブブロックを書き込んだ体で report を更新
-      await fs.promises.writeFile(resultFilePath, '# Report\n### Job 102', 'utf8');
-    });
-
-    const config: VerifyCompletenessStepConfig = {
-      analysisAgent: createMockAgent(analysisGenerate),
-      judgeAgent: createMockAgent(judgeGenerate),
-      summarizationAgent: createMockAgent(vi.fn()),
-      requestContext: createTestRequestContext({ resultFilePath }),
-      threadId: 'thread-1',
-      maxCompletenessRetries: 3,
-      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
-    };
-
-    const result = await verifyCompletenessStep(config);
-
-    expect(result.completenessVerified).toBe(true);
-    expect(result.completenessRetries).toBe(1);
-    expect(result.reportContent).toBe('# Report\n### Job 102');
-    expect(judgeGenerate).toHaveBeenCalledTimes(2);
-    expect(analysisGenerate).toHaveBeenCalledTimes(1);
-
-    // analysis agent に渡されたプロンプトにフィードバックが含まれる
-    const analysisPrompt = analysisGenerate.mock.calls[0][0] as string;
-    expect(analysisPrompt).toContain('Completeness Review Feedback');
-    expect(analysisPrompt).toContain('#102 `test`');
-  });
-
-  it('maxCompletenessRetries 上限到達時は completenessVerified=false で終了', async () => {
-    // 常に isComplete=false を返す
+  it('isComplete=false の場合、feedbackPrompt を構築して返す', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       object: {
         isComplete: false,
-        missingItems: [{ jobId: 102, jobName: 'test', reason: 'still missing' }],
+        missingItems: [
+          { jobId: 102, jobName: 'test', reason: 'job block missing from the report' },
+        ],
         formatDeviations: [],
       },
     });
-    const analysisGenerate = vi.fn().mockResolvedValue(undefined);
 
-    const maxCompletenessRetries = 2;
     const config: VerifyCompletenessStepConfig = {
-      analysisAgent: createMockAgent(analysisGenerate),
       judgeAgent: createMockAgent(judgeGenerate),
-      summarizationAgent: createMockAgent(vi.fn()),
       requestContext: createTestRequestContext({ resultFilePath }),
-      threadId: 'thread-1',
-      maxCompletenessRetries,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
     const result = await verifyCompletenessStep(config);
 
-    expect(result.completenessVerified).toBe(false);
-    expect(result.completenessRetries).toBe(maxCompletenessRetries);
-    // judge は maxCompletenessRetries + 1 回呼ばれる（各サイクルと最終判定）
-    expect(judgeGenerate).toHaveBeenCalledTimes(maxCompletenessRetries + 1);
-    expect(analysisGenerate).toHaveBeenCalledTimes(maxCompletenessRetries);
-    expect(result.lastJudgement).toBeTruthy();
+    expect(result.isComplete).toBe(false);
+    expect(result.feedbackPrompt).toContain('Completeness Review Feedback');
+    expect(result.feedbackPrompt).toContain('#102 `test`');
     expect(result.lastJudgement?.missingItems).toHaveLength(1);
+    expect(judgeGenerate).toHaveBeenCalledTimes(1);
   });
 
-  it('judge agent が JSON エラーになった場合は warning ログで現状を返す', async () => {
+  it('judge agent が JSON エラーになった場合は warning で isComplete=false, feedbackPrompt=null を返す', async () => {
     const judgeGenerate = vi.fn().mockRejectedValue(new Error('invalid json'));
-    const analysisGenerate = vi.fn();
 
     const config: VerifyCompletenessStepConfig = {
-      analysisAgent: createMockAgent(analysisGenerate),
       judgeAgent: createMockAgent(judgeGenerate),
-      summarizationAgent: createMockAgent(vi.fn()),
       requestContext: createTestRequestContext({ resultFilePath }),
-      threadId: 'thread-1',
-      maxCompletenessRetries: 3,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
     const result = await verifyCompletenessStep(config);
 
-    expect(result.completenessVerified).toBe(false);
-    expect(result.completenessRetries).toBe(0);
+    expect(result.isComplete).toBe(false);
+    expect(result.feedbackPrompt).toBeNull();
     expect(result.lastJudgement).toBeNull();
     expect(result.reportContent).toBe('# Report\n(initial)');
-    expect(analysisGenerate).not.toHaveBeenCalled();
   });
 
   it('structuredOutput が object を返さず text で返す場合も JSON パースで判定できる', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
-      // object なし、text 経由
       text: JSON.stringify({
         isComplete: true,
         missingItems: [],
         formatDeviations: [],
       }),
     });
-    const analysisGenerate = vi.fn();
 
     const config: VerifyCompletenessStepConfig = {
-      analysisAgent: createMockAgent(analysisGenerate),
       judgeAgent: createMockAgent(judgeGenerate),
-      summarizationAgent: createMockAgent(vi.fn()),
       requestContext: createTestRequestContext({ resultFilePath }),
-      threadId: 'thread-1',
-      maxCompletenessRetries: 3,
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
     const result = await verifyCompletenessStep(config);
 
-    expect(result.completenessVerified).toBe(true);
-    expect(result.completenessRetries).toBe(0);
+    expect(result.isComplete).toBe(true);
+    expect(result.feedbackPrompt).toBeNull();
+  });
+
+  it('buildGenerateOptions 経由で reasoningEffort が judge agent に渡される', async () => {
+    const judgeGenerate = vi.fn().mockResolvedValue({
+      object: { isComplete: true, missingItems: [], formatDeviations: [] },
+    });
+
+    const config: VerifyCompletenessStepConfig = {
+      judgeAgent: createMockAgent(judgeGenerate),
+      requestContext: createTestRequestContext({
+        resultFilePath,
+        aiConfig: {
+          apiKey: 'test-key',
+          endpointUrl: 'http://localhost',
+          modelName: 'test-model',
+          reasoningEffort: 'medium',
+        },
+      }),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await verifyCompletenessStep(config);
+
+    const opts = judgeGenerate.mock.calls[0][1] as Record<string, unknown>;
+    expect(opts.modelSettings).toEqual({ temperature: 1 });
+    expect(opts.providerOptions).toEqual({ openai: { reasoningEffort: 'medium' } });
   });
 });

@@ -10,35 +10,22 @@ import {
   buildReportCompletenessJudgeUserPrompt,
   reportCompletenessJudgementSchema,
 } from '../../agents/reportCompletenessJudgeAgent.js';
+import { buildGenerateOptions } from '../../../shared/requestContext.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
-import { classifyError } from '../../../../lib/errorClassifier.js';
-import { RateLimitExhaustedError } from '../../../../lib/rateLimiterGlobal.js';
 import { getLogger } from '../../../../lib/logger.js';
-import { recoverFromContextLength } from './contextLengthRecovery.js';
 
 export type ReportCompletenessJudgement = z.infer<typeof reportCompletenessJudgementSchema>;
 
 /**
  * verifyCompletenessStep の設定
+ *
+ * ループ制御は workflow 側（dountil）が担うため、本ステップは
+ * 「レポートを読み → judge agent で判定 → 結果を返す」のみの責務を持つ。
  */
 export interface VerifyCompletenessStepConfig {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  analysisAgent: Agent<string, Record<string, any>, any, any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   judgeAgent: Agent<string, Record<string, any>, any, any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  summarizationAgent: Agent<string, Record<string, any>, any, any>;
   requestContext: RequestContext<PipelineAnalysisAgentRequestContext>;
-  /**
-   * executeAnalysisStep が使用した最終スレッドID
-   * 不足項目再実行時は同じスレッドに継続プロンプトを送る
-   */
-  threadId: string;
-  /** 最大再実行回数（判定上限） */
-  maxCompletenessRetries: number;
-  /** `pipelineAnalysisAgent.generate()` に渡す追加オプション */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  extraGenerateOptions?: Record<string, any>;
   rateLimitRetryConfig: RateLimitRetryConfig;
 }
 
@@ -46,12 +33,12 @@ export interface VerifyCompletenessStepConfig {
  * verifyCompletenessStep の結果
  */
 export interface VerifyCompletenessStepResult {
-  /** 最終的なレポート本文 */
+  /** 判定時点のレポート本文 */
   reportContent: string;
-  /** 判定が isComplete=true で終了したか */
-  completenessVerified: boolean;
-  /** verify → 再実行 → verify のサイクル実行回数 */
-  completenessRetries: number;
+  /** 判定が isComplete=true か */
+  isComplete: boolean;
+  /** isComplete=false のとき、次回 analysis 呼び出しに渡すフィードバックプロンプト */
+  feedbackPrompt: string | null;
   /** 最後の judge 結果（失敗時の診断に使える） */
   lastJudgement: ReportCompletenessJudgement | null;
 }
@@ -95,6 +82,28 @@ export function buildCompletenessFeedbackPrompt(judgement: ReportCompletenessJud
 }
 
 /**
+ * レポート現物＋判定フィードバックを結合した再実行プロンプトを構築する
+ *
+ * Agent が get-report ツールを呼ばなくてもレポートの現状を即座に把握できるよう、
+ * レポート全文をプロンプト先頭に埋め込む。
+ */
+export function buildFeedbackWithReportPrompt(
+  currentReportContent: string,
+  feedbackPrompt: string,
+): string {
+  return `## Current Report Progress
+Below is the current state of the report file. Use this as reference to understand what has been completed and what still needs work.
+
+\`\`\`markdown
+${currentReportContent}
+\`\`\`
+
+---
+
+${feedbackPrompt}`;
+}
+
+/**
  * judge agent を呼び出して判定結果を取得する
  */
 async function callJudgeAgent(params: {
@@ -126,14 +135,8 @@ async function callJudgeAgent(params: {
       schema: reportCompletenessJudgementSchema,
       errorStrategy: 'strict',
     },
+    ...buildGenerateOptions(ctx.aiConfig.reasoningEffort),
   };
-
-  if (ctx.aiConfig.reasoningEffort) {
-    generateOptions.modelSettings = { temperature: 1 };
-    generateOptions.providerOptions = {
-      openai: { reasoningEffort: ctx.aiConfig.reasoningEffort },
-    };
-  }
 
   const result = await withRateLimitRetry(
     () => judgeAgent.generate(userPrompt, generateOptions),
@@ -154,195 +157,73 @@ async function callJudgeAgent(params: {
 }
 
 /**
- * 分析 Agent に再実行プロンプトを送信してレポートを補完する
- */
-async function rerunAnalysisWithFeedback(params: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  analysisAgent: Agent<string, Record<string, any>, any, any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  summarizationAgent: Agent<string, Record<string, any>, any, any>;
-  requestContext: RequestContext<PipelineAnalysisAgentRequestContext>;
-  threadId: string;
-  feedbackPrompt: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  extraGenerateOptions?: Record<string, any>;
-  rateLimitRetryConfig: RateLimitRetryConfig;
-}): Promise<{ newThreadId: string }> {
-  const {
-    analysisAgent,
-    summarizationAgent,
-    requestContext,
-    threadId,
-    feedbackPrompt,
-    extraGenerateOptions,
-    rateLimitRetryConfig,
-  } = params;
-  const logger = getLogger();
-  const ctx = requestContext.all;
-  const projectIdStr = String(ctx.projectId);
-  const resourceId = ctx.userId;
-
-  let currentThreadId = threadId;
-  let prompt = feedbackPrompt;
-  let contextLengthRecoveries = 0;
-  const MAX_CTX_RECOVERIES = 3;
-
-  while (true) {
-    try {
-      await withRateLimitRetry(
-        () => {
-          const generateOptions = {
-            ...(extraGenerateOptions ?? {}),
-            requestContext,
-            memory: { thread: currentThreadId, resource: resourceId },
-          };
-          return analysisAgent.generate(prompt, generateOptions);
-        },
-        rateLimitRetryConfig,
-        { projectId: projectIdStr },
-      );
-      return { newThreadId: currentThreadId };
-    } catch (error) {
-      if (error instanceof RateLimitExhaustedError) {
-        throw error;
-      }
-
-      const classified = classifyError(error);
-      if (classified.type === 'context_length') {
-        if (contextLengthRecoveries >= MAX_CTX_RECOVERIES) {
-          logger.warn(
-            { attempts: contextLengthRecoveries },
-            'Pipeline-report completeness rerun context length recovery limit reached',
-          );
-          return { newThreadId: currentThreadId };
-        }
-        const recovery = await recoverFromContextLength({
-          analysisAgent,
-          summarizationAgent,
-          threadId: currentThreadId,
-          resourceId,
-          requestContext,
-          rateLimitRetryConfig,
-          originalError: error,
-        });
-        currentThreadId = recovery.newThreadId;
-        prompt = `## Context Length Recovery Notice\nThe previous completeness rerun hit a context length limit and was summarized below. Resume the completeness fix immediately.\n\n## Summary of Previous Work\n${recovery.summary}\n\n---\n\n${feedbackPrompt}`;
-        contextLengthRecoveries++;
-        continue;
-      }
-
-      throw error;
-    }
-  }
-}
-
-/**
- * レポートの完全性を検証するステップ
+ * レポートの完全性を検証するステップ（判定のみ）
+ *
+ * ループ制御は workflow 側（dountil）が行うため、本関数は1回分の判定のみを実行する。
  *
  * 処理フロー:
  * 1. resultFilePath を読む
  * 2. judge agent に渡して判定結果を取得
- * 3. isComplete=true → 完了
- * 4. isComplete=false かつ retries < max →
- *    フィードバックプロンプトを組み立てて analysis agent を再実行 → 再度 verify
- * 5. retries 上限到達 → warning ログを出して現状を返却
- * 6. judge agent が JSON パースエラーになった場合は warning ログを出して現状を返却
+ * 3. isComplete / feedbackPrompt を返す
+ * 4. judge agent がエラーになった場合は warning ログ + isComplete=false, feedbackPrompt=null を返す
  */
 export async function verifyCompletenessStep(
   config: VerifyCompletenessStepConfig,
 ): Promise<VerifyCompletenessStepResult> {
   const logger = getLogger();
-  const {
-    analysisAgent,
-    judgeAgent,
-    summarizationAgent,
-    requestContext,
-    threadId,
-    maxCompletenessRetries,
-    extraGenerateOptions,
-    rateLimitRetryConfig,
-  } = config;
+  const { judgeAgent, requestContext, rateLimitRetryConfig } = config;
 
   const resultFilePath = requestContext.get('resultFilePath') as string;
 
-  let currentThreadId = threadId;
-  let completenessRetries = 0;
+  // 1. 現在のレポートを読む
+  const currentReport = await fs.promises.readFile(resultFilePath, 'utf8');
 
-  while (true) {
-    // 1. 現在のレポートを読む
-    const currentReport = await fs.promises.readFile(resultFilePath, 'utf8');
-
-    // 2. judge agent を呼ぶ（パースエラーは warning ログで返却）
-    let lastJudgement: ReportCompletenessJudgement;
-    try {
-      lastJudgement = await callJudgeAgent({
-        judgeAgent,
-        requestContext,
-        currentReportContent: currentReport,
-        rateLimitRetryConfig,
-      });
-    } catch (err) {
-      logger.warn(
-        { err },
-        'Pipeline-report completeness judgement failed to produce structured output; returning current report as-is',
-      );
-      return {
-        reportContent: currentReport,
-        completenessVerified: false,
-        completenessRetries,
-        lastJudgement: null,
-      };
-    }
-
-    // 3. 完成
-    if (lastJudgement.isComplete) {
-      logger.info({ completenessRetries }, 'Pipeline-report completeness verified');
-      return {
-        reportContent: currentReport,
-        completenessVerified: true,
-        completenessRetries,
-        lastJudgement,
-      };
-    }
-
-    // 5. 上限到達
-    if (completenessRetries >= maxCompletenessRetries) {
-      logger.warn(
-        {
-          completenessRetries,
-          missingItems: lastJudgement.missingItems.length,
-          formatDeviations: lastJudgement.formatDeviations.length,
-        },
-        'Pipeline-report completeness retry limit reached, returning current report',
-      );
-      return {
-        reportContent: currentReport,
-        completenessVerified: false,
-        completenessRetries,
-        lastJudgement,
-      };
-    }
-
-    // 4. フィードバックを組み立てて analysis agent 再実行
-    logger.info(
-      {
-        attempt: completenessRetries + 1,
-        missingItems: lastJudgement.missingItems.length,
-        formatDeviations: lastJudgement.formatDeviations.length,
-      },
-      'Pipeline-report not complete; rerunning analysis with feedback',
-    );
-    const feedbackPrompt = buildCompletenessFeedbackPrompt(lastJudgement);
-    const rerunResult = await rerunAnalysisWithFeedback({
-      analysisAgent,
-      summarizationAgent,
+  // 2. judge agent を呼ぶ（パースエラーは warning ログで返却）
+  let judgement: ReportCompletenessJudgement;
+  try {
+    judgement = await callJudgeAgent({
+      judgeAgent,
       requestContext,
-      threadId: currentThreadId,
-      feedbackPrompt,
-      extraGenerateOptions,
+      currentReportContent: currentReport,
       rateLimitRetryConfig,
     });
-    currentThreadId = rerunResult.newThreadId;
-    completenessRetries++;
+  } catch (err) {
+    logger.warn(
+      { err },
+      'Pipeline-report completeness judgement failed to produce structured output; returning current report as-is',
+    );
+    return {
+      reportContent: currentReport,
+      isComplete: false,
+      feedbackPrompt: null,
+      lastJudgement: null,
+    };
   }
+
+  // 3. 完成
+  if (judgement.isComplete) {
+    logger.info('Pipeline-report completeness verified');
+    return {
+      reportContent: currentReport,
+      isComplete: true,
+      feedbackPrompt: null,
+      lastJudgement: judgement,
+    };
+  }
+
+  // 4. 不完全 → フィードバックプロンプトを構築して返す
+  logger.info(
+    {
+      missingItems: judgement.missingItems.length,
+      formatDeviations: judgement.formatDeviations.length,
+    },
+    'Pipeline-report not complete; feedback generated',
+  );
+  const feedbackPrompt = buildCompletenessFeedbackPrompt(judgement);
+  return {
+    reportContent: currentReport,
+    isComplete: false,
+    feedbackPrompt,
+    lastJudgement: judgement,
+  };
 }

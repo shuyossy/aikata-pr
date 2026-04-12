@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { createWorkflow, createStep } from '@mastra/core/workflows';
 import { RequestContext } from '@mastra/core/request-context';
 import { z } from 'zod';
@@ -6,10 +8,11 @@ import type { TargetJobSummary } from '../types.js';
 import { executeAnalysisStep } from './steps/executeAnalysisStep.js';
 import {
   verifyCompletenessStep,
-  type ReportCompletenessJudgement,
+  buildFeedbackWithReportPrompt,
 } from './steps/verifyCompletenessStep.js';
 import { createToolset } from '../agents/pipelineAnalysisAgent.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
+import { getLogger } from '../../../lib/logger.js';
 
 /**
  * TargetJobSummary の Zod スキーマ
@@ -70,9 +73,6 @@ export const workflowOutputSchema = z.object({
 
 /**
  * ワークフローレベルの RequestContext バリデーション
- *
- * `PipelineAnalysisAgentRequestContext` の全フィールドを zod で検証するのは過剰なため、
- * 必須のコア値のみを網羅する（Mastra の requestContextSchema は内部的に構造チェックに使われる）。
  */
 const requestContextSchema = z.object({
   userId: z.string(),
@@ -103,78 +103,80 @@ const requestContextSchema = z.object({
 });
 
 /**
- * Step 1: executeAnalysisStep を Mastra ステップとして包む
+ * dountil ループの状態管理スキーマ
  */
-const analysisExecutionStep = createStep({
-  id: 'pipeline-report-execute-analysis',
-  description: 'Run pipelineAnalysisAgent to fill in the report skeleton',
+const loopStateSchema = z.object({
+  /** 次に analysis agent に送信するプロンプト */
+  prompt: z.string(),
+  /** 使用中のスレッドID */
+  threadId: z.string(),
+  /** 判定が isComplete=true で完了したか */
+  isComplete: z.boolean(),
+  /** 不完全時の feedback プロンプト（judge 失敗時 null → ループ脱出扱い） */
+  feedbackPrompt: z.string().nullable(),
+  /** 累積コンテキスト長リカバリー回数 */
+  contextLengthRecoveries: z.number(),
+  /** 実行済み verify 回数（completenessRetries 出力値は max(0, これ - 1)） */
+  completenessRetries: z.number(),
+});
+
+/**
+ * Step A: 初期セットアップ（テンプレート書き込み + ループ初期状態）
+ */
+const prepareStep = createStep({
+  id: 'pipeline-report-prepare',
+  description: 'Write initial report skeleton and prepare loop state',
   inputSchema: workflowInputSchema,
-  outputSchema: z.object({
-    initialReportContent: z.string(),
-    finalThreadId: z.string(),
-    contextLengthRecoveries: z.number(),
-  }),
-  execute: async ({ inputData, requestContext, mastra }) => {
-    const analysisAgent = mastra.getAgent('pipelineAnalysisAgent');
-    const summarizationAgent = mastra.getAgent('pipelineReportSummarizationAgent');
+  outputSchema: loopStateSchema,
+  execute: async ({ inputData, requestContext }) => {
+    const ctx = (requestContext as RequestContext<PipelineAnalysisAgentRequestContext>).all;
 
-    // RequestContext は親から渡されるため、型を強制する
-    const typedContext = requestContext as RequestContext<PipelineAnalysisAgentRequestContext>;
-
-    // agent に渡す toolset を RequestContext から組み立てる
-    const ctx = typedContext.all;
-    const toolset = createToolset(ctx);
-
-    const result = await executeAnalysisStep({
-      analysisAgent,
-      summarizationAgent,
-      requestContext: typedContext,
-      initialUserPrompt: inputData.initialUserPrompt,
-      extraGenerateOptions: {
-        toolsets: { pipelineAnalysis: toolset },
-        maxSteps: 50,
-      },
-      rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
-    });
+    // 初期テンプレート書き込み
+    await fs.promises.writeFile(inputData.resultFilePath, ctx.overallTemplate, 'utf8');
 
     return {
-      initialReportContent: result.reportContent,
-      finalThreadId: result.finalThreadId,
-      contextLengthRecoveries: result.contextLengthRecoveries,
+      prompt: inputData.initialUserPrompt,
+      threadId: randomUUID(),
+      isComplete: false,
+      feedbackPrompt: null,
+      contextLengthRecoveries: 0,
+      completenessRetries: 0,
     };
   },
 });
 
 /**
- * Step 2: verifyCompletenessStep を Mastra ステップとして包む
+ * Step B: analyze + verify（dountil 本体）
+ *
+ * 1回のイテレーションで:
+ * 1. executeAnalysisStep で analysis agent を呼び出し
+ * 2. verifyCompletenessStep で judge agent が判定
+ * 3. 不完全なら feedbackPrompt + レポート現物を次イテレーションの prompt にセット
  */
-const completenessVerificationStep = createStep({
-  id: 'pipeline-report-verify-completeness',
-  description:
-    'Verify report completeness with reportCompletenessJudgeAgent and rerun analysis agent when needed',
-  inputSchema: z.object({
-    initialReportContent: z.string(),
-    finalThreadId: z.string(),
-    contextLengthRecoveries: z.number(),
-  }),
-  outputSchema: workflowOutputSchema,
-  execute: async ({ inputData, getInitData, requestContext, mastra }) => {
+const analyzeAndVerifyStep = createStep({
+  id: 'pipeline-report-analyze-and-verify',
+  description: 'Run analysis agent then verify completeness with judge agent',
+  inputSchema: loopStateSchema,
+  outputSchema: loopStateSchema,
+  execute: async ({ inputData, getInitData, mastra, requestContext }) => {
+    const logger = getLogger();
     const initData = getInitData<typeof pipelineAnalysisWorkflow>();
     const analysisAgent = mastra.getAgent('pipelineAnalysisAgent');
     const judgeAgent = mastra.getAgent('reportCompletenessJudgeAgent');
     const summarizationAgent = mastra.getAgent('pipelineReportSummarizationAgent');
-
     const typedContext = requestContext as RequestContext<PipelineAnalysisAgentRequestContext>;
     const ctx = typedContext.all;
     const toolset = createToolset(ctx);
 
-    const result = await verifyCompletenessStep({
+    // 1. analysis agent を実行
+    const analysis = await executeAnalysisStep({
       analysisAgent,
-      judgeAgent,
       summarizationAgent,
       requestContext: typedContext,
-      threadId: inputData.finalThreadId,
-      maxCompletenessRetries: initData.maxCompletenessRetries,
+      currentPrompt: inputData.prompt,
+      threadId: inputData.threadId,
+      initialUserPromptForRecovery: initData.initialUserPrompt,
+      feedbackPromptForRecovery: inputData.feedbackPrompt,
       extraGenerateOptions: {
         toolsets: { pipelineAnalysis: toolset },
         maxSteps: 50,
@@ -182,14 +184,58 @@ const completenessVerificationStep = createStep({
       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     });
 
-    // TypeScript は下流でのみ型を使うため、lastJudgement は output から除外する
-    const _unused: ReportCompletenessJudgement | null = result.lastJudgement;
-    void _unused;
+    // 2. judge agent で完成判定
+    const verify = await verifyCompletenessStep({
+      judgeAgent,
+      requestContext: typedContext,
+      rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
+    });
+
+    // 3. 次イテレーションの状態を構築
+    let nextPrompt = inputData.prompt;
+    let nextFeedbackPrompt: string | null = null;
+
+    if (!verify.isComplete && verify.feedbackPrompt) {
+      // レポート現状 + フィードバックを結合
+      nextFeedbackPrompt = verify.feedbackPrompt;
+      nextPrompt = buildFeedbackWithReportPrompt(verify.reportContent, verify.feedbackPrompt);
+      logger.info(
+        {
+          attempt: inputData.completenessRetries + 1,
+          missingItems: verify.lastJudgement?.missingItems?.length ?? 0,
+          formatDeviations: verify.lastJudgement?.formatDeviations?.length ?? 0,
+        },
+        'Pipeline-report not complete; will rerun analysis with feedback',
+      );
+    }
 
     return {
-      reportContent: result.reportContent,
-      completenessVerified: result.completenessVerified,
-      completenessRetries: result.completenessRetries,
+      prompt: nextPrompt,
+      threadId: analysis.finalThreadId,
+      isComplete: verify.isComplete,
+      feedbackPrompt: nextFeedbackPrompt,
+      contextLengthRecoveries: inputData.contextLengthRecoveries + analysis.contextLengthRecoveries,
+      completenessRetries: inputData.completenessRetries + 1,
+    };
+  },
+});
+
+/**
+ * Step C: 最終化（レポート読み取り + 出力スキーマへの変換）
+ */
+const finalizeStep = createStep({
+  id: 'pipeline-report-finalize',
+  description: 'Read final report and produce workflow output',
+  inputSchema: loopStateSchema,
+  outputSchema: workflowOutputSchema,
+  execute: async ({ inputData, requestContext }) => {
+    const ctx = (requestContext as RequestContext<PipelineAnalysisAgentRequestContext>).all;
+    const reportContent = await fs.promises.readFile(ctx.resultFilePath, 'utf8');
+    return {
+      reportContent,
+      completenessVerified: inputData.isComplete,
+      // completenessRetries は「再実行の回数」= 実行済 verify 回数 - 1
+      completenessRetries: Math.max(0, inputData.completenessRetries - 1),
     };
   },
 });
@@ -198,8 +244,10 @@ const completenessVerificationStep = createStep({
  * pipeline-report ワークフロー
  *
  * 処理フロー:
- * 1. executeAnalysisStep: pipelineAnalysisAgent でレポートを書き上げる
- * 2. verifyCompletenessStep: reportCompletenessJudgeAgent で完全性を判定し、必要なら再実行
+ * 1. prepareStep: レポートスケルトンを書き込み、ループ初期状態を生成
+ * 2. dountil(analyzeAndVerifyStep): analysis agent + judge agent を繰り返す
+ *    - 完成 or judge 失敗(feedbackPrompt===null) or 再実行上限到達でループ脱出
+ * 3. finalizeStep: 最終レポートを読み取り出力
  */
 export const pipelineAnalysisWorkflow = createWorkflow({
   id: 'pipeline-analysis-workflow',
@@ -208,4 +256,20 @@ export const pipelineAnalysisWorkflow = createWorkflow({
   requestContextSchema,
 });
 
-pipelineAnalysisWorkflow.then(analysisExecutionStep).then(completenessVerificationStep).commit();
+pipelineAnalysisWorkflow
+  .then(prepareStep)
+  .dountil(analyzeAndVerifyStep, async ({ inputData, getInitData }) => {
+    const initData = getInitData<typeof pipelineAnalysisWorkflow>();
+    // 脱出条件:
+    // - isComplete: 判定完了
+    // - feedbackPrompt === null かつ isComplete === false: judge 失敗で打ち切り
+    // - completenessRetries >= maxCompletenessRetries + 1: 再実行上限到達
+    //   （初回の実行は「再実行」ではないため +1）
+    return (
+      inputData.isComplete ||
+      (inputData.feedbackPrompt === null && inputData.completenessRetries > 0) ||
+      inputData.completenessRetries >= initData.maxCompletenessRetries + 1
+    );
+  })
+  .then(finalizeStep)
+  .commit();
