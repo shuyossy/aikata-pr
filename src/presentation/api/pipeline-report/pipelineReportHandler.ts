@@ -63,6 +63,8 @@ export interface PipelineReportApiResponse {
   completenessVerified: boolean;
   /** 完成判定リトライ回数 */
   completenessRetries: number;
+  /** workflow が失敗したが部分レポートを回復した場合に true */
+  workflowFailed: boolean;
   /** 分析対象となったジョブ ID の一覧 */
   targetJobIds: number[];
   /** パイプライン情報 */
@@ -342,6 +344,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
           reportContent: analysis.report.content,
           completenessVerified: analysis.completenessVerified,
           completenessRetries: analysis.completenessRetries,
+          workflowFailed: analysis.workflowFailed,
           targetJobIds: analysis.targetJobs.map((j) => j.id),
           pipeline: {
             projectId: analysis.pipeline.projectId,

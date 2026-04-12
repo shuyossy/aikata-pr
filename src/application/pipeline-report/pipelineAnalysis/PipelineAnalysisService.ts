@@ -57,6 +57,8 @@ export interface PipelineAnalysisResult {
   pipeline: Pipeline;
   completenessVerified: boolean;
   completenessRetries: number;
+  /** workflow が失敗したが部分レポートを回復した場合に true */
+  workflowFailed: boolean;
   tokenStats: {
     compressed: boolean;
     folderTreeStripped: boolean;
@@ -125,6 +127,7 @@ export class PipelineAnalysisService {
           pipeline,
           completenessVerified: true,
           completenessRetries: 0,
+          workflowFailed: false,
           tokenStats: {
             compressed: false,
             folderTreeStripped: false,
@@ -185,29 +188,50 @@ export class PipelineAnalysisService {
       fs.writeFileSync(resultFilePath, OVERALL_REPORT_TEMPLATE);
 
       // Step 11: workflow 実行
-      const workflowResult = await this.workflowRunner.run({
-        userId: command.userId,
-        projectId: command.projectId,
-        pipelineMeta: pipeline,
-        targetJobs,
-        jobLogsCompressed: compression.compressedJobLogs,
-        omittedJobLogs: compression.omittedJobLogs,
-        mergedYaml,
-        artifactTrees,
-        folderTree: compression.effectiveFolderTree,
-        folderTreeStripped: compression.folderTreeStripped,
-        overallTemplate: OVERALL_REPORT_TEMPLATE,
-        jobReportFormat: command.settings.jobReportFormat,
-        additionalInstructions: command.settings.additionalInstructions,
-        commentLanguage: command.commentLanguage,
-        skillsPaths: command.skillsPaths,
-        resultFilePath,
-        projectDir: command.projectDir,
-        artifactCacheStatuses,
-        maxCompletenessRetries: command.options.maxCompletenessRetries,
-        aiConfig: command.aiConfig,
-        onProgress: command.onProgress,
-      });
+      let completenessVerified: boolean;
+      let completenessRetries: number;
+      let workflowFailed = false;
+      try {
+        const workflowResult = await this.workflowRunner.run({
+          userId: command.userId,
+          projectId: command.projectId,
+          pipelineMeta: pipeline,
+          targetJobs,
+          jobLogsCompressed: compression.compressedJobLogs,
+          omittedJobLogs: compression.omittedJobLogs,
+          mergedYaml,
+          artifactTrees,
+          folderTree: compression.effectiveFolderTree,
+          folderTreeStripped: compression.folderTreeStripped,
+          overallTemplate: OVERALL_REPORT_TEMPLATE,
+          jobReportFormat: command.settings.jobReportFormat,
+          additionalInstructions: command.settings.additionalInstructions,
+          commentLanguage: command.commentLanguage,
+          skillsPaths: command.skillsPaths,
+          resultFilePath,
+          projectDir: command.projectDir,
+          artifactCacheStatuses,
+          maxCompletenessRetries: command.options.maxCompletenessRetries,
+          aiConfig: command.aiConfig,
+          onProgress: command.onProgress,
+        });
+        completenessVerified = workflowResult.completenessVerified;
+        completenessRetries = workflowResult.completenessRetries;
+      } catch (workflowError) {
+        // workflow 失敗時: レポートファイルに進捗があれば部分レポートとして回復する
+        if (this.hasReportProgress(resultFilePath)) {
+          const logger = getLogger();
+          logger.warn(
+            { err: workflowError },
+            'Pipeline analysis workflow failed but partial report is available; returning partial result',
+          );
+          completenessVerified = false;
+          completenessRetries = 0;
+          workflowFailed = true;
+        } else {
+          throw workflowError;
+        }
+      }
 
       // Step 12: 最終レポート本文を読み取り
       const reportContent = fs.readFileSync(resultFilePath, 'utf-8');
@@ -217,8 +241,9 @@ export class PipelineAnalysisService {
         report: AnalysisReport.of(reportContent),
         targetJobs,
         pipeline,
-        completenessVerified: workflowResult.completenessVerified,
-        completenessRetries: workflowResult.completenessRetries,
+        completenessVerified,
+        completenessRetries,
+        workflowFailed,
         tokenStats: {
           compressed: compression.compressed,
           folderTreeStripped: compression.folderTreeStripped,
@@ -327,6 +352,19 @@ export class PipelineAnalysisService {
       effectiveFolderTree: result.folderTreeStripped ? result.strippedFolderTree : folderTree,
       compressedJobIds: result.compressedJobIds,
     };
+  }
+
+  /**
+   * レポートファイルに初期テンプレートからの進捗があるかを判定する。
+   * ファイル内容が OVERALL_REPORT_TEMPLATE と異なればレポート作成が進捗したと見なす。
+   */
+  private hasReportProgress(resultFilePath: string): boolean {
+    try {
+      const content = fs.readFileSync(resultFilePath, 'utf-8');
+      return content !== OVERALL_REPORT_TEMPLATE;
+    } catch {
+      return false;
+    }
   }
 
   /**

@@ -85,6 +85,7 @@ describe('pipeline-report CLI module', () => {
         pipeline: fakePipeline,
         completenessVerified: true,
         completenessRetries: 0,
+        workflowFailed: false,
         tokenStats: {
           compressed: false,
           folderTreeStripped: false,
@@ -135,6 +136,69 @@ describe('pipeline-report CLI module', () => {
       expect(cleanup).toHaveBeenCalledTimes(1);
     });
 
+    it('workflowFailed=true の場合、レポートを保存してから exit(1) する', async () => {
+      const resultFilePath = path.join(tmpDir, 'partial-report.md');
+      process.env['AI_API_KEY'] = 'k';
+      process.env['AI_API_ENDPOINT_URL'] = 'https://ai.example.com';
+
+      const fakeReport = AnalysisReport.of('# Partial Report\n\npartially done');
+      const fakePipeline = Pipeline.of({
+        projectId: 10,
+        pipelineId: 20,
+        sha: 'abc',
+        ref: 'main',
+        status: 'failed',
+        webUrl: 'https://gitlab.example.com/pipelines/20',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-01T00:05:00Z'),
+      });
+      const fakeResult: PipelineAnalysisResult = {
+        report: fakeReport,
+        targetJobs: [],
+        pipeline: fakePipeline,
+        completenessVerified: false,
+        completenessRetries: 0,
+        workflowFailed: true,
+        tokenStats: {
+          compressed: false,
+          folderTreeStripped: false,
+          compressedJobIds: [],
+        },
+      };
+      const analyze = vi.fn().mockResolvedValue(fakeResult);
+      const cleanup = vi.fn();
+      const localDeps: PipelineReportLocalDeps = {
+        service: { analyze },
+        cleanup,
+      };
+
+      await expect(
+        run(
+          [
+            '--user-id',
+            'alice',
+            '--project-id',
+            '10',
+            '--pipeline-id',
+            '20',
+            '--aikata-pr-gitlab-token',
+            'glt',
+            '--result-file',
+            resultFilePath,
+          ],
+          { localDepsFactory: () => localDeps },
+        ),
+      ).rejects.toThrow('process.exit:1');
+
+      // レポートはファイルに保存されている
+      expect(fs.readFileSync(resultFilePath, 'utf-8')).toBe('# Partial Report\n\npartially done');
+      // stdout にも出力されている
+      const stdoutOut = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('');
+      expect(stdoutOut).toContain('# Partial Report');
+      // cleanup が呼ばれる
+      expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
     it('service.analyze が失敗した場合、exit(1)し cleanupも呼ばれる', async () => {
       process.env['AI_API_KEY'] = 'k';
       process.env['AI_API_ENDPOINT_URL'] = 'https://ai.example.com';
@@ -174,6 +238,7 @@ describe('pipeline-report CLI module', () => {
         reportContent: '# API Pipeline Report\n\nok',
         completenessVerified: true,
         completenessRetries: 0,
+        workflowFailed: false,
         targetJobIds: [1, 2],
         pipeline: {
           projectId: 10,
@@ -233,6 +298,70 @@ describe('pipeline-report CLI module', () => {
       expect(fs.readFileSync(resultFilePath, 'utf-8')).toBe('# API Pipeline Report\n\nok');
       const stdoutOut = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('');
       expect(stdoutOut).toContain('# API Pipeline Report');
+    });
+
+    it('workflowFailed=true の場合、レポートを保存してから exit(1) する', async () => {
+      const resultFilePath = path.join(tmpDir, 'api-partial-report.md');
+      const fakeApiResult: PipelineReportApiResult = {
+        reportContent: '# API Partial Report\n\npartially analyzed',
+        completenessVerified: false,
+        completenessRetries: 0,
+        workflowFailed: true,
+        targetJobIds: [1],
+        pipeline: {
+          projectId: 10,
+          pipelineId: 20,
+          ref: 'main',
+          sha: 'abc',
+          status: 'failed',
+          webUrl: 'https://gitlab.example.com/pipelines/20',
+        },
+      };
+      const clientRun = vi
+        .fn<
+          (
+            req: Parameters<
+              typeof import('../../../infrastructure/adapter/pipeline-report/apiClient/index.js').PipelineReportApiClient.prototype.run
+            >[0],
+            handlers: PipelineReportApiClientHandlers,
+          ) => Promise<PipelineReportApiResult>
+        >()
+        .mockImplementation(async (_req, handlers) => {
+          handlers.onRequestId('req-xyz');
+          handlers.onProgress({ status: 'started', message: 'starting' });
+          return fakeApiResult;
+        });
+      const apiDeps: PipelineReportApiDeps = {
+        createClient: vi.fn().mockReturnValue({ run: clientRun }),
+      };
+
+      await expect(
+        run(
+          [
+            '--user-id',
+            'alice',
+            '--project-id',
+            '10',
+            '--pipeline-id',
+            '20',
+            '--aikata-pr-gitlab-token',
+            'glt',
+            '--aikata-api-url',
+            'https://api.example.com',
+            '--result-file',
+            resultFilePath,
+          ],
+          { apiDeps },
+        ),
+      ).rejects.toThrow('process.exit:1');
+
+      // レポートはファイルに保存されている
+      expect(fs.readFileSync(resultFilePath, 'utf-8')).toBe(
+        '# API Partial Report\n\npartially analyzed',
+      );
+      // stdout にも出力されている
+      const stdoutOut = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('');
+      expect(stdoutOut).toContain('# API Partial Report');
     });
 
     it('APIモードで client.run が失敗した場合 exit(1)', async () => {

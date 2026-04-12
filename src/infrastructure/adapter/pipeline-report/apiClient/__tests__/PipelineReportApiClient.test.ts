@@ -73,6 +73,7 @@ describe('PipelineReportApiClient', () => {
     reportContent: '# Pipeline Report\n\n## Job #1\n- status: success\n',
     completenessVerified: true,
     completenessRetries: 0,
+    workflowFailed: false,
     targetJobIds: [1, 2, 3],
     pipeline: {
       projectId: 123,

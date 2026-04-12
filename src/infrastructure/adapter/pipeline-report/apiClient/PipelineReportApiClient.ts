@@ -41,6 +41,8 @@ export interface PipelineReportApiResult {
   completenessVerified: boolean;
   /** 完成判定リトライ回数 */
   completenessRetries: number;
+  /** workflow が失敗したが部分レポートを回復した場合に true */
+  workflowFailed: boolean;
   /** 分析対象となったジョブIDの一覧 */
   targetJobIds: number[];
   /** パイプライン情報 */

@@ -240,6 +240,7 @@ describe('PipelineAnalysisService', () => {
     expect(result.completenessRetries).toBe(0);
     expect(result.targetJobs).toHaveLength(2);
     expect(result.pipeline).toBe(pipeline);
+    expect(result.workflowFailed).toBe(false);
 
     // cleanup が呼ばれた
     expect(cleanupSpy).toHaveBeenCalled();
@@ -571,6 +572,101 @@ describe('PipelineAnalysisService', () => {
     const runnerCall = vi.mocked(workflowRunner.run).mock.calls[0]![0];
     expect(runnerCall.mergedYaml).toBeNull();
     expect(result.report.content).toBe('# Report without YAML');
+  });
+
+  it('workflow失敗時にレポート進捗があれば部分レポートを返却しworkflowFailed=trueとなる', async () => {
+    const pipeline = createPipeline();
+    const jobA = createJob({ id: 5001, hasArtifacts: false, artifactsSize: 0 });
+
+    vi.mocked(pipelineGateway.getPipeline).mockResolvedValue(pipeline);
+    vi.mocked(pipelineGateway.getJobs).mockResolvedValue([jobA]);
+    vi.mocked(pipelineGateway.getJobTrace).mockResolvedValue('log');
+    // workflow内でレポートに部分内容を書き込んだ後にエラーを投げる
+    vi.mocked(workflowRunner.run).mockImplementation(async (params) => {
+      fs.writeFileSync(
+        params.resultFilePath,
+        '# Partial analysis report\n\n## Job: build\nSome analysis...',
+      );
+      throw new Error('workflow crashed mid-analysis');
+    });
+
+    const command = createCommand();
+
+    const service = new PipelineAnalysisService(
+      pipelineGateway,
+      projectTreeGateway,
+      workflowRunner,
+      tokenCounter,
+      archiveReader,
+      cacheManager,
+    );
+
+    const result = await service.analyze(command);
+
+    // 部分レポートが返却される
+    expect(result.report.content).toBe(
+      '# Partial analysis report\n\n## Job: build\nSome analysis...',
+    );
+    expect(result.workflowFailed).toBe(true);
+    expect(result.completenessVerified).toBe(false);
+    expect(result.completenessRetries).toBe(0);
+    expect(result.targetJobs).toHaveLength(1);
+    expect(result.pipeline).toBe(pipeline);
+    // cleanup は呼ばれる
+    expect(cleanupSpy).toHaveBeenCalled();
+  });
+
+  it('workflow失敗時にレポート未進捗（テンプレートのまま）の場合はエラーを再throwする', async () => {
+    const pipeline = createPipeline();
+    const jobA = createJob({ id: 5001, hasArtifacts: false, artifactsSize: 0 });
+
+    vi.mocked(pipelineGateway.getPipeline).mockResolvedValue(pipeline);
+    vi.mocked(pipelineGateway.getJobs).mockResolvedValue([jobA]);
+    vi.mocked(pipelineGateway.getJobTrace).mockResolvedValue('log');
+    // レポートに何も書き込まずにエラーを投げる（テンプレートのまま）
+    vi.mocked(workflowRunner.run).mockRejectedValue(new Error('workflow crashed early'));
+
+    const command = createCommand();
+
+    const service = new PipelineAnalysisService(
+      pipelineGateway,
+      projectTreeGateway,
+      workflowRunner,
+      tokenCounter,
+      archiveReader,
+      cacheManager,
+    );
+
+    await expect(service.analyze(command)).rejects.toThrow('workflow crashed early');
+    expect(cleanupSpy).toHaveBeenCalled();
+  });
+
+  it('workflow失敗時にレポートファイルが読み取り不可の場合はエラーを再throwする', async () => {
+    const pipeline = createPipeline();
+    const jobA = createJob({ id: 5001, hasArtifacts: false, artifactsSize: 0 });
+
+    vi.mocked(pipelineGateway.getPipeline).mockResolvedValue(pipeline);
+    vi.mocked(pipelineGateway.getJobs).mockResolvedValue([jobA]);
+    vi.mocked(pipelineGateway.getJobTrace).mockResolvedValue('log');
+    // レポートファイルを削除した後にエラーを投げる
+    vi.mocked(workflowRunner.run).mockImplementation(async (params) => {
+      fs.unlinkSync(params.resultFilePath);
+      throw new Error('workflow crashed with file gone');
+    });
+
+    const command = createCommand();
+
+    const service = new PipelineAnalysisService(
+      pipelineGateway,
+      projectTreeGateway,
+      workflowRunner,
+      tokenCounter,
+      archiveReader,
+      cacheManager,
+    );
+
+    await expect(service.analyze(command)).rejects.toThrow('workflow crashed with file gone');
+    expect(cleanupSpy).toHaveBeenCalled();
   });
 
   it('getMergedYamlにはpipelineのshaが渡される', async () => {

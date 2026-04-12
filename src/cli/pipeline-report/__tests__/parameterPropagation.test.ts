@@ -140,6 +140,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
         pipeline: fakePipeline,
         completenessVerified: true,
         completenessRetries: 0,
+        workflowFailed: false,
         tokenStats: {
           compressed: false,
           folderTreeStripped: false,
@@ -261,6 +262,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
             }),
             completenessVerified: true,
             completenessRetries: 0,
+            workflowFailed: false,
             tokenStats: {
               compressed: false,
               folderTreeStripped: false,
@@ -349,6 +351,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
             }),
             completenessVerified: true,
             completenessRetries: 0,
+            workflowFailed: false,
             tokenStats: {
               compressed: false,
               folderTreeStripped: false,
@@ -404,6 +407,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
         reportContent: '# API Pipeline Report\n\nok',
         completenessVerified: true,
         completenessRetries: 0,
+        workflowFailed: false,
         targetJobIds: [1, 2],
         pipeline: {
           projectId: 100,
@@ -519,6 +523,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
                 reportContent: '',
                 completenessVerified: true,
                 completenessRetries: 0,
+                workflowFailed: false,
                 targetJobIds: [],
                 pipeline: {
                   projectId: 10,

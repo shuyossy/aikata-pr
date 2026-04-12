@@ -81,6 +81,7 @@ function createDefaultAnalysisResult(): PipelineAnalysisResult {
     pipeline,
     completenessVerified: true,
     completenessRetries: 0,
+    workflowFailed: false,
     tokenStats: {
       compressed: false,
       folderTreeStripped: false,
@@ -292,6 +293,7 @@ describe('pipelineReportRoute', () => {
       const resultData = JSON.parse(resultEvents[0].data);
       expect(resultData.reportContent).toContain('Pipeline Report');
       expect(resultData.completenessVerified).toBe(true);
+      expect(resultData.workflowFailed).toBe(false);
       expect(resultData.targetJobIds).toEqual([5001]);
       expect(resultData.pipeline.projectId).toBe(42);
       expect(resultData.pipeline.ref).toBe('main');

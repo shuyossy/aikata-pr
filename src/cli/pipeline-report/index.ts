@@ -300,6 +300,13 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
 
         // 標準出力へもレポート本文を出す（CIログ一覧で確認できるようにする）
         process.stdout.write(result.report.content);
+
+        // workflow失敗時は部分レポートを保存した上で異常終了する
+        if (result.workflowFailed) {
+          logger.warn('Pipeline analysis workflow failed; partial report has been saved');
+          flushLogger();
+          process.exit(1);
+        }
       } finally {
         deps.cleanup();
       }
@@ -355,6 +362,13 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
         );
 
         process.stdout.write(result.reportContent);
+
+        // workflow失敗時は部分レポートを保存した上で異常終了する
+        if (result.workflowFailed) {
+          getLogger().warn('Pipeline analysis workflow failed; partial report has been saved');
+          flushLogger();
+          process.exit(1);
+        }
       });
     }
 
