@@ -19,6 +19,7 @@ import { getJobLogDetailTool } from '../tools/getJobLogDetail.js';
 import { getArtifactContentTool } from '../tools/getArtifactContent.js';
 import { readImageTool } from '../../review/tools/readImage.js';
 import { createModelFromContext } from '../../shared/requestContext.js';
+import { WORKSPACE_TOOLS_CONFIG } from '../../shared/workspaceToolsConfig.js';
 
 /**
  * pipelineAnalysisAgent 用のツールセット型
@@ -385,6 +386,7 @@ export function createWorkspaceFromContext(ctx: PipelineAnalysisAgentRequestCont
       workingDirectory: ctx.projectDir,
     }),
     skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
+    tools: WORKSPACE_TOOLS_CONFIG,
   });
 }
 

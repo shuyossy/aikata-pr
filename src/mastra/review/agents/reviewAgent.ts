@@ -10,6 +10,7 @@ import { readImageTool } from '../tools/readImage.js';
 import { getDiffDetailTool } from '../tools/getDiffDetail.js';
 import { containsImageFiles } from '../../../lib/imageFormat.js';
 import { buildUserPromptTemplate } from '../../../application/shared/prompt/index.js';
+import { WORKSPACE_TOOLS_CONFIG } from '../../shared/workspaceToolsConfig.js';
 
 // 後方互換のため shared から re-export
 export { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
@@ -226,6 +227,7 @@ export function createWorkspaceFromContext(ctx: ReviewAgentRequestContext): Work
       workingDirectory: ctx.projectDir,
     }),
     skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
+    tools: WORKSPACE_TOOLS_CONFIG,
   });
 }
 

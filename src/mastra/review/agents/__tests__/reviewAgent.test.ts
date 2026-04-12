@@ -536,4 +536,15 @@ describe('createWorkspaceFromContext', () => {
     // skillsが設定されている場合、WorkspaceSkillsインスタンスが存在する
     expect(workspace.skills).toBeDefined();
   });
+
+  it('WORKSPACE_TOOLS_CONFIGがWorkspaceに設定される', () => {
+    const ctx = createTestContext({ projectDir: '/my/project' });
+    const workspace = createWorkspaceFromContext(ctx);
+    const toolsConfig = workspace.getToolsConfig();
+    expect(toolsConfig).toBeDefined();
+    expect(toolsConfig?.mastra_workspace_read_file?.maxOutputTokens).toBe(4000);
+    expect(toolsConfig?.mastra_workspace_grep?.maxOutputTokens).toBe(3000);
+    expect(toolsConfig?.mastra_workspace_list_files?.maxOutputTokens).toBe(2000);
+    expect(toolsConfig?.mastra_workspace_execute_command?.maxOutputTokens).toBe(4000);
+  });
 });
