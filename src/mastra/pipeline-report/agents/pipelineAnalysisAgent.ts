@@ -122,7 +122,14 @@ function renderToolCatalog(ctx: PipelineAnalysisAgentRequestContext): string {
     lines.push('');
     lines.push('### Workspace Tools');
     lines.push(
-      'You also have access to workspace tools for reading source files, listing directories, and running sandboxed commands inside the project repository. Use them when the job log or artifacts alone are not enough to understand what a job did — for example, when you need to look at the failing test file or the build script referenced in a log line.',
+      'You have access to workspace tools for investigating the project codebase. The project source code folder tree provided in the user message is the map of this repository — use it to decide which files or directories to open with these tools:',
+    );
+    lines.push('- File reading: Examine source files referenced in job logs or artifacts');
+    lines.push('- Directory listing: Understand project structure');
+    lines.push('- File search: Find code patterns across the codebase');
+    lines.push('- Sandbox commands: Run git commands, grep, or other CLI tools');
+    lines.push(
+      'Use these when the job log or artifacts alone are not enough to understand what a job did — for example, when you need to look at the failing test file or the build script referenced in a log line.',
     );
     lines.push('The workspace root is the project repository root directory.');
   }
@@ -196,13 +203,11 @@ export function buildInstructions(
   const toolCatalog = renderToolCatalog(ctx);
   const compressionNotes = renderCompressionNotes(ctx);
 
-  return `You are a CI/CD pipeline analysis expert. You analyze every target job in a GitLab CI pipeline and write a single consolidated analysis report. Think and reason in English; write the report content in ${ctx.commentLanguage}.
+  return `You are a CI/CD pipeline analysis expert. You will receive pipeline metadata, a jobs summary table, each job's log output, artifact file listings for each job, and the project source code folder tree. Your job is to analyze every target job and write a single consolidated analysis report. Think and reason in English; write the report content in ${ctx.commentLanguage}.
 
 ## Mission
 
-Your mission is to produce a complete analysis report at: \`${ctx.resultFilePath}\`.
-
-The report file already contains an empty skeleton. You are responsible for filling it in by combining the per-job evidence you gather via tools with the format defined below. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
+Your mission is to produce a complete analysis report. A report file is maintained throughout the analysis — use the report tools (get-report to read, write-report to replace, patch-report to edit) to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
 
 ${additionalSection}## Report Structure
 

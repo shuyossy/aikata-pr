@@ -69,13 +69,45 @@ function createTestRequestContext(
 }
 
 describe('buildInstructions', () => {
-  it('CI/CDパイプライン分析専門家としての役割と resultFilePath のミッションが含まれる', () => {
+  it('CI/CDパイプライン分析専門家としての役割が含まれ、resultFilePathはプロンプトに含まれない', () => {
     const ctx = createTestRequestContext({ resultFilePath: '/tmp/report-xyz.md' });
 
     const result = buildInstructions(ctx);
 
     expect(result).toMatch(/CI\/CD pipeline analysis expert/);
-    expect(result).toContain('/tmp/report-xyz.md');
+    // Agent はツール経由でレポートにアクセスするため、パスはノイズとして除外
+    expect(result).not.toContain('/tmp/report-xyz.md');
+  });
+
+  it('userプロンプトで提供される情報の一覧がRole Definitionに含まれる', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toMatch(/pipeline metadata/);
+    expect(result).toMatch(/jobs summary table/);
+    expect(result).toMatch(/job's log output/i);
+    expect(result).toMatch(/artifact file listings/);
+    expect(result).toMatch(/source code folder tree/);
+  });
+
+  it('Missionセクションでレポートツール（get-report / write-report / patch-report）の用途が明記される', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toMatch(/report file is maintained/);
+    expect(result).toMatch(/get-report to read/);
+    expect(result).toMatch(/write-report to replace/);
+    expect(result).toMatch(/patch-report to edit/);
+  });
+
+  it('Missionセクションでuserメッセージに現状レポートが含まれる場合の指示がある', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toMatch(/user message includes the current report state/i);
   });
 
   it('Report Structure として overallTemplate がコードブロックで提示される', () => {
@@ -306,13 +338,20 @@ describe('buildInstructions', () => {
     expect(result).not.toContain('HIGHEST PRIORITY');
   });
 
-  it('workspaceAvailable=true の場合、Workspace Toolsセクションが含まれる', () => {
+  it('workspaceAvailable=true の場合、Workspace Toolsセクションが構造化バレットリスト形式で含まれる', () => {
     const ctx = createTestRequestContext({ workspaceAvailable: true });
 
     const result = buildInstructions(ctx);
 
     expect(result).toContain('Workspace Tools');
-    expect(result).toMatch(/workspace tools|sandboxed commands/i);
+    // review機能と同等の構造化バレットリスト
+    expect(result).toMatch(/File reading/);
+    expect(result).toMatch(/Directory listing/);
+    expect(result).toMatch(/File search/);
+    expect(result).toMatch(/Sandbox commands/);
+    // folder tree への言及
+    expect(result).toMatch(/folder tree provided in the user message/i);
+    expect(result).toContain('The workspace root is the project repository root directory.');
   });
 
   it('workspaceAvailable=false の場合、Workspace Toolsセクションが含まれない', () => {

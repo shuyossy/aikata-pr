@@ -50,6 +50,7 @@
   - この機能の価値はレポートの質に直結するので、systemプロンプトやデフォルトのレポートフォーマットの品質には注意を払う必要がある
 - 指摘事項（in progressの場合のみ）
   - mastra層のコードについて
-    - `reportCompletenessJudgementSchema`にdescriptionがないのでAgentが各スキーマ項目について理解できない
-    - `getArtifactContentTool`について、画像を取得する際に画像取得toolと同様に、直後のuserメッセージで画像を送信する旨を含める必要がある
-    - mastra workspaceを追加できていない
+    - レポート作成Agentのプロンプト改善
+      - レポートのパスを指定しているが、Agentはそのパスを直接編集するわけではなく、toolを利用して編集するのでノイズになってしまう
+      - レビュー機能の様にuserからどの様な情報が与えられるのかが明記できていない
+      - mastra workflowspeceのtoolの説明が不十分なのでレビュー機能と同じにして欲しい
