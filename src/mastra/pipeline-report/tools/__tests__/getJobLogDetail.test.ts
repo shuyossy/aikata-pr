@@ -6,13 +6,22 @@ type GetJobLogDetailResult = {
   omittedText: string | null;
   reason: string | null;
   message?: string | null;
+  totalLines?: number;
+  shownLines?: number;
+  truncated?: boolean;
 };
 
 /**
  * getJobLogDetailToolのexecuteを呼び出すヘルパー
  */
 const executeGetJobLogDetail = (
-  input: { jobId: number; keywords?: string[]; contextLines?: number },
+  input: {
+    jobId: number;
+    keywords?: string[];
+    contextLines?: number;
+    startLine?: number;
+    maxLines?: number;
+  },
   omittedJobLogs: Map<number, string>,
 ): Promise<GetJobLogDetailResult> => {
   const executeFn = getJobLogDetailTool.execute;
@@ -30,7 +39,8 @@ describe('getJobLogDetailTool', () => {
 
     const result = await executeGetJobLogDetail({ jobId: 42 }, omittedLogs);
 
-    expect(result.omittedText).toBe('middle portion of log for job 42');
+    // 行番号が付与される
+    expect(result.omittedText).toContain('middle portion of log for job 42');
     expect(result.reason).toBeNull();
   });
 
@@ -155,5 +165,108 @@ describe('getJobLogDetailTool', () => {
 
     expect(result.omittedText).toBeNull();
     expect(result.reason).toBe('this job log was not compressed');
+  });
+
+  // --- 出力制限・ページネーション関連のテスト ---
+
+  it('出力に行番号が付与される', async () => {
+    const omittedLogs = new Map<number, string>([[42, 'line one\nline two\nline three']]);
+    const result = await executeGetJobLogDetail({ jobId: 42 }, omittedLogs);
+
+    expect(result.omittedText).toMatch(/^\s*1\| /m);
+    expect(result.totalLines).toBe(3);
+    expect(result.shownLines).toBe(3);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('小さい出力ではtruncated=falseで全行が表示される', async () => {
+    const result = await executeGetJobLogDetail({ jobId: 42 }, sampleOmittedLogs);
+    expect(result.truncated).toBe(false);
+    expect(result.totalLines).toBe(9); // sampleLogは9行
+    expect(result.shownLines).toBe(9);
+  });
+
+  it('大きな省略ログが切り詰められtruncated=trueになる', async () => {
+    const largeLines = Array.from(
+      { length: 5000 },
+      (_, i) => `[2024-01-01] Log entry ${i}: processing data`,
+    );
+    const largeLogs = new Map<number, string>([[100, largeLines.join('\n')]]);
+
+    const result = await executeGetJobLogDetail({ jobId: 100 }, largeLogs);
+    expect(result.truncated).toBe(true);
+    expect(result.shownLines!).toBeLessThan(result.totalLines!);
+    expect(result.totalLines).toBe(5000);
+    expect(result.omittedText).toContain('[output truncated:');
+  });
+
+  it('startLineで先頭行をスキップできる', async () => {
+    const result = await executeGetJobLogDetail({ jobId: 42, startLine: 5 }, sampleOmittedLogs);
+
+    expect(result.reason).toBeNull();
+    expect(result.totalLines).toBe(9);
+    expect(result.shownLines).toBe(5); // 5行目〜9行目
+    // 1行目の内容が含まれない
+    expect(result.omittedText).not.toContain('Step 1: Installing dependencies');
+  });
+
+  it('maxLinesで出力行数を制限できる', async () => {
+    const result = await executeGetJobLogDetail({ jobId: 42, maxLines: 3 }, sampleOmittedLogs);
+
+    expect(result.totalLines).toBe(9);
+    expect(result.shownLines).toBe(3);
+  });
+
+  it('startLine + maxLinesでページネーションできる', async () => {
+    const result = await executeGetJobLogDetail(
+      { jobId: 42, startLine: 3, maxLines: 2 },
+      sampleOmittedLogs,
+    );
+
+    expect(result.totalLines).toBe(9);
+    expect(result.shownLines).toBe(2); // 3行目と4行目のみ
+  });
+
+  it('キーワードフィルタ結果にも出力制限が適用される', async () => {
+    const result = await executeGetJobLogDetail(
+      { jobId: 42, keywords: ['Step'] },
+      sampleOmittedLogs,
+    );
+
+    expect(result.totalLines).toBeDefined();
+    expect(result.shownLines).toBeDefined();
+    expect(result.truncated).toBeDefined();
+  });
+
+  it('圧縮されていないジョブには出力制限フィールドが含まれない', async () => {
+    const result = await executeGetJobLogDetail({ jobId: 99 }, sampleOmittedLogs);
+    expect(result.omittedText).toBeNull();
+    expect(result.totalLines).toBeUndefined();
+    expect(result.truncated).toBeUndefined();
+  });
+
+  it('startLineが総行数を超える場合は空のomittedTextを返す', async () => {
+    const result = await executeGetJobLogDetail({ jobId: 42, startLine: 100 }, sampleOmittedLogs);
+    expect(result.reason).toBeNull();
+    expect(result.totalLines).toBe(9);
+    expect(result.shownLines).toBe(0);
+  });
+
+  it('startLine=0の場合は1行目から開始される', async () => {
+    const result = await executeGetJobLogDetail({ jobId: 42, startLine: 0 }, sampleOmittedLogs);
+    expect(result.reason).toBeNull();
+    expect(result.totalLines).toBe(9);
+    expect(result.shownLines).toBe(9);
+    expect(result.omittedText).toContain('Step 1: Installing dependencies');
+  });
+
+  it('キーワードフィルタとstartLine/maxLinesを組み合わせてページネーションできる', async () => {
+    const result = await executeGetJobLogDetail(
+      { jobId: 42, keywords: ['Step'], startLine: 2, maxLines: 1 },
+      sampleOmittedLogs,
+    );
+    expect(result.reason).toBeNull();
+    // キーワードフィルタ後のテキスト内で2行目から1行分を取得
+    expect(result.shownLines).toBe(1);
   });
 });

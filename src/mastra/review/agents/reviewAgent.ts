@@ -153,8 +153,11 @@ File entries have been removed from the project folder tree to conserve context 
     ctx.diffCompressed
       ? `### Diff Compression Notice
 Some file diffs have been compressed to fit within context limits. Compressed sections are marked with "[aikata: N lines omitted from middle]". Use the getDiffDetail tool to retrieve the omitted portion:
-- getDiffDetail(filePath): Get the entire omitted middle portion of a compressed file diff
+- getDiffDetail(filePath): Get the omitted middle portion (output is token-limited; may be truncated for very large diffs)
 - getDiffDetail(filePath, keywords, contextLines): Search for specific patterns within the omitted portion
+- getDiffDetail(filePath, { startLine, maxLines }): Navigate to a specific line range within the omitted portion
+
+If the output shows "[output truncated: ...]", use the reported line counts and startLine/maxLines to read remaining content, or use keywords to narrow results.
 
 `
       : ''

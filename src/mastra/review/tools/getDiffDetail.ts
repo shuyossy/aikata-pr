@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { filterByKeywords } from '../../shared/keywordFilter.js';
+import { applyOutputLimit } from '../../shared/outputLimiter.js';
 
 /**
  * RequestContextに格納する省略されたdiffデータのキー名
@@ -16,7 +17,8 @@ export const ALL_DIFF_FILE_PATHS_KEY = 'allDiffFilePaths';
  * 圧縮されたdiffの省略部分を取得するMastra Tool
  *
  * ファイルパスを指定して、圧縮時に省略された中間部分を返す。
- * キーワード指定時は省略部分内でマッチする行と周辺コンテキストを返す。
+ * キーワード指定時は省略部分内でマッチする行と周辺コンテキストを返���。
+ * 出力はトークン制限が適用され、大きなdiffは切り詰められる。
  */
 export const getDiffDetailTool = createTool({
   id: 'get-diff-detail',
@@ -24,7 +26,7 @@ export const getDiffDetailTool = createTool({
     'Retrieve the omitted portion of a compressed file diff. ' +
     'Use when you see "[aikata: N lines omitted]" in the diff. ' +
     'Returns only the middle portion that was removed during compression. ' +
-    'If no keywords are provided, the entire omitted portion is returned. ' +
+    'Output is token-limited; use startLine/maxLines to paginate through large diffs. ' +
     'Supports keyword search to efficiently find specific code patterns within the omitted portion.',
   inputSchema: z.object({
     filePath: z.string().describe('File path from the diff header (e.g., "src/index.ts")'),
@@ -40,19 +42,42 @@ export const getDiffDetailTool = createTool({
       .number()
       .optional()
       .describe('Number of context lines around each keyword match (default: 3)'),
+    startLine: z
+      .number()
+      .optional()
+      .describe(
+        'Start line number (1-based) within the omitted portion. Use to paginate through large omitted sections. Default: 1',
+      ),
+    maxLines: z
+      .number()
+      .optional()
+      .describe(
+        'Maximum number of lines to return. Applied before token limiting. Useful for retrieving a specific range.',
+      ),
   }),
   outputSchema: z.object({
     success: z.boolean(),
     filePath: z.string(),
     diff: z.string().optional(),
     message: z.string().optional(),
+    totalLines: z.number().optional(),
+    shownLines: z.number().optional(),
+    truncated: z.boolean().optional(),
   }),
   execute: async (
     {
       filePath,
       keywords,
       contextLines,
-    }: { filePath: string; keywords?: string[]; contextLines?: number },
+      startLine,
+      maxLines,
+    }: {
+      filePath: string;
+      keywords?: string[];
+      contextLines?: number;
+      startLine?: number;
+      maxLines?: number;
+    },
     context,
   ) => {
     // RequestContextからomittedFileDiffsを取得
@@ -80,7 +105,7 @@ export const getDiffDetailTool = createTool({
     }
 
     if (!diff) {
-      // allDiffFilePathsを使って「圧縮されていないファイル」と「存在しないファイル」を区別
+      // allDiffFilePathsを使って「圧縮されていないファイル」と「存���しないファイル」を区別
       const allDiffFilePaths = context?.requestContext?.get(ALL_DIFF_FILE_PATHS_KEY) as
         | Set<string>
         | undefined;
@@ -117,6 +142,7 @@ export const getDiffDetailTool = createTool({
     }
 
     // キーワードフィルタリング
+    let textToLimit = diff;
     if (keywords && keywords.length > 0) {
       const { filteredText, hasMatches } = filterByKeywords(diff, keywords, contextLines);
 
@@ -126,21 +152,37 @@ export const getDiffDetailTool = createTool({
           filePath,
           diff: '',
           message: `No lines matching keywords "${keywords.join(', ')}" found in omitted diff for ${filePath}.`,
+          totalLines: diff.split('\n').length,
+          shownLines: 0,
+          truncated: false,
         };
       }
 
-      return {
-        success: true,
-        filePath,
-        diff: filteredText,
-      };
+      textToLimit = filteredText;
     }
 
-    // キーワードなし: 省略された中間部分をそのまま返す
+    // startLine/maxLinesによる行スライス
+    // totalLinesはstartLine/maxLinesのページネーション対象の行数
+    // （キーワードフィルタ後のテキスト行数。フィルタなしの場合は元の省略部分の行数）
+    const originalLines = textToLimit.split('\n');
+    const totalLines = originalLines.length;
+
+    if (startLine !== undefined || maxLines !== undefined) {
+      const start = Math.max((startLine ?? 1) - 1, 0); // 1始まり → 0始まり
+      const end = maxLines !== undefined ? start + maxLines : originalLines.length;
+      textToLimit = originalLines.slice(start, end).join('\n');
+    }
+
+    // 出力制限の適用（行番号付与 + トークン切り詰め）
+    const limitResult = applyOutputLimit(textToLimit);
+
     return {
       success: true,
       filePath,
-      diff,
+      diff: limitResult.text,
+      totalLines,
+      shownLines: limitResult.shownLines,
+      truncated: limitResult.truncated,
     };
   },
 });
