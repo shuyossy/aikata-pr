@@ -92,6 +92,18 @@ describe('reportCompletenessJudgementSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('各フィールドにdescribeが設定されている', () => {
+    const shape = reportCompletenessJudgementSchema.shape;
+    expect(shape.isComplete.description).toBeDefined();
+    expect(shape.missingItems.description).toBeDefined();
+    expect(shape.formatDeviations.description).toBeDefined();
+    // ネストされたmissingItemsの要素フィールドにもdescribeが設定されている
+    const missingItemShape = shape.missingItems.element.shape;
+    expect(missingItemShape.jobId.description).toBeDefined();
+    expect(missingItemShape.jobName.description).toBeDefined();
+    expect(missingItemShape.reason.description).toBeDefined();
+  });
+
   it('formatDeviationsが欠けている入力はパースに失敗する', () => {
     const result = reportCompletenessJudgementSchema.safeParse({
       isComplete: true,

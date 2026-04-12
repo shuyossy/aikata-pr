@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/request-context';
+import { Workspace, LocalFilesystem, LocalSandbox } from '@mastra/core/workspace';
 import { Memory } from '@mastra/memory';
 import type { PipelineAnalysisAgentRequestContext } from '../requestContext.js';
 import type { TargetJobSummary } from '../types.js';
@@ -344,11 +345,29 @@ const pipelineAnalysisAgentMemory = new Memory({
 });
 
 /**
+ * RequestContextからWorkspaceを生成するファクトリ関数。
+ * プロジェクトディレクトリをbasePath/workingDirectoryとして設定し、
+ * ユーザ指定のskillsパスを登録する。
+ * filesystemはreadOnlyにすることで、分析時の意図しない書き込みを防ぐ。
+ */
+export function createWorkspaceFromContext(ctx: PipelineAnalysisAgentRequestContext): Workspace {
+  return new Workspace({
+    filesystem: new LocalFilesystem({
+      basePath: ctx.projectDir,
+      readOnly: true,
+    }),
+    sandbox: new LocalSandbox({
+      workingDirectory: ctx.projectDir,
+    }),
+    skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
+  });
+}
+
+/**
  * pipelineAnalysisAgent（シングルトン）
  *
  * パイプラインの各ジョブを解析し、resultFilePath の分析レポートを完成させる
- * メインのエージェント。モデル / instructions / tools は RequestContext から動的に決定される。
- * workspace の構築は Phase 9 の workflow 層で行うため、ここではワークスペースは設定しない。
+ * メインのエージェント。モデル / instructions / tools / workspace は RequestContext から動的に決定される。
  */
 export const pipelineAnalysisAgent = new Agent<
   'pipeline-analysis-agent',
@@ -369,5 +388,15 @@ export const pipelineAnalysisAgent = new Agent<
   tools: ({ requestContext }) => {
     const ctx = requestContext.all as PipelineAnalysisAgentRequestContext;
     return createToolset(ctx);
+  },
+  workspace: ({ requestContext }) => {
+    const ctx = requestContext?.all as PipelineAnalysisAgentRequestContext | undefined;
+    if (!ctx?.projectDir) {
+      return undefined;
+    }
+    if (!ctx.workspaceAvailable) {
+      return undefined;
+    }
+    return createWorkspaceFromContext(ctx);
   },
 });

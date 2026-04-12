@@ -80,8 +80,7 @@ function buildAgentRequestContext(
     hasImages: false,
     pendingImages: [],
     reportLockTimeoutMs: undefined,
-    // 将来 workspace を workflow 層で構築する際に本フラグを切り替える
-    workspaceAvailable: false,
+    workspaceAvailable: true,
   };
 }
 

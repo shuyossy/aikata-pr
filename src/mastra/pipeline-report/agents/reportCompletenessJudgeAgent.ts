@@ -9,15 +9,33 @@ import { createModelFromContext } from '../../shared/requestContext.js';
  * pipelineAnalysisWorkflowのverifyCompletenessStepで構造化出力として利用する
  */
 export const reportCompletenessJudgementSchema = z.object({
-  isComplete: z.boolean(),
-  missingItems: z.array(
-    z.object({
-      jobId: z.number(),
-      jobName: z.string(),
-      reason: z.string(),
-    }),
-  ),
-  formatDeviations: z.array(z.string()),
+  isComplete: z
+    .boolean()
+    .describe('MUST be true if and only if missingItems is empty AND formatDeviations is empty'),
+  missingItems: z
+    .array(
+      z.object({
+        jobId: z
+          .number()
+          .describe('ID of the job that has a missing block or unresolved placeholder'),
+        jobName: z
+          .string()
+          .describe('Name of the job that has a missing block or unresolved placeholder'),
+        reason: z
+          .string()
+          .describe(
+            'Actionable description of why this job block is incomplete (e.g. "job block missing from the report" or "placeholder <duration> is still unresolved")',
+          ),
+      }),
+    )
+    .describe(
+      'Array of jobs with missing blocks or unresolved placeholders; empty when the report is complete',
+    ),
+  formatDeviations: z
+    .array(z.string())
+    .describe(
+      'Array of strings describing format violations found in the report; empty when the report is complete',
+    ),
 });
 
 /**

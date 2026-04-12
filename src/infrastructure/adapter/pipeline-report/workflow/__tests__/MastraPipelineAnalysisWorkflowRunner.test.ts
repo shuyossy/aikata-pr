@@ -189,7 +189,7 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
     );
     expect(ctx.get('hasImages')).toBe(false);
     expect(ctx.get('pendingImages')).toEqual([]);
-    expect(ctx.get('workspaceAvailable')).toBe(false);
+    expect(ctx.get('workspaceAvailable')).toBe(true);
 
     // 結果
     expect(result.reportContent).toBe('# Final Report\n');

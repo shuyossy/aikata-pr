@@ -6,7 +6,7 @@ import type { PendingImageData } from '../../../shared/readImageCommon.js';
 
 type GetArtifactContentResult =
   | { kind: 'text'; content: string; truncated: boolean }
-  | { kind: 'image'; mimeType: string }
+  | { kind: 'image'; mimeType: string; message: string }
   | { kind: 'unsupported'; mimeType: string; size: number; reason: string }
   | { kind: 'error'; reason: string };
 
@@ -125,6 +125,8 @@ describe('getArtifactContentTool', () => {
     expect(result.kind).toBe('image');
     if (result.kind === 'image') {
       expect(result.mimeType).toBe('image/png');
+      expect(result.message).toContain('screenshot.png');
+      expect(result.message).toContain('next user message');
     }
     expect(pendingImages.length).toBe(1);
     const entry = pendingImages.find((e) => e.filePath === '20:screenshot.png');

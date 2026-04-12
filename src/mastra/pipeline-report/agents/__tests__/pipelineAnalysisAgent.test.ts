@@ -8,6 +8,7 @@ import {
   buildInstructions,
   buildUserPrompt,
   createToolset,
+  createWorkspaceFromContext,
   pipelineAnalysisAgent,
 } from '../pipelineAnalysisAgent.js';
 
@@ -504,5 +505,25 @@ describe('buildUserPrompt (integration)', () => {
         artifactCacheStatuses: new Map(),
       }),
     ).not.toThrow();
+  });
+});
+
+describe('createWorkspaceFromContext', () => {
+  it('projectDirをbasePath/workingDirectoryとしてWorkspaceを生成する', () => {
+    const ctx = createTestContextObject({ projectDir: '/test/project' });
+    const workspace = createWorkspaceFromContext(ctx);
+    expect(workspace).toBeDefined();
+  });
+
+  it('skillsPathsが空配列の場合でもWorkspaceを生成できる', () => {
+    const ctx = createTestContextObject({ skillsPaths: [] });
+    const workspace = createWorkspaceFromContext(ctx);
+    expect(workspace).toBeDefined();
+  });
+
+  it('skillsPathsが指定された場合でもWorkspaceを生成できる', () => {
+    const ctx = createTestContextObject({ skillsPaths: ['/path/to/skills'] });
+    const workspace = createWorkspaceFromContext(ctx);
+    expect(workspace).toBeDefined();
   });
 });

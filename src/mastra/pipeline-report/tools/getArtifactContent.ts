@@ -119,6 +119,9 @@ export const getArtifactContentTool = createTool({
     z.object({
       kind: z.literal('image'),
       mimeType: z.string(),
+      message: z
+        .string()
+        .describe('Notification that image content will be provided in the next user message'),
     }),
     z.object({
       kind: z.literal('unsupported'),
@@ -184,7 +187,11 @@ export const getArtifactContentTool = createTool({
         mediaType: imageMime,
       });
       context?.requestContext?.set(PENDING_IMAGES_KEY, pendingImages);
-      return { kind: 'image' as const, mimeType: imageMime };
+      return {
+        kind: 'image' as const,
+        mimeType: imageMime,
+        message: `Successfully read image from artifact: ${jobId}:${artifactPath} (${imageMime}). The image content is provided in the next user message.`,
+      };
     }
 
     // テキスト判定
