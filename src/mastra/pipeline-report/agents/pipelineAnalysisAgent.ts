@@ -113,7 +113,7 @@ function renderToolCatalog(ctx: PipelineAnalysisAgentRequestContext): string {
 
   if (ctx.omittedJobLogs.size > 0) {
     lines.push(
-      '- **get-job-log-detail**: Retrieve the omitted middle portion of a compressed job log. Only some jobs were compressed (see Compression Notes below). Call this whenever you need the full details of a specific compressed job.',
+      '- **get-job-log-detail**: Retrieve the omitted middle portion of a compressed job log. Only some jobs were compressed (see Compression Notes below). Call this whenever you need the full details of a specific compressed job. Supports optional keyword filtering to efficiently find specific patterns within the omitted portion — pass `keywords` (array of strings, OR logic) and optionally `contextLines` (default: 3) to narrow the returned text.',
     );
   }
 
@@ -173,7 +173,7 @@ function renderCompressionNotes(ctx: PipelineAnalysisAgentRequestContext): strin
 
   if (needsJobLogNote) {
     lines.push(
-      "Some job logs in the user prompt were compressed to fit within context limits. Compressed regions are marked with `[aikata: N lines omitted from middle]`. When you need the omitted middle portion for a specific job, call the **get-job-log-detail** tool with that job's id.",
+      "Some job logs in the user prompt were compressed to fit within context limits. Compressed regions are marked with `[aikata: N lines omitted from middle]`. When you need the omitted middle portion for a specific job, call the **get-job-log-detail** tool with that job's id. You can optionally pass `keywords` to filter for specific patterns and `contextLines` to control the surrounding context (default: 3 lines).",
     );
   }
 

@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { filterByKeywords } from '../../shared/keywordFilter.js';
 
 /**
  * RequestContextに格納する省略されたdiffデータのキー名
@@ -10,11 +11,6 @@ export const OMITTED_FILE_DIFFS_KEY = 'omittedFileDiffs';
  * RequestContextに格納するdiff内の全ファイルパスのキー名
  */
 export const ALL_DIFF_FILE_PATHS_KEY = 'allDiffFilePaths';
-
-/**
- * デフォルトのコンテキスト行数（キーワード検索時）
- */
-const DEFAULT_CONTEXT_LINES = 3;
 
 /**
  * 圧縮されたdiffの省略部分を取得するMastra Tool
@@ -122,20 +118,9 @@ export const getDiffDetailTool = createTool({
 
     // キーワードフィルタリング
     if (keywords && keywords.length > 0) {
-      const lines = diff.split('\n');
-      const ctx = contextLines ?? DEFAULT_CONTEXT_LINES;
-      const matchingIndices = new Set<number>();
+      const { filteredText, hasMatches } = filterByKeywords(diff, keywords, contextLines);
 
-      lines.forEach((line, i) => {
-        const lowerLine = line.toLowerCase();
-        if (keywords.some((kw) => lowerLine.includes(kw.toLowerCase()))) {
-          for (let j = Math.max(0, i - ctx); j <= Math.min(lines.length - 1, i + ctx); j++) {
-            matchingIndices.add(j);
-          }
-        }
-      });
-
-      if (matchingIndices.size === 0) {
+      if (!hasMatches) {
         return {
           success: true,
           filePath,
@@ -144,21 +129,10 @@ export const getDiffDetailTool = createTool({
         };
       }
 
-      const sortedIndices = Array.from(matchingIndices).sort((a, b) => a - b);
-      const filteredLines: string[] = [];
-      let lastIndex = -2;
-      for (const idx of sortedIndices) {
-        if (idx > lastIndex + 1) {
-          filteredLines.push('...');
-        }
-        filteredLines.push(lines[idx]!);
-        lastIndex = idx;
-      }
-
       return {
         success: true,
         filePath,
-        diff: filteredLines.join('\n'),
+        diff: filteredText,
       };
     }
 
