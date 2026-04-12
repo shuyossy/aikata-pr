@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug CLI (Local)",
+      "name": "Debug Review (Local)",
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "npx",
@@ -18,7 +18,7 @@
       "skipFiles": ["<node_internals>/**"]
     },
     {
-      "name": "Debug CLI (API)",
+      "name": "Debug Review (API)",
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "npx",
@@ -30,6 +30,36 @@
         "--review-settings", "${workspaceFolder}/debug/review-settings.json"
       ],
       "envFile": "${workspaceFolder}/.env.debug.api",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Debug Pipeline Report (Local)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx"],
+      "args": [
+        "src/cli.ts",
+        "pipeline-report",
+        "--pipeline-report-settings", "${workspaceFolder}/debug/pipeline-report-settings.json"
+      ],
+      "envFile": "${workspaceFolder}/.env.debug.pipeline-report",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Debug Pipeline Report (API)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx"],
+      "args": [
+        "src/cli.ts",
+        "pipeline-report",
+        "--pipeline-report-settings", "${workspaceFolder}/debug/pipeline-report-settings.json"
+      ],
+      "envFile": "${workspaceFolder}/.env.debug.pipeline-report.api",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
     },
@@ -47,8 +77,13 @@
   ],
   "compounds": [
     {
-      "name": "Debug Full Stack (Server + CLI)",
-      "configurations": ["Debug API Server", "Debug CLI (API)"],
+      "name": "Debug Full Stack Review",
+      "configurations": ["Debug API Server", "Debug Review (API)"],
+      "stopAll": true
+    },
+    {
+      "name": "Debug Full Stack Pipeline Report",
+      "configurations": ["Debug API Server", "Debug Pipeline Report (API)"],
       "stopAll": true
     }
   ]
