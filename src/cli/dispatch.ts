@@ -1,4 +1,5 @@
 import { reviewCliModule } from './review/index.js';
+import { pipelineReportCliModule } from './pipeline-report/index.js';
 
 /**
  * CLI機能モジュールのインターフェース。
@@ -14,7 +15,7 @@ export interface CliFeatureModule {
  * デフォルトで登録される機能モジュール。
  * 将来新機能を追加する際はここに1行追加する。
  */
-export const defaultFeatures: CliFeatureModule[] = [reviewCliModule];
+export const defaultFeatures: CliFeatureModule[] = [reviewCliModule, pipelineReportCliModule];
 
 export function printUsage(features: CliFeatureModule[]): void {
   const lines = [

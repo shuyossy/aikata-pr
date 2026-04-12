@@ -1,6 +1,9 @@
 # 本プロジェクトの概要
 本プロジェクトは、GitLabプロジェクト向けに AI を活用したCI/CDジョブのパイプラインテンプレートを集約して提供する「マルチ機能ホスト」プロジェクトである。
-同一パッケージで複数の機能をホストできる構成となっており、現時点では `review`（チェックリストに沿ったMRのAIレビュー）機能を提供している。将来的にはレビュー以外のAI CI/CDジョブも同じ仕組みで追加できる。
+同一パッケージで複数の機能をホストできる構成となっており、現時点では以下の2機能を提供している。
+- `review`: チェックリストに沿ったMRのAIレビュー
+- `pipeline-report`: CIパイプライン全ジョブのログ・アーティファクトをAIで分析し、Markdownレポートをartifacts/stdoutに出力
+
 任意のGitLabプロジェクトは、本プロジェクトの`.ci-template/pipelines/template.yml`（または機能別ファサード）を`.gitlab-ci.yml`上で`include`することで、対象の機能を実行できる。
 
 # 用語集
@@ -25,6 +28,15 @@
 - ユースケース: `docs/domain/review/usecase.md`
 ### 処理フロー概念設計
 `docs/archtecture/review/overallflow_concept.md`
+
+## pipeline-report 機能
+### ユビキタス用語集
+- エンティティ: `docs/domain/pipeline-report/entity.md`
+- ビジネスルール: `docs/domain/pipeline-report/business_rule.md`
+- ユースケース: `docs/domain/pipeline-report/usecase.md`
+- 用語集: `docs/domain/pipeline-report/glossary.md`
+### 処理フロー概念設計
+`docs/archtecture/pipeline-report/overallflow_concept.md`
 
 # 内部設計
 ## アーキテクチャ設計
@@ -62,7 +74,8 @@ npm run format:check      # Prettier フォーマットチェック
 npm run build:cli         # CLI用バンドル（dist/index.js）
 
 # 実行（サブコマンド必須）
-node dist/index.js review --user-id <userId> [options]
+node dist/index.js review --user-id <userId> [options]          # MRのAIレビュー
+node dist/index.js pipeline-report --user-id <userId> [options] # CIパイプラインのAI分析レポート生成
 ```
 
 # 作業時の注意点

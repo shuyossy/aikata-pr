@@ -15,17 +15,20 @@
 ## チェックロジック
 本プロジェクトはAIレビュー以外の機能も同一パッケージでホストできる「マルチ機能ホスト」構成を採用している。新機能の追加手順は `docs/archtecture/feature-extension.md` を参照。
 
-CLIはサブコマンド方式で動作する。`aikata-pr review [options]` のように機能名サブコマンドを必須とし、`src/cli/dispatch.ts` のディスパッチャが対象機能の `CliFeatureModule.run(args)` を呼び出す。現時点では `review` サブコマンドのみが登録されている。
+CLIはサブコマンド方式で動作する。`aikata-pr review [options]` のように機能名サブコマンドを必須とし、`src/cli/dispatch.ts` のディスパッチャが対象機能の `CliFeatureModule.run(args)` を呼び出す。現時点では `review`（MRのAIレビュー）および `pipeline-report`（CIパイプライン結果のAI分析レポート生成）の2サブコマンドが登録されている。
 
-レビュー機能（`review`サブコマンド）は2つのモードで動作する:
+各機能はローカル/APIの2モードで動作する:
 - **ローカルモード**: `AI_API_KEY`、`AI_API_ENDPOINT_URL`、`AI_MODEL_NAME`が全て設定されている場合。CLIが全処理をローカルで実行する（開発用・後方互換）
-- **APIモード**: 上記3変数のいずれかが未設定の場合。CLIは外部APIサーバー（`AIKATA_API_URL`）にレビュー実行を委譲し、コメント投稿・品質ゲート評価はCLI側で実行する。`AIKATA_API_URL`と`AIKATA_JWT`が必要
+- **APIモード**: 上記3変数のいずれかが未設定の場合。CLIは外部APIサーバー（`AIKATA_API_URL`）にAI実行を委譲する
+  - review機能: レビュー実行をAPIに委譲し、コメント投稿・品質ゲート評価はCLI側で実行する
+  - pipeline-report機能: 分析実行をAPIに委譲し、最終レポートをSSEで受け取ってartifacts出力・stdoutフラッシュはCLI側で実行する
+  - いずれも `AIKATA_API_URL`と`AIKATA_JWT`が必要（両機能で同じURL・同じJWTを共有）
   - `JWT_*`が設定されてない場合は、JWT認証無効で動作する（開発時のみ許容、デバッグ用）
 
 ### 機能モジュール登録パターン
 各機能は2種類のモジュールをエクスポートし、それぞれCLI/APIサーバ起動時にレジストリに登録される。
-- **CliFeatureModule**: `{ name, description, run(args) }`。`src/cli/dispatch.ts` の `defaultFeatures = [reviewCliModule]` に追加
-- **ApiFeatureModule**: `{ name, register(app) }`。`src/server.ts` の `apiFeatures = [reviewApiModule]` に追加
+- **CliFeatureModule**: `{ name, description, run(args) }`。`src/cli/dispatch.ts` の `defaultFeatures = [reviewCliModule, pipelineReportCliModule]` に追加
+- **ApiFeatureModule**: `{ name, register(app) }`。`src/server.ts` の `apiFeatures = [reviewApiModule, pipelineReportApiModule]` に追加
 - 新機能を追加する場合は、各レイヤーに `<feature>/` フォルダを作成した上で、両配列にモジュールを追加するだけで配線が完了する
 
 一般的なクリーンアーキテクチャに従う。
@@ -42,33 +45,45 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
   - 主要サービス
     - ReviewExecutionService: AIレビュー実行（MRコンテキスト取得→Workflow実行→結果返却）。APIサーバー側で使用
     - CommentPostingService: コメント投稿（結果整形→GitLab投稿）。CLI側で使用
+    - PipelineAnalysisService: AIパイプライン分析（Pipeline/Jobs/JobTrace/Artifacts取得→圧縮→Workflow実行→レポート返却）。APIサーバー側で使用
 - インフラ層
   - Mastra層（`src/mastra`）についてはAIワークフロー実行基盤としてインフラ層の一種とみなす※ポートは`src/application/shared/port/workflow`
 - プレゼンテーション層
   - CLIインターフェース: `node dist/index.js <feature> [options]`（例: `node dist/index.js review --user-id ...`）。サブコマンドは必須で、`src/cli/dispatch.ts` のディスパッチャが対応する `CliFeatureModule` を呼び出す
   - APIサーバーインターフェース: `node dist/server.js`
     - Honoフレームワーク
-    - `POST /api/v1/review` — SSEストリーミングレスポンス
+    - `POST /api/v1/review` — SSEストリーミングレスポンス（review機能）
+    - `POST /api/v1/pipeline-report` — SSEストリーミングレスポンス（pipeline-report機能）
     - JWT認証ミドルウェア（GitLab CI/CD `id_tokens`を検証）
   - 全パラメータはCLIオプションと環境変数の両方で指定可能（優先順位: CLIオプション > 環境変数 > デフォルト値）
-  - CLIオプション（環境変数フォールバック付き）
+  - 共通CLIオプション（環境変数フォールバック付き）
     - `--user-id` / `USER_ID`: 実行ユーザID
     - `--project-id` / `GITLAB_PROJECT_ID`: GitLabプロジェクトID
+    - `--skills` / `SKILLS_PATH`: skillsパス
+    - `--aikata-pr-gitlab-token` / `AIKATA_PR_GITLAB_TOKEN`: GitLab APIトークン
+    - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
+    - `--log-level` / `AIKATA_LOG_LEVEL`: ログレベル
+    - `--comment-language` / `COMMENT_LANGUAGE`: AI出力（レビューコメント/レポート）の言語（デフォルト: `Japanese`）
+    - `--aikata-api-url` / `AIKATA_API_URL`: APIサーバーURL（設定時はAPIモードで動作）
+  - review サブコマンド固有CLIオプション
     - `--mr-iid` / `GITLAB_MR_IID`: MR IID
     - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス
     - `--checklist-columns` / `CHECKLIST_COLUMNS`: チェックリストCSVの抽出列番号（カンマ区切り、1始まり）
     - `--checklist-no-header` / `CHECKLIST_NO_HEADER`: 抽出列が1列の場合にヘッダを除外するか（デフォルト: `false`）
     - `--review-settings` / `REVIEW_SETTINGS_PATH`: レビュー設定ファイルパス
-    - `--skills` / `SKILLS_PATH`: skillsパス
-    - `--aikata-pr-gitlab-token` / `AIKATA_PR_GITLAB_TOKEN`: GitLab APIトークン
-    - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
-    - `--log-level` / `AIKATA_LOG_LEVEL`: ログレベル
-    - `--comment-language` / `COMMENT_LANGUAGE`: レビューコメントの言語（デフォルト: `Japanese`）
-    - `--aikata-api-url` / `AIKATA_API_URL`: APIサーバーURL（設定時はAPIモードで動作）
+  - pipeline-report サブコマンド固有CLIオプション
+    - `--pipeline-id` / `GITLAB_PIPELINE_ID` / `CI_PIPELINE_ID`: 分析対象のパイプラインID
+    - `--self-job-id` / `GITLAB_SELF_JOB_ID` / `CI_JOB_ID`: 本ジョブ自身のジョブID（分析対象から除外される）
+    - `--pipeline-report-settings` / `PIPELINE_REPORT_SETTINGS_PATH`: 分析設定ファイルパス（JSON）
+    - `--result-file` / `PIPELINE_REPORT_RESULT_FILE`: レポート出力ファイルパス（デフォルト: `./aikata-pipeline-report.md`）
+    - `--max-completeness-retries` / `PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES`: 完成判定ループ上限（デフォルト: `3`）
   - 環境変数のみ（秘密情報・環境固有）
     - `AI_API_KEY`: AI APIキー（ローカルモード時のみ必要、APIモード時はAPIサーバー側で管理）
     - `AI_API_ENDPOINT_URL`: AI APIエンドポイントURL（同上）
     - `AIKATA_JWT`: GitLab CI/CDのid_tokensで自動生成されるJWTトークン（APIモード時に使用）
+    - `PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB`: 1ジョブのartifacts zipダウンロード上限MB（pipeline-report専用、デフォルト: `50`）
+    - `PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB`: artifacts zipの合計ディスク上限MB（pipeline-report専用、デフォルト: `500`）
+    - `PIPELINE_REPORT_MAX_ARTIFACT_FILE_BYTES`: `getArtifactContent`ツールが返す1ファイル最大バイト数（pipeline-report専用、デフォルト: `2097152`）
 
 # CI/CD設計
 このセクションは本プロジェクトで利用するCI/CDパイプラインに関するものなので注意。

@@ -1,0 +1,50 @@
+# .ci-template/pipelines/pipeline-report/template.yml
+# 提供先プロジェクトで include して利用するCIテンプレート（Docker方式、pipeline-report機能）
+#
+# 使い方:
+#   include:
+#     - project: '<本プロジェクトのパス>'
+#       file: '.ci-template/pipelines/pipeline-report/template.yml'
+
+include:
+  - local: '.ci-template/variable/variables.yml'
+
+stages:
+  - .post
+
+aikata-pipeline-report:
+  stage: .post
+  image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
+  # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
+  # ローカル実行モード（上記3変数が全て設定されている場合）ではJWTは使用されない
+  id_tokens:
+    AIKATA_JWT:
+      aud: "${AIKATA_API_URL}"
+  # 全パイプラインの最終段階で実行（成功・失敗問わず）。AIKATA_PR_DISABLED=trueの場合はスキップ
+  rules:
+    - if: $AIKATA_PR_DISABLED == "true"
+      when: never
+    - when: always
+  # NOTE: APIモード（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが未設定時）では
+  # これらの変数はCI/CD環境変数に設定不要（APIサーバー側で管理される）
+  # APIモード時はAIKATA_API_URLとAIKATA_JWT（自動生成）が必要
+  script:
+    # AIKATA_PR_GITLAB_TOKENが設定されているかチェック
+    - |
+      if [ -z "$AIKATA_PR_GITLAB_TOKEN" ]; then
+        echo "Error: AIKATA_PR_GITLAB_TOKEN is not set. Please configure AIKATA_PR_GITLAB_TOKEN." >&2
+        exit 1
+      fi
+    # コンテナイメージ内のaikata-prコマンドを実行（pipeline-reportサブコマンド）
+    - |
+      aikata-pr pipeline-report \
+        --user-id "${USER_ID}" \
+        --project-id "${GITLAB_PROJECT_ID}" \
+        --pipeline-id "${GITLAB_PIPELINE_ID}" \
+        --self-job-id "${GITLAB_SELF_JOB_ID}" \
+        --log-level "${AIKATA_LOG_LEVEL}"
+  artifacts:
+    when: always
+    paths:
+      - aikata-pipeline-report.md
+    expire_in: 1 week

@@ -1,15 +1,36 @@
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createJwtAuthMiddleware } from './infrastructure/adapter/auth/index.js';
 import type { JwtAuthEnv } from './infrastructure/adapter/auth/index.js';
-import { createRequestIdMiddleware, reviewApiModule } from './presentation/api/index.js';
+import {
+  createRequestIdMiddleware,
+  reviewApiModule,
+  pipelineReportApiModule,
+} from './presentation/api/index.js';
 import type { ApiFeatureModule } from './presentation/api/index.js';
-import type { ReviewRouteEnv, RequestIdEnv } from './presentation/api/index.js';
-import type { ReviewHandlerDeps } from './presentation/api/index.js';
-import { DefaultPerRequestServiceFactory } from './presentation/api/index.js';
+import type {
+  ReviewRouteEnv,
+  RequestIdEnv,
+  PipelineReportRouteEnv,
+} from './presentation/api/index.js';
+import type { ReviewHandlerDeps, PipelineReportHandlerDeps } from './presentation/api/index.js';
+import {
+  DefaultPerRequestServiceFactory,
+  DefaultPipelineReportServiceFactory,
+} from './presentation/api/index.js';
 import { CloneManager } from './infrastructure/adapter/clone/CloneManager.js';
 import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
 import { MastraReviewWorkflowRunner } from './infrastructure/adapter/review/workflow/index.js';
+import { MastraPipelineAnalysisWorkflowRunner } from './infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.js';
+import { GitLabPipelineGateway } from './infrastructure/adapter/pipeline-report/gateway/GitLabPipelineGateway.js';
+import { GitLabApiClient } from './infrastructure/adapter/httpClient/GitLabApiClient.js';
+import { LocalProjectTreeGateway } from './infrastructure/adapter/gateway/LocalProjectTreeGateway.js';
+import { GptTokenCounter } from './infrastructure/adapter/tokenCounter/index.js';
+import { YauzlArtifactArchiveReader } from './application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
+import { mastra } from './mastra/index.js';
 import { initializeRateLimiter } from './lib/rateLimiterGlobal.js';
 import { initializeLogger, getLogger } from './lib/logger.js';
 
@@ -34,14 +55,24 @@ export interface JwtConfig {
 }
 
 /**
+ * APIサーバー全体の依存を束ねた型。
+ * 機能モジュールごとに専用 deps を持たせ、createApp 内のミドルウェアで
+ * Honoコンテキストに個別に注入する。
+ */
+export interface ServerDeps {
+  review: ReviewHandlerDeps;
+  pipelineReport: PipelineReportHandlerDeps;
+}
+
+/**
  * APIサーバーのHonoアプリを組み立てる
  * テスト時にも利用可能なようにapp生成を関数化
  */
 export function createApp(
-  deps: ReviewHandlerDeps,
+  deps: ServerDeps,
   jwtConfig?: JwtConfig,
-): Hono<JwtAuthEnv & ReviewRouteEnv & RequestIdEnv> {
-  const app = new Hono<JwtAuthEnv & ReviewRouteEnv & RequestIdEnv>();
+): Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv> {
+  const app = new Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv>();
 
   // requestIdミドルウェア（全ルートに適用、最前段）
   // X-Request-Idヘッダがあれば継承、無ければUUID v4を生成
@@ -62,15 +93,20 @@ export function createApp(
     );
   }
 
-  // reviewHandlerDepsをコンテキストに注入するミドルウェア
+  // 機能ごとのハンドラ依存をコンテキストに注入するミドルウェア
   app.use('/api/*', async (c, next) => {
-    c.set('reviewHandlerDeps', deps);
+    c.set('reviewHandlerDeps', deps.review);
+    c.set('pipelineReportHandlerDeps', deps.pipelineReport);
     await next();
   });
 
   // featureモジュールを配列でloop登録（将来新機能を追加する際はapiFeatures配列に追加するだけ）
-  const apiFeatures: ApiFeatureModule<JwtAuthEnv & ReviewRouteEnv & RequestIdEnv>[] = [
-    reviewApiModule,
+  // 各機能は自身が依存する Variables のみを要求するため Hono の Env 型は不変で
+  // 交差型に直接代入できない。ApiFeatureModule<Env> として抽象化し cast で登録する。
+  type RegisteredEnv = JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv;
+  const apiFeatures: Array<ApiFeatureModule<RegisteredEnv>> = [
+    reviewApiModule as unknown as ApiFeatureModule<RegisteredEnv>,
+    pipelineReportApiModule as unknown as ApiFeatureModule<RegisteredEnv>,
   ];
   apiFeatures.forEach((f) => f.register(app));
 
@@ -129,7 +165,7 @@ export async function startServer(): Promise<void> {
     }
   }
 
-  const deps: ReviewHandlerDeps = {
+  const reviewDeps: ReviewHandlerDeps = {
     cloneManager,
     serviceFactory,
     rateLimiter,
@@ -140,6 +176,49 @@ export async function startServer(): Promise<void> {
     openaiReasoningEffort,
     reviewTimeoutMs,
     maxContextLength,
+  };
+
+  // pipeline-report 機能の依存組み立て
+  // - PipelineGateway は gitlabToken を束縛するためファクトリ経由で毎リクエスト生成
+  // - projectTreeGateway / workflowRunner / tokenCounter / archiveReader はステートレスで共有可能
+  const pipelineReportMaxArtifactZipMb = Number(
+    process.env['PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB'] ?? '50',
+  );
+  const pipelineReportTotalArtifactDiskMb = Number(
+    process.env['PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB'] ?? '500',
+  );
+
+  const projectTreeGateway = new LocalProjectTreeGateway();
+  const tokenCounter = new GptTokenCounter();
+  const archiveReader = new YauzlArtifactArchiveReader();
+  const pipelineWorkflowRunner = new MastraPipelineAnalysisWorkflowRunner(mastra);
+
+  const pipelineReportServiceFactory = new DefaultPipelineReportServiceFactory(
+    (gitlabToken, apiBase) => new GitLabPipelineGateway(new GitLabApiClient(apiBase, gitlabToken)),
+    projectTreeGateway,
+    pipelineWorkflowRunner,
+    tokenCounter,
+    archiveReader,
+    {
+      maxArtifactZipBytes: pipelineReportMaxArtifactZipMb * 1024 * 1024,
+      totalDiskBytes: pipelineReportTotalArtifactDiskMb * 1024 * 1024,
+    },
+  );
+
+  const pipelineReportDeps: PipelineReportHandlerDeps = {
+    cloneManager, // review と共有
+    serviceFactory: pipelineReportServiceFactory,
+    resultFilePathFactory: () => join(tmpdir(), `aikata-pipeline-report-${randomUUID()}.md`),
+    gitlabApiBaseUrl,
+    aiApiKey,
+    aiApiEndpointUrl,
+    openaiReasoningEffort,
+    analysisTimeoutMs: reviewTimeoutMs,
+  };
+
+  const deps: ServerDeps = {
+    review: reviewDeps,
+    pipelineReport: pipelineReportDeps,
   };
 
   // JWT認証設定の構築
