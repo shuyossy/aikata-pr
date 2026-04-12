@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mastra } from '@mastra/core';
 import type { PipelineAnalysisWorkflowParams } from '../../../../../application/shared/port/workflow/index.js';
+import type { ArtifactCacheEntryStatus } from '../../../../../application/pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
 import { Pipeline } from '../../../../../domain/pipeline-report/pipeline/Pipeline.js';
 import { Job } from '../../../../../domain/pipeline-report/job/Job.js';
 import { ArtifactTree } from '../../../../../domain/pipeline-report/artifact/ArtifactTree.js';
@@ -71,9 +72,9 @@ function createParams(
     [5002, 'test log truncated'],
   ]);
   const omittedJobLogs = new Map<number, string>([[5001, 'omitted middle of build log']]);
-  const artifactCachePaths = new Map<number, string | null>([
-    [5001, '/tmp/cache/5001.zip'],
-    [5002, null],
+  const artifactCacheStatuses = new Map<number, ArtifactCacheEntryStatus>([
+    [5001, { kind: 'cached', zipPath: '/tmp/cache/5001.zip', bytes: 1024 }],
+    [5002, { kind: 'no-artifacts' }],
   ]);
   return {
     userId: 'test-user',
@@ -92,7 +93,7 @@ function createParams(
     skillsPaths: [],
     resultFilePath: '/tmp/result.md',
     projectDir: '/workspace/project',
-    artifactCachePaths,
+    artifactCacheStatuses,
     mergedYaml: 'stages:\n  - build\n  - test\n',
     maxCompletenessRetries: 2,
     aiConfig: {
@@ -184,10 +185,11 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
     expect((ctx.get('omittedJobLogs') as Map<number, string>).get(5001)).toBe(
       'omitted middle of build log',
     );
+    // artifactCachePaths は artifactCacheStatuses から deriveCachePaths() で導出される
     expect(ctx.get('artifactCachePaths')).toBeInstanceOf(Map);
-    expect((ctx.get('artifactCachePaths') as Map<number, string | null>).get(5001)).toBe(
-      '/tmp/cache/5001.zip',
-    );
+    const cachePaths = ctx.get('artifactCachePaths') as Map<number, string | null>;
+    expect(cachePaths.get(5001)).toBe('/tmp/cache/5001.zip');
+    expect(cachePaths.get(5002)).toBeNull();
     expect(ctx.get('hasImages')).toBe(false);
     expect(ctx.get('pendingImages')).toEqual([]);
     expect(ctx.get('workspaceAvailable')).toBe(true);

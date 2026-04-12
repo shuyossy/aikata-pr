@@ -148,8 +148,6 @@ describe('PipelineAnalysisService', () => {
     vi.spyOn(cacheManager, 'getZipPath').mockImplementation(
       (jobId) => `/tmp/fake-job-${jobId}.zip`,
     );
-    // getCachePaths: 全対象ジョブ分
-    vi.spyOn(cacheManager, 'getCachePaths').mockImplementation(() => new Map());
   });
 
   afterEach(() => {
@@ -228,6 +226,13 @@ describe('PipelineAnalysisService', () => {
     expect(runnerCall.resultFilePath).toMatch(/^\/tmp\/aikata-pipeline-report-/);
     expect(runnerCall.aiConfig.modelName).toBe('openai/o4-mini');
     expect(runnerCall.mergedYaml).toBe('stages:\n  - build\n  - test\n');
+    // artifactCacheStatuses がフル情報で渡されている
+    expect(runnerCall.artifactCacheStatuses.get(5001)).toEqual(
+      expect.objectContaining({ kind: 'cached' }),
+    );
+    expect(runnerCall.artifactCacheStatuses.get(5002)).toEqual(
+      expect.objectContaining({ kind: 'cached' }),
+    );
 
     // 結果
     expect(result.report.content).toBe('# Final report content\n- done');

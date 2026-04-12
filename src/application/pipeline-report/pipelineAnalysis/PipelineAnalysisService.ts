@@ -203,7 +203,7 @@ export class PipelineAnalysisService {
         skillsPaths: command.skillsPaths,
         resultFilePath,
         projectDir: command.projectDir,
-        artifactCachePaths: this.cacheManager.getCachePaths(),
+        artifactCacheStatuses,
         maxCompletenessRetries: command.options.maxCompletenessRetries,
         aiConfig: command.aiConfig,
         onProgress: command.onProgress,

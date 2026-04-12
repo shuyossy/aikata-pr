@@ -1,6 +1,7 @@
 import type { Pipeline } from '../../../../domain/pipeline-report/pipeline/Pipeline.js';
 import type { Job } from '../../../../domain/pipeline-report/job/Job.js';
 import type { ArtifactTree } from '../../../../domain/pipeline-report/artifact/ArtifactTree.js';
+import type { ArtifactCacheEntryStatus } from '../../../pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
 
 /**
  * pipeline-report 機能の AI 分析ワークフロー実行パラメータ。
@@ -27,8 +28,8 @@ export interface PipelineAnalysisWorkflowParams {
   skillsPaths: string[];
   resultFilePath: string;
   projectDir: string;
-  /** ジョブ ID -> artifacts zip のキャッシュパス（null はダウンロード失敗/未取得） */
-  artifactCachePaths: Map<number, string | null>;
+  /** ジョブ ID -> artifacts キャッシュステータス（no-artifacts / cached / error 等の詳細を保持） */
+  artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>;
   maxCompletenessRetries: number;
   aiConfig: {
     apiKey: string;

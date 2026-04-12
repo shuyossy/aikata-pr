@@ -12,27 +12,17 @@ import type { TargetJobSummary } from '../../../../mastra/pipeline-report/types.
 import { runWithLogContext } from '../../../../lib/logger.js';
 
 /**
- * PipelineAnalysisWorkflowParams から Mastra ワークフローに渡す initialUserPrompt を組み立てる。
- *
- * pipelineContextBuilder.buildPipelineUserPrompt は ArtifactCacheEntryStatus を要求するが、
- * ポートには簡略化された `artifactCachePaths: Map<number, string | null>` しか流れてこない。
- * そのため下記の対応で最小限のステータスを再構築する:
- * - path が非 null → `cached`（詳細バイト数は不明なので 0 を入れる。`renderArtifactStatus` は cached 時に
- *   本文を出力しないため実害はなく、実際の artifact 一覧は artifactTrees から展開される）
- * - path が null → `error`（fetch 失敗 / 未取得の総称。理由詳細は失われる）
+ * ArtifactCacheEntryStatus から getArtifactContentTool が必要とする
+ * Map<number, string | null>（ジョブ ID → zip パス）を導出する。
  */
-function reconstructCacheStatuses(
-  artifactCachePaths: Map<number, string | null>,
-): Map<number, ArtifactCacheEntryStatus> {
-  const statuses = new Map<number, ArtifactCacheEntryStatus>();
-  for (const [jobId, zipPath] of artifactCachePaths) {
-    if (zipPath !== null) {
-      statuses.set(jobId, { kind: 'cached', zipPath, bytes: 0 });
-    } else {
-      statuses.set(jobId, { kind: 'error', reason: 'artifact unavailable' });
-    }
+function deriveCachePaths(
+  statuses: Map<number, ArtifactCacheEntryStatus>,
+): Map<number, string | null> {
+  const paths = new Map<number, string | null>();
+  for (const [jobId, status] of statuses) {
+    paths.set(jobId, status.kind === 'cached' ? status.zipPath : null);
   }
-  return statuses;
+  return paths;
 }
 
 /**
@@ -76,7 +66,7 @@ function buildAgentRequestContext(
     folderTree: params.folderTree,
     folderTreeStripped: params.folderTreeStripped,
     omittedJobLogs: params.omittedJobLogs,
-    artifactCachePaths: params.artifactCachePaths,
+    artifactCachePaths: deriveCachePaths(params.artifactCacheStatuses),
     mergedYaml: params.mergedYaml,
     hasImages: false,
     pendingImages: [],
@@ -102,8 +92,8 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
       // 解析フェーズ開始を通知
       params.onProgress({ type: 'phase', phase: 'analyzing' });
 
-      // プロンプト組み立てに必要な cache statuses を再構築
-      const artifactCacheStatuses = reconstructCacheStatuses(params.artifactCachePaths);
+      // ポートからフル情報が渡されるため、そのまま使用
+      const artifactCacheStatuses = params.artifactCacheStatuses;
       const targetJobSummaries = toTargetJobSummaries(params);
 
       // ユーザプロンプトを事前組み立て
