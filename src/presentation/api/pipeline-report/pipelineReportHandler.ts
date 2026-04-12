@@ -278,6 +278,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
           String(request.projectId),
           pipelineMeta.ref,
           pipelineMeta.ref,
+          pipelineMeta.sha,
         );
         state.cleanup = cloneResult.cleanup;
 

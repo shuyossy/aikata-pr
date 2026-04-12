@@ -112,6 +112,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       // CloneResultの構造を検証
@@ -132,6 +133,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       // fetchがGitLab APIプロジェクトエンドポイントに対して呼ばれたことを確認
@@ -168,6 +170,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       const mockedExecFile = vi.mocked(realExecFile);
@@ -192,6 +195,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       const mockedExecFile = vi.mocked(realExecFile);
@@ -201,6 +205,58 @@ describe('CloneManager', () => {
       const checkoutArgs = checkoutCall[1] as string[];
       expect(checkoutArgs[0]).toBe('checkout');
       expect(checkoutArgs).toContain(defaultSourceBranch);
+    });
+
+    it('正常系: commitSha指定時にブランチcheckout後にSHAでcheckoutする', async () => {
+      mockGitLabProjectResponse();
+      // git clone → git fetch → git checkout(branch) → git checkout(sha) → du -sk
+      setupExecFileSequence([
+        { stdout: '' }, // git clone
+        { stdout: '' }, // git fetch
+        { stdout: '' }, // git checkout <sourceBranch>
+        { stdout: '' }, // git checkout <commitSha>
+        DU_OK, // du -sk
+      ]);
+
+      const manager = new CloneManager(300_000, 1024, 5, '/tmp/aikata-test-clones');
+      const result = await manager.clone(
+        defaultToken,
+        defaultApiBaseUrl,
+        defaultProjectId,
+        defaultSourceBranch,
+        defaultTargetBranch,
+        'abcdef1234567890',
+      );
+
+      const mockedExecFile = vi.mocked(realExecFile);
+      // 4番目の呼び出しがgit checkout <commitSha>
+      const shaCheckoutCall = mockedExecFile.mock.calls[3];
+      expect(shaCheckoutCall[0]).toBe('git');
+      const shaCheckoutArgs = shaCheckoutCall[1] as string[];
+      expect(shaCheckoutArgs[0]).toBe('checkout');
+      expect(shaCheckoutArgs).toContain('abcdef1234567890');
+
+      expect(result.projectDir).toMatch(clonePathPattern);
+      await result.cleanup();
+    });
+
+    it('正常系: commitShaがnullの場合はSHAでのcheckoutをスキップする', async () => {
+      mockGitLabProjectResponse();
+      setupNormalCloneSequence();
+
+      const manager = new CloneManager(300_000, 1024, 5, '/tmp/aikata-test-clones');
+      await manager.clone(
+        defaultToken,
+        defaultApiBaseUrl,
+        defaultProjectId,
+        defaultSourceBranch,
+        defaultTargetBranch,
+        null,
+      );
+
+      const mockedExecFile = vi.mocked(realExecFile);
+      // git clone(0) → git fetch(1) → git checkout(2) → du -sk(3) の4回のみ
+      expect(mockedExecFile).toHaveBeenCalledTimes(4);
     });
 
     it('正常系: 一時ディレクトリが作成される', async () => {
@@ -214,6 +270,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       // mkdirが呼ばれていること
@@ -239,6 +296,7 @@ describe('CloneManager', () => {
           defaultProjectId,
           defaultSourceBranch,
           defaultTargetBranch,
+          null,
         ),
       ).rejects.toThrow('Failed to fetch project info from GitLab API: 404 Not Found');
     });
@@ -256,6 +314,7 @@ describe('CloneManager', () => {
           defaultProjectId,
           defaultSourceBranch,
           defaultTargetBranch,
+          null,
         ),
       ).rejects.toThrow('clone failed: repository not found');
 
@@ -283,6 +342,7 @@ describe('CloneManager', () => {
           defaultProjectId,
           defaultSourceBranch,
           defaultTargetBranch,
+          null,
         ),
       ).rejects.toThrow('fetch failed: branch not found');
 
@@ -307,6 +367,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       // rmのモックをクリアして、cleanup呼び出しのrmだけを検証する
@@ -349,6 +410,7 @@ describe('CloneManager', () => {
           defaultProjectId,
           'branch1',
           defaultTargetBranch,
+          null,
         ),
         manager.clone(
           defaultToken,
@@ -356,6 +418,7 @@ describe('CloneManager', () => {
           defaultProjectId,
           'branch2',
           defaultTargetBranch,
+          null,
         ),
       ]);
 
@@ -394,6 +457,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         'branch1',
         defaultTargetBranch,
+        null,
       );
 
       // 1つ目のcleanupでセマフォを解放
@@ -406,6 +470,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         'branch2',
         defaultTargetBranch,
+        null,
       );
 
       expect(result2.sourceBranch).toBe('branch2');
@@ -427,6 +492,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         'branch1',
         defaultTargetBranch,
+        null,
       );
 
       // 2つ目はセマフォ待機でタイムアウトする（cleanupしないのでスロットが空かない）
@@ -438,6 +504,7 @@ describe('CloneManager', () => {
           defaultProjectId,
           'branch2',
           defaultTargetBranch,
+          null,
         ),
       ).rejects.toThrow('Clone semaphore timeout: all slots occupied');
 
@@ -463,6 +530,7 @@ describe('CloneManager', () => {
           defaultProjectId,
           'branch1',
           defaultTargetBranch,
+          null,
         ),
       ).rejects.toThrow();
 
@@ -477,6 +545,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         'branch2',
         defaultTargetBranch,
+        null,
       );
 
       expect(result2.sourceBranch).toBe('branch2');
@@ -496,6 +565,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       const mockedExecFile = vi.mocked(realExecFile);
@@ -518,6 +588,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       const mockedExecFile = vi.mocked(realExecFile);
@@ -549,6 +620,7 @@ describe('CloneManager', () => {
           defaultProjectId,
           defaultSourceBranch,
           defaultTargetBranch,
+          null,
         ),
       ).rejects.toThrow('Clone disk usage exceeds limit');
 
@@ -574,6 +646,7 @@ describe('CloneManager', () => {
         defaultProjectId,
         defaultSourceBranch,
         defaultTargetBranch,
+        null,
       );
 
       expect(result.projectDir).toBeDefined();

@@ -238,6 +238,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
           request.projectId,
           mrInfo.source_branch,
           mrInfo.target_branch,
+          null,
         );
         state.cleanup = cloneResult.cleanup;
 

@@ -320,6 +320,7 @@ describe('pipelineReportRoute', () => {
       expect(cloneArgs[2]).toBe('42'); // projectId as string
       expect(cloneArgs[3]).toBe('main'); // sourceBranch = pipeline.ref
       expect(cloneArgs[4]).toBe('main'); // targetBranch = pipeline.ref
+      expect(cloneArgs[5]).toBe('abc123def456'); // commitSha = pipeline.sha
     });
 
     it('PipelineAnalysisExecutor.analyze に正しいコマンドが渡ること', async () => {

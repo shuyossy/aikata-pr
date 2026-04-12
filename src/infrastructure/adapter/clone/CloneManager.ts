@@ -83,6 +83,7 @@ export class CloneManager implements CloneManagerPort {
     projectId: string,
     sourceBranch: string,
     targetBranch: string,
+    commitSha: string | null,
   ): Promise<CloneResult> {
     // セマフォ取得（空くまで待機）
     await this.acquireSemaphore();
@@ -123,6 +124,16 @@ export class CloneManager implements CloneManagerPort {
         timeout: this.cloneTimeoutMs,
       });
       getLogger().info({ sourceBranch }, 'Source branch checked out');
+
+      // commitSha が指定されている場合、特定のコミットをcheckout（detached HEAD）
+      if (commitSha) {
+        await execFileAsync('git', ['checkout', commitSha], {
+          ...GIT_EXEC_OPTIONS,
+          cwd: tmpDir,
+          timeout: this.cloneTimeoutMs,
+        });
+        getLogger().info({ commitSha }, 'Specific commit checked out');
+      }
 
       // ディスク使用量チェック
       await this.checkDiskUsage(tmpDir);

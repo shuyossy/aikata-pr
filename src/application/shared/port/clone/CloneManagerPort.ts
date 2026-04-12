@@ -26,5 +26,6 @@ export interface CloneManagerPort {
     projectId: string,
     sourceBranch: string,
     targetBranch: string,
+    commitSha: string | null,
   ): Promise<CloneResult>;
 }
