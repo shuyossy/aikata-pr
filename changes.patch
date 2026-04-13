@@ -1,119 +1,416 @@
-diff --git a/.gitattributes b/.gitattributes
-new file mode 100644
-index 0000000..fd4c36d
---- /dev/null
-+++ b/.gitattributes
-@@ -0,0 +1 @@
-+*.zip binary
-diff --git a/PBI.md b/PBI.md
-index 99681dd..b6d296c 100644
---- a/PBI.md
-+++ b/PBI.md
-@@ -8,12 +8,3 @@
- - 注意事項
- - 指摘事項（in progressの場合のみ）
- ```
+diff --git a/src/cli/pipeline-report/__tests__/commandBuilder.test.ts b/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
+index 4f1753d..a6c5869 100644
+--- a/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
++++ b/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
+@@ -204,7 +204,7 @@ describe('buildPipelineReportApiRequest', () => {
+       excludeJobPatterns: [/^skip-.*/],
+     });
+ 
+-    const request = buildPipelineReportApiRequest(options, validated, settings, 200000);
++    const request = buildPipelineReportApiRequest(options, validated, settings);
+ 
+     expect(request.userId).toBe('alice');
+     expect(request.gitlabToken).toBe('gitlab-token');
+@@ -216,8 +216,6 @@ describe('buildPipelineReportApiRequest', () => {
+     expect(request.settings.includeJobPatterns).toEqual(['^build-.*', '^test-.*']);
+     expect(request.settings.excludeJobPatterns).toEqual(['^skip-.*']);
+     expect(request.commentLanguage).toBe('Japanese');
+-    expect(request.aiModelName).toBe('openai/o4-mini');
+-    expect(request.maxContextLength).toBe(200000);
+     expect(request.maxCompletenessRetries).toBe(3);
+     expect(request.skillsRelPaths).toEqual(['/skills']);
+     expect(request.treeMaxDepth).toBe(2);
+@@ -229,10 +227,9 @@ describe('buildPipelineReportApiRequest', () => {
+     const validated = validateRequiredParams(options, env);
+     const settings = PipelineReportSettings.default();
+ 
+-    const request = buildPipelineReportApiRequest(options, validated, settings, null);
++    const request = buildPipelineReportApiRequest(options, validated, settings);
+ 
+     expect(request.skillsRelPaths).toEqual([]);
+-    expect(request.maxContextLength).toBeNull();
+     expect(request.settings.includeJobPatterns).toEqual([]);
+     expect(request.settings.excludeJobPatterns).toEqual([]);
+   });
+diff --git a/src/cli/pipeline-report/__tests__/index.test.ts b/src/cli/pipeline-report/__tests__/index.test.ts
+index f5be756..a49ea3f 100644
+--- a/src/cli/pipeline-report/__tests__/index.test.ts
++++ b/src/cli/pipeline-report/__tests__/index.test.ts
+@@ -293,7 +293,6 @@ describe('pipeline-report CLI module', () => {
+       expect(req.userId).toBe('alice');
+       expect(req.projectId).toBe(10);
+       expect(req.pipelineId).toBe(20);
+-      expect(req.aiModelName).toBe('openai/o4-mini');
+ 
+       expect(fs.readFileSync(resultFilePath, 'utf-8')).toBe('# API Pipeline Report\n\nok');
+       const stdoutOut = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('');
+diff --git a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
+index b21e57f..77f6bc2 100644
+--- a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
++++ b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
+@@ -487,9 +487,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
+       expect(req.pipelineId).toBe(200);
+       expect(req.selfJobId).toBe(888);
+       expect(req.gitlabToken).toBe('glpat-api');
+-      expect(req.aiModelName).toBe('openai/o4-mini-api');
+       expect(req.commentLanguage).toBe('English');
+-      expect(req.maxContextLength).toBe(54321);
+       expect(req.maxCompletenessRetries).toBe(7);
+       expect(req.treeMaxDepth).toBe(4);
+       expect(req.skillsRelPaths).toEqual(['.skills/api']);
+@@ -568,14 +566,10 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
+       expect(req.settings.excludeJobPatterns).toEqual([]);
+       // デフォルト言語は Japanese
+       expect(req.commentLanguage).toBe('Japanese');
+-      // デフォルト model は openai/o4-mini
+-      expect(req.aiModelName).toBe('openai/o4-mini');
+       // デフォルト maxCompletenessRetries は 3
+       expect(req.maxCompletenessRetries).toBe(3);
+       // treeMaxDepth 未指定時は undefined
+       expect(req.treeMaxDepth).toBeUndefined();
+-      // maxContextLength 未指定時は null
+-      expect(req.maxContextLength).toBeNull();
+       // skills 未指定時は空配列
+       expect(req.skillsRelPaths).toEqual([]);
+     });
+diff --git a/src/cli/pipeline-report/commandBuilder.ts b/src/cli/pipeline-report/commandBuilder.ts
+index 2ee29e8..b8c3a18 100644
+--- a/src/cli/pipeline-report/commandBuilder.ts
++++ b/src/cli/pipeline-report/commandBuilder.ts
+@@ -157,7 +157,6 @@ export function buildPipelineReportApiRequest(
+   parsed: PipelineReportCliOptions,
+   validated: ValidatedPipelineReportParams,
+   settings: PipelineReportSettings,
+-  maxContextLength: number | null,
+ ): PipelineReportApiRequest {
+   return {
+     userId: validated.userId,
+@@ -172,8 +171,6 @@ export function buildPipelineReportApiRequest(
+       excludeJobPatterns: settings.excludeJobPatterns.map((re) => re.source),
+     },
+     commentLanguage: parsed.commentLanguage,
+-    aiModelName: validated.aiModelName,
+-    maxContextLength,
+     maxCompletenessRetries: parsed.maxCompletenessRetries,
+     skillsRelPaths: parsed.skills ? [parsed.skills] : [],
+     treeMaxDepth: parsed.treeMaxDepth,
+diff --git a/src/cli/pipeline-report/index.ts b/src/cli/pipeline-report/index.ts
+index 4694acb..e8f23c6 100644
+--- a/src/cli/pipeline-report/index.ts
++++ b/src/cli/pipeline-report/index.ts
+@@ -313,12 +313,7 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
+     } else {
+       // === APIモード ===
+       const apiDeps = runOptions.apiDeps ?? defaultApiDeps;
+-      const apiRequest = buildPipelineReportApiRequest(
+-        parsed,
+-        validated,
+-        settings,
+-        maxContextLength,
+-      );
++      const apiRequest = buildPipelineReportApiRequest(parsed, validated, settings);
+ 
+       const client = apiDeps.createClient({
+         baseUrl: validated.aikataApiUrl!,
+diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
+index 4064990..b871a43 100644
+--- a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
++++ b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
+@@ -22,9 +22,6 @@ export interface PipelineReportApiRequest {
+     excludeJobPatterns: string[];
+   };
+   commentLanguage: string;
+-  aiModelName: string;
+-  /** null の場合はAPIサーバー側で圧縮しない */
+-  maxContextLength: number | null;
+   maxCompletenessRetries: number;
+   skillsRelPaths: string[];
+   /** フォルダツリー走査の最大深度。undefined なら無制限 */
+diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts b/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
+index 1fc546c..c7c18f1 100644
+--- a/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
++++ b/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
+@@ -61,8 +61,6 @@ describe('PipelineReportApiClient', () => {
+       excludeJobPatterns: [],
+     },
+     commentLanguage: 'Japanese',
+-    aiModelName: 'openai/o4-mini',
+-    maxContextLength: null,
+     maxCompletenessRetries: 3,
+     skillsRelPaths: [],
+     treeMaxDepth: undefined,
+diff --git a/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts b/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
+index 4408901..70182f0 100644
+--- a/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
++++ b/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
+@@ -17,8 +17,6 @@ function createValidRequestBody(): Record<string, unknown> {
+     selfJobId: 3001,
+     settings: {},
+     commentLanguage: 'Japanese',
+-    aiModelName: 'openai/o4-mini',
+-    maxContextLength: null,
+     maxCompletenessRetries: 3,
+     skillsRelPaths: [],
+   };
+@@ -82,12 +80,6 @@ describe('pipelineReportRequestSchema', () => {
+     expect(result.success).toBe(false);
+   });
+ 
+-  it('maxContextLength が 0 以下の場合にバリデーションエラーとなること', () => {
+-    const input = { ...createValidRequestBody(), maxContextLength: 0 };
+-    const result = pipelineReportRequestSchema.safeParse(input);
+-    expect(result.success).toBe(false);
+-  });
 -
--# ID: 1
--- PBI名: `buildGenerateOptions`に関する修正
--- ステータス: to do
--- 受け入れ基準
--  - 引数がWrokflowRequestContextとなっていること
--  - レビュー機能、パイプライン分析機能から問題なく呼び出せていること
--- 注意事項
--- 指摘事項（in progressの場合のみ）
-\ No newline at end of file
-diff --git a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-index 015fc62..e3910fa 100644
---- a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-+++ b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-@@ -1,4 +1,6 @@
- import * as fs from 'node:fs';
-+import * as os from 'node:os';
-+import { join } from 'node:path';
- import { AnalysisReport } from '../../../domain/pipeline-report/analysisReport/index.js';
- import { ArtifactTree } from '../../../domain/pipeline-report/artifact/index.js';
- import type { Pipeline } from '../../../domain/pipeline-report/pipeline/index.js';
-@@ -93,7 +95,10 @@ export class PipelineAnalysisService {
+   it('maxCompletenessRetries が 0 の場合にバリデーションを通ること', () => {
+     const input = { ...createValidRequestBody(), maxCompletenessRetries: 0 };
+     const result = pipelineReportRequestSchema.safeParse(input);
+@@ -106,12 +98,6 @@ describe('pipelineReportRequestSchema', () => {
+     expect(result.success).toBe(false);
+   });
  
-   async analyze(command: PipelineAnalyzeCommand): Promise<PipelineAnalysisResult> {
-     // 一時ファイルパスを事前に生成（finallyでのクリーンアップのため try 外で宣言）
--    const resultFilePath = `/tmp/aikata-pipeline-report-${command.projectId}-${command.pipelineId}-${Date.now()}.md`;
-+    const resultFilePath = join(
-+      os.tmpdir(),
-+      `aikata-pipeline-report-${command.projectId}-${command.pipelineId}-${Date.now()}.md`,
-+    );
-     try {
-       // Step 1: Pipeline メタ情報取得
-       const pipeline = await this.pipelineGateway.getPipeline(
-diff --git a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-index bb63622..f445ab9 100644
---- a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-+++ b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-@@ -222,8 +222,8 @@ describe('PipelineAnalysisService', () => {
-     expect(runnerCall.targetJobs).toHaveLength(2);
-     expect(runnerCall.jobLogsCompressed.get(5001)).toBe('log for 5001');
-     expect(runnerCall.jobLogsCompressed.get(5002)).toBe('log for 5002');
--    // サービス内部で一時ファイルパスが生成される（/tmp/aikata-pipeline-report-...）
--    expect(runnerCall.resultFilePath).toMatch(/^\/tmp\/aikata-pipeline-report-/);
-+    // サービス内部で一時ファイルパスが生成される（os.tmpdir()/aikata-pipeline-report-...）
-+    expect(runnerCall.resultFilePath).toMatch(/aikata-pipeline-report-/);
-     expect(runnerCall.aiConfig.modelName).toBe('openai/o4-mini');
-     expect(runnerCall.mergedYaml).toBe('stages:\n  - build\n  - test\n');
-     // artifactCacheStatuses がフル情報で渡されている
-diff --git a/src/application/review/reviewExecution/ReviewExecutionService.ts b/src/application/review/reviewExecution/ReviewExecutionService.ts
-index d978946..93eb4d7 100644
---- a/src/application/review/reviewExecution/ReviewExecutionService.ts
-+++ b/src/application/review/reviewExecution/ReviewExecutionService.ts
-@@ -1,4 +1,6 @@
- import * as fs from 'node:fs';
-+import * as os from 'node:os';
-+import { join } from 'node:path';
- import type { MrGateway } from '../../shared/port/gateway/index.js';
- import type { MrDiscussionGateway } from '../../shared/port/gateway/index.js';
- import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
-@@ -75,7 +77,10 @@ export class ReviewExecutionService {
-     priorContext: PriorContext,
-     folderTree: string,
-   ): Promise<ReviewExecutionDto> {
--    const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
-+    const resultFilePath = join(
-+      os.tmpdir(),
-+      `aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
-+    );
- 
-     // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
-     const compression = this.compressDiff(command, mrContext, folderTree, priorContext);
-@@ -148,7 +153,10 @@ export class ReviewExecutionService {
-     }
- 
-     // 再レビュー対象あり → ワークフロー実行（対象項目のみ）
--    const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
-+    const resultFilePath = join(
-+      os.tmpdir(),
-+      `aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
-+    );
- 
-     // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
-     const compression = this.compressDiff(command, mrContext, folderTree, null);
-diff --git a/src/infrastructure/adapter/clone/CloneManager.ts b/src/infrastructure/adapter/clone/CloneManager.ts
-index 547d4d7..4d917d0 100644
---- a/src/infrastructure/adapter/clone/CloneManager.ts
-+++ b/src/infrastructure/adapter/clone/CloneManager.ts
-@@ -1,6 +1,7 @@
- import { randomUUID } from 'node:crypto';
- import { execFile } from 'node:child_process';
- import { rm, mkdir } from 'node:fs/promises';
-+import { tmpdir } from 'node:os';
- import { join } from 'node:path';
- import type {
+-  it('aiModelName が空文字の場合にバリデーションエラーとなること', () => {
+-    const input = { ...createValidRequestBody(), aiModelName: '' };
+-    const result = pipelineReportRequestSchema.safeParse(input);
+-    expect(result.success).toBe(false);
+-  });
+-
+   it('treeMaxDepth が省略されたリクエストが通ること', () => {
+     const input = createValidRequestBody();
+     const result = pipelineReportRequestSchema.safeParse(input);
+diff --git a/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts b/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
+index 9103c0f..b2c35a2 100644
+--- a/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
++++ b/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
+@@ -13,6 +13,7 @@ import type {
    CloneManagerPort,
-@@ -62,7 +63,7 @@ export class CloneManager implements CloneManagerPort {
-     private readonly cloneTimeoutMs: number = 300_000,
-     private readonly maxDiskMb: number = 1024,
-     private readonly maxConcurrentClones: number = 5,
--    private readonly baseTmpDir: string = '/tmp/aikata-pr-clones',
-+    private readonly baseTmpDir: string = join(tmpdir(), 'aikata-pr-clones'),
-     private readonly semaphoreTimeoutMs: number = 600_000,
-   ) {}
+   CloneResult,
+ } from '../../../../application/shared/port/clone/index.js';
++import type { RateLimiterPort } from '../../../../application/shared/port/rateLimiter/index.js';
+ import type { PipelineAnalysisResult } from '../../../../application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.js';
+ import type { GitLabIdTokenPayload } from '../../../../infrastructure/adapter/auth/index.js';
+ import { Pipeline } from '../../../../domain/pipeline-report/pipeline/index.js';
+@@ -131,6 +132,20 @@ function createMockServiceFactory(overrides?: {
+   };
+ }
  
++/**
++ * モック RateLimiter
++ */
++function createMockRateLimiter(): RateLimiterPort {
++  return {
++    acquirePermission: vi.fn<RateLimiterPort['acquirePermission']>().mockResolvedValue(undefined),
++    reportRateLimit: vi.fn<RateLimiterPort['reportRateLimit']>(),
++    reportSuccess: vi.fn<RateLimiterPort['reportSuccess']>(),
++    registerProject: vi.fn<RateLimiterPort['registerProject']>(),
++    unregisterProject: vi.fn<RateLimiterPort['unregisterProject']>(),
++    destroy: vi.fn<RateLimiterPort['destroy']>(),
++  };
++}
++
+ /**
+  * テスト用の Hono アプリを作成するヘルパー
+  */
+@@ -141,9 +156,11 @@ function createTestApp(
+   const deps: PipelineReportHandlerDeps = {
+     cloneManager: createMockCloneManager(),
+     serviceFactory: createMockServiceFactory(),
++    rateLimiter: createMockRateLimiter(),
+     gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
+     aiApiKey: 'test-api-key',
+     aiApiEndpointUrl: 'https://ai.example.com',
++    defaultAiModelName: 'test-server-model',
+     ...depsOverrides,
+   };
+ 
+@@ -184,8 +201,6 @@ function createValidRequestBody(): Record<string, unknown> {
+       excludeJobPatterns: [],
+     },
+     commentLanguage: 'Japanese',
+-    aiModelName: 'openai/o4-mini',
+-    maxContextLength: null,
+     maxCompletenessRetries: 3,
+     skillsRelPaths: [],
+   };
+@@ -359,13 +374,82 @@ describe('pipelineReportRoute', () => {
+       expect(command.projectDir).toBe('/tmp/test-clone');
+       expect(command.aiConfig.apiKey).toBe('test-api-key');
+       expect(command.aiConfig.endpointUrl).toBe('https://ai.example.com');
+-      expect(command.aiConfig.modelName).toBe('openai/o4-mini');
++      expect(command.aiConfig.modelName).toBe('test-server-model');
+       expect(command.maxContextLength).toBeNull();
+       expect(command.options.maxCompletenessRetries).toBe(3);
+       expect(command.settings.includeJobPatterns.length).toBe(1);
+       expect(command.settings.includeJobPatterns[0].source).toBe('^test:');
+     });
+ 
++    it('deps.maxContextLength がサーバ環境変数由来で analyze コマンドに伝播すること', async () => {
++      const analysisResult = createDefaultAnalysisResult();
++      const analyzeMock = vi
++        .fn<PipelineAnalysisExecutor['analyze']>()
++        .mockResolvedValue(analysisResult);
++      const serviceFactory: PipelineReportServiceFactory = {
++        create: vi.fn().mockReturnValue({
++          metaFetcher: {
++            getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline),
++          },
++          executor: { analyze: analyzeMock },
++        }),
++      };
++
++      const app = createTestApp({ serviceFactory, maxContextLength: 80000 });
++
++      const res = await app.request('/pipeline-report', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify(createValidRequestBody()),
++      });
++      await res.text();
++
++      expect(analyzeMock).toHaveBeenCalledTimes(1);
++      const command = analyzeMock.mock.calls[0][0];
++      expect(command.maxContextLength).toBe(80000);
++    });
++
++    it('rateLimiter に registerProject / unregisterProject が呼ばれること', async () => {
++      const rateLimiter = createMockRateLimiter();
++      const app = createTestApp({ rateLimiter });
++
++      const res = await app.request('/pipeline-report', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify(createValidRequestBody()),
++      });
++      await res.text();
++
++      expect(rateLimiter.registerProject).toHaveBeenCalledWith('42');
++      expect(rateLimiter.unregisterProject).toHaveBeenCalledWith('42');
++    });
++
++    it('analyze が失敗しても unregisterProject が呼ばれること', async () => {
++      const rateLimiter = createMockRateLimiter();
++      const analysisResult = createDefaultAnalysisResult();
++      const serviceFactory: PipelineReportServiceFactory = {
++        create: vi.fn().mockReturnValue({
++          metaFetcher: {
++            getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline),
++          },
++          executor: {
++            analyze: vi.fn().mockRejectedValue(new Error('Analysis boom')),
++          },
++        }),
++      };
++      const app = createTestApp({ rateLimiter, serviceFactory });
++
++      const res = await app.request('/pipeline-report', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify(createValidRequestBody()),
++      });
++      await res.text();
++
++      expect(rateLimiter.registerProject).toHaveBeenCalledWith('42');
++      expect(rateLimiter.unregisterProject).toHaveBeenCalledWith('42');
++    });
++
+     it('リポジトリクローンが完了後に cleanup が呼ばれること', async () => {
+       const cloneManager = createMockCloneManager();
+       const app = createTestApp({ cloneManager });
+diff --git a/src/presentation/api/pipeline-report/pipelineReportHandler.ts b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
+index b77b903..eeef42a 100644
+--- a/src/presentation/api/pipeline-report/pipelineReportHandler.ts
++++ b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
+@@ -1,6 +1,7 @@
+ import type { SSEStreamingApi } from 'hono/streaming';
+ import { z } from 'zod';
+ import type { CloneManagerPort } from '../../../application/shared/port/clone/index.js';
++import type { RateLimiterPort } from '../../../application/shared/port/rateLimiter/index.js';
+ import type { PipelineGateway } from '../../../application/shared/port/gateway/PipelineGateway.js';
+ import type {
+   PipelineAnalysisProgressEvent,
+@@ -41,9 +42,6 @@ export const pipelineReportRequestSchema = z.object({
+     })
+     .optional(),
+   commentLanguage: z.string().min(1),
+-  aiModelName: z.string().min(1),
+-  /** null の場合は圧縮しない */
+-  maxContextLength: z.number().int().positive().nullable(),
+   maxCompletenessRetries: z.number().int().min(0),
+   skillsRelPaths: z.array(z.string()),
+   /** フォルダツリー走査の最大深度。省略時は無制限 */
+@@ -119,15 +117,21 @@ export interface PipelineReportHandlerDeps {
+   cloneManager: CloneManagerPort;
+   /** per-request サービスファクトリ（service は内部で gateway/workflow/archive 等を保持） */
+   serviceFactory: PipelineReportServiceFactory;
+-  /** ai API の共通情報（api key / endpoint） */
++  /** レートリミッター（review と共有インスタンス） */
++  rateLimiter: RateLimiterPort;
++  /** ai API の共通情報（api key / endpoint / model） */
+   aiApiKey: string;
+   aiApiEndpointUrl: string;
++  /** APIサーバー側で利用するデフォルトAIモデル名 */
++  defaultAiModelName: string;
+   /** GitLab API の base URL */
+   gitlabApiBaseUrl: string;
+   /** OpenAI reasoning モデルの reasoning effort 設定 */
+   openaiReasoningEffort?: string;
+   /** 解析全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
+   analysisTimeoutMs?: number;
++  /** AIモデルのコンテキスト長（トークン数）。未設定時は圧縮しない */
++  maxContextLength?: number;
+ }
+ 
+ /**
+@@ -225,6 +229,10 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
+   return async (request: PipelineReportRequest, stream: SSEStreamingApi): Promise<void> => {
+     const logger = getLogger();
+     const state: { cleanup: (() => Promise<void>) | null } = { cleanup: null };
++    const projectIdStr = String(request.projectId);
++
++    // レートリミッターにプロジェクトを登録（参照カウント方式）
++    deps.rateLimiter.registerProject(projectIdStr);
+ 
+     // keepalive（30秒ごと）
+     const keepaliveInterval = setInterval(async () => {
+@@ -327,11 +335,11 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
+           aiConfig: {
+             apiKey: deps.aiApiKey,
+             endpointUrl: deps.aiApiEndpointUrl,
+-            modelName: request.aiModelName,
++            modelName: deps.defaultAiModelName,
+             reasoningEffort:
+               (deps.openaiReasoningEffort as 'low' | 'medium' | 'high' | undefined) ?? null,
+           },
+-          maxContextLength: request.maxContextLength,
++          maxContextLength: deps.maxContextLength ?? null,
+           treeMaxDepth: request.treeMaxDepth,
+           options: {
+             maxCompletenessRetries: request.maxCompletenessRetries,
+@@ -405,6 +413,8 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
+     } finally {
+       clearInterval(keepaliveInterval);
+       if (timeoutId) clearTimeout(timeoutId);
++      // レートリミッターからプロジェクトを解除
++      deps.rateLimiter.unregisterProject(projectIdStr);
+       if (state.cleanup) {
+         try {
+           await state.cleanup();
+diff --git a/src/server.ts b/src/server.ts
+index 07ab511..bdf4507 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -205,11 +205,14 @@ export async function startServer(): Promise<void> {
+   const pipelineReportDeps: PipelineReportHandlerDeps = {
+     cloneManager, // review と共有
+     serviceFactory: pipelineReportServiceFactory,
++    rateLimiter, // review と共有
+     gitlabApiBaseUrl,
+     aiApiKey,
+     aiApiEndpointUrl,
++    defaultAiModelName,
+     openaiReasoningEffort,
+     analysisTimeoutMs: reviewTimeoutMs,
++    maxContextLength,
+   };
+ 
+   const deps: ServerDeps = {
