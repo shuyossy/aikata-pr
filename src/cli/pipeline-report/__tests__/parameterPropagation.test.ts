@@ -487,7 +487,6 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(req.pipelineId).toBe(200);
       expect(req.selfJobId).toBe(888);
       expect(req.gitlabToken).toBe('glpat-api');
-      expect(req.aiModelName).toBe('openai/o4-mini-api');
       expect(req.commentLanguage).toBe('English');
       expect(req.maxContextLength).toBe(54321);
       expect(req.maxCompletenessRetries).toBe(7);
@@ -568,8 +567,6 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(req.settings.excludeJobPatterns).toEqual([]);
       // デフォルト言語は Japanese
       expect(req.commentLanguage).toBe('Japanese');
-      // デフォルト model は openai/o4-mini
-      expect(req.aiModelName).toBe('openai/o4-mini');
       // デフォルト maxCompletenessRetries は 3
       expect(req.maxCompletenessRetries).toBe(3);
       // treeMaxDepth 未指定時は undefined

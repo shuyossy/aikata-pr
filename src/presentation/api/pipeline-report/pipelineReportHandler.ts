@@ -1,6 +1,7 @@
 import type { SSEStreamingApi } from 'hono/streaming';
 import { z } from 'zod';
 import type { CloneManagerPort } from '../../../application/shared/port/clone/index.js';
+import type { RateLimiterPort } from '../../../application/shared/port/rateLimiter/index.js';
 import type { PipelineGateway } from '../../../application/shared/port/gateway/PipelineGateway.js';
 import type {
   PipelineAnalysisProgressEvent,
@@ -41,7 +42,6 @@ export const pipelineReportRequestSchema = z.object({
     })
     .optional(),
   commentLanguage: z.string().min(1),
-  aiModelName: z.string().min(1),
   /** null の場合は圧縮しない */
   maxContextLength: z.number().int().positive().nullable(),
   maxCompletenessRetries: z.number().int().min(0),
@@ -119,9 +119,13 @@ export interface PipelineReportHandlerDeps {
   cloneManager: CloneManagerPort;
   /** per-request サービスファクトリ（service は内部で gateway/workflow/archive 等を保持） */
   serviceFactory: PipelineReportServiceFactory;
-  /** ai API の共通情報（api key / endpoint） */
+  /** レートリミッター（review と共有インスタンス） */
+  rateLimiter: RateLimiterPort;
+  /** ai API の共通情報（api key / endpoint / model） */
   aiApiKey: string;
   aiApiEndpointUrl: string;
+  /** APIサーバー側で利用するデフォルトAIモデル名 */
+  defaultAiModelName: string;
   /** GitLab API の base URL */
   gitlabApiBaseUrl: string;
   /** OpenAI reasoning モデルの reasoning effort 設定 */
@@ -225,6 +229,10 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
   return async (request: PipelineReportRequest, stream: SSEStreamingApi): Promise<void> => {
     const logger = getLogger();
     const state: { cleanup: (() => Promise<void>) | null } = { cleanup: null };
+    const projectIdStr = String(request.projectId);
+
+    // レートリミッターにプロジェクトを登録（参照カウント方式）
+    deps.rateLimiter.registerProject(projectIdStr);
 
     // keepalive（30秒ごと）
     const keepaliveInterval = setInterval(async () => {
@@ -327,7 +335,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
           aiConfig: {
             apiKey: deps.aiApiKey,
             endpointUrl: deps.aiApiEndpointUrl,
-            modelName: request.aiModelName,
+            modelName: deps.defaultAiModelName,
             reasoningEffort:
               (deps.openaiReasoningEffort as 'low' | 'medium' | 'high' | undefined) ?? null,
           },
@@ -405,6 +413,8 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
     } finally {
       clearInterval(keepaliveInterval);
       if (timeoutId) clearTimeout(timeoutId);
+      // レートリミッターからプロジェクトを解除
+      deps.rateLimiter.unregisterProject(projectIdStr);
       if (state.cleanup) {
         try {
           await state.cleanup();

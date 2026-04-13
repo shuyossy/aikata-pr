@@ -216,7 +216,6 @@ describe('buildPipelineReportApiRequest', () => {
     expect(request.settings.includeJobPatterns).toEqual(['^build-.*', '^test-.*']);
     expect(request.settings.excludeJobPatterns).toEqual(['^skip-.*']);
     expect(request.commentLanguage).toBe('Japanese');
-    expect(request.aiModelName).toBe('openai/o4-mini');
     expect(request.maxContextLength).toBe(200000);
     expect(request.maxCompletenessRetries).toBe(3);
     expect(request.skillsRelPaths).toEqual(['/skills']);

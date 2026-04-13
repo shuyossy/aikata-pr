@@ -22,7 +22,6 @@ export interface PipelineReportApiRequest {
     excludeJobPatterns: string[];
   };
   commentLanguage: string;
-  aiModelName: string;
   /** null の場合はAPIサーバー側で圧縮しない */
   maxContextLength: number | null;
   maxCompletenessRetries: number;

@@ -205,9 +205,11 @@ export async function startServer(): Promise<void> {
   const pipelineReportDeps: PipelineReportHandlerDeps = {
     cloneManager, // review と共有
     serviceFactory: pipelineReportServiceFactory,
+    rateLimiter, // review と共有
     gitlabApiBaseUrl,
     aiApiKey,
     aiApiEndpointUrl,
+    defaultAiModelName,
     openaiReasoningEffort,
     analysisTimeoutMs: reviewTimeoutMs,
   };

@@ -13,6 +13,7 @@ import type {
   CloneManagerPort,
   CloneResult,
 } from '../../../../application/shared/port/clone/index.js';
+import type { RateLimiterPort } from '../../../../application/shared/port/rateLimiter/index.js';
 import type { PipelineAnalysisResult } from '../../../../application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.js';
 import type { GitLabIdTokenPayload } from '../../../../infrastructure/adapter/auth/index.js';
 import { Pipeline } from '../../../../domain/pipeline-report/pipeline/index.js';
@@ -132,6 +133,20 @@ function createMockServiceFactory(overrides?: {
 }
 
 /**
+ * モック RateLimiter
+ */
+function createMockRateLimiter(): RateLimiterPort {
+  return {
+    acquirePermission: vi.fn<RateLimiterPort['acquirePermission']>().mockResolvedValue(undefined),
+    reportRateLimit: vi.fn<RateLimiterPort['reportRateLimit']>(),
+    reportSuccess: vi.fn<RateLimiterPort['reportSuccess']>(),
+    registerProject: vi.fn<RateLimiterPort['registerProject']>(),
+    unregisterProject: vi.fn<RateLimiterPort['unregisterProject']>(),
+    destroy: vi.fn<RateLimiterPort['destroy']>(),
+  };
+}
+
+/**
  * テスト用の Hono アプリを作成するヘルパー
  */
 function createTestApp(
@@ -141,9 +156,11 @@ function createTestApp(
   const deps: PipelineReportHandlerDeps = {
     cloneManager: createMockCloneManager(),
     serviceFactory: createMockServiceFactory(),
+    rateLimiter: createMockRateLimiter(),
     gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
     aiApiKey: 'test-api-key',
     aiApiEndpointUrl: 'https://ai.example.com',
+    defaultAiModelName: 'test-server-model',
     ...depsOverrides,
   };
 
@@ -184,7 +201,6 @@ function createValidRequestBody(): Record<string, unknown> {
       excludeJobPatterns: [],
     },
     commentLanguage: 'Japanese',
-    aiModelName: 'openai/o4-mini',
     maxContextLength: null,
     maxCompletenessRetries: 3,
     skillsRelPaths: [],
@@ -359,11 +375,52 @@ describe('pipelineReportRoute', () => {
       expect(command.projectDir).toBe('/tmp/test-clone');
       expect(command.aiConfig.apiKey).toBe('test-api-key');
       expect(command.aiConfig.endpointUrl).toBe('https://ai.example.com');
-      expect(command.aiConfig.modelName).toBe('openai/o4-mini');
+      expect(command.aiConfig.modelName).toBe('test-server-model');
       expect(command.maxContextLength).toBeNull();
       expect(command.options.maxCompletenessRetries).toBe(3);
       expect(command.settings.includeJobPatterns.length).toBe(1);
       expect(command.settings.includeJobPatterns[0].source).toBe('^test:');
+    });
+
+    it('rateLimiter に registerProject / unregisterProject が呼ばれること', async () => {
+      const rateLimiter = createMockRateLimiter();
+      const app = createTestApp({ rateLimiter });
+
+      const res = await app.request('/pipeline-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      await res.text();
+
+      expect(rateLimiter.registerProject).toHaveBeenCalledWith('42');
+      expect(rateLimiter.unregisterProject).toHaveBeenCalledWith('42');
+    });
+
+    it('analyze が失敗しても unregisterProject が呼ばれること', async () => {
+      const rateLimiter = createMockRateLimiter();
+      const analysisResult = createDefaultAnalysisResult();
+      const serviceFactory: PipelineReportServiceFactory = {
+        create: vi.fn().mockReturnValue({
+          metaFetcher: {
+            getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline),
+          },
+          executor: {
+            analyze: vi.fn().mockRejectedValue(new Error('Analysis boom')),
+          },
+        }),
+      };
+      const app = createTestApp({ rateLimiter, serviceFactory });
+
+      const res = await app.request('/pipeline-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      await res.text();
+
+      expect(rateLimiter.registerProject).toHaveBeenCalledWith('42');
+      expect(rateLimiter.unregisterProject).toHaveBeenCalledWith('42');
     });
 
     it('リポジトリクローンが完了後に cleanup が呼ばれること', async () => {

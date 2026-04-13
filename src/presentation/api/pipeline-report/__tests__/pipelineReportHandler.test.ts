@@ -17,7 +17,6 @@ function createValidRequestBody(): Record<string, unknown> {
     selfJobId: 3001,
     settings: {},
     commentLanguage: 'Japanese',
-    aiModelName: 'openai/o4-mini',
     maxContextLength: null,
     maxCompletenessRetries: 3,
     skillsRelPaths: [],
@@ -102,12 +101,6 @@ describe('pipelineReportRequestSchema', () => {
 
   it('commentLanguage が空文字の場合にバリデーションエラーとなること', () => {
     const input = { ...createValidRequestBody(), commentLanguage: '' };
-    const result = pipelineReportRequestSchema.safeParse(input);
-    expect(result.success).toBe(false);
-  });
-
-  it('aiModelName が空文字の場合にバリデーションエラーとなること', () => {
-    const input = { ...createValidRequestBody(), aiModelName: '' };
     const result = pipelineReportRequestSchema.safeParse(input);
     expect(result.success).toBe(false);
   });

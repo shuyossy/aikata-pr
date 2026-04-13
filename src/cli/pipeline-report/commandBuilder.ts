@@ -172,7 +172,6 @@ export function buildPipelineReportApiRequest(
       excludeJobPatterns: settings.excludeJobPatterns.map((re) => re.source),
     },
     commentLanguage: parsed.commentLanguage,
-    aiModelName: validated.aiModelName,
     maxContextLength,
     maxCompletenessRetries: parsed.maxCompletenessRetries,
     skillsRelPaths: parsed.skills ? [parsed.skills] : [],

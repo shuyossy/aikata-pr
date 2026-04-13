@@ -293,7 +293,6 @@ describe('pipeline-report CLI module', () => {
       expect(req.userId).toBe('alice');
       expect(req.projectId).toBe(10);
       expect(req.pipelineId).toBe(20);
-      expect(req.aiModelName).toBe('openai/o4-mini');
 
       expect(fs.readFileSync(resultFilePath, 'utf-8')).toBe('# API Pipeline Report\n\nok');
       const stdoutOut = stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('');

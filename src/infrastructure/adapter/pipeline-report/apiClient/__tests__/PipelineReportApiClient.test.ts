@@ -61,7 +61,6 @@ describe('PipelineReportApiClient', () => {
       excludeJobPatterns: [],
     },
     commentLanguage: 'Japanese',
-    aiModelName: 'openai/o4-mini',
     maxContextLength: null,
     maxCompletenessRetries: 3,
     skillsRelPaths: [],
