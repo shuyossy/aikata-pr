@@ -1,197 +1,119 @@
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..fd4c36d
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1 @@
++*.zip binary
 diff --git a/PBI.md b/PBI.md
-index dcd567c..99681dd 100644
+index 99681dd..b6d296c 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -10,17 +10,10 @@
- ```
- 
- # ID: 1
--- PBI名: 各機能における各ツールのロングコンテキスト出力対応
-+- PBI名: `buildGenerateOptions`に関する修正
- - ステータス: to do
--- 背景
--  - 以下ツールについて、ツール出力がロングコンテキストになる可能性があるが、対策できていない
--    - レビュー機能
--      - `getDiffDetailTool`
--    - パイプライン分析機能
--      - `getJobLogDetailTool`
- - 受け入れ基準
--  - 上記toolに`mastra_workspace_read_file`のエッセンスを取り込むこと
--    - 出力トークンを絞りつつ、Agentに次の分析のためのヒントを与えて欲しい
-+  - 引数がWrokflowRequestContextとなっていること
-+  - レビュー機能、パイプライン分析機能から問題なく呼び出せていること
+@@ -8,12 +8,3 @@
  - 注意事項
--  - mastra workspace提供toolについては`docs/archtecture/workspace-tool-investigation.md`にサマリをまとめているので、参考にすること（ただし、実際にコードも確認すること）
--- 指摘事項（in progressの場合のみ）
-+- 指摘事項（in progressの場合のみ）
-\ No newline at end of file
-diff --git a/src/mastra/pipeline-report/workflows/steps/contextLengthRecovery.ts b/src/mastra/pipeline-report/workflows/steps/contextLengthRecovery.ts
-index b726236..73ab13f 100644
---- a/src/mastra/pipeline-report/workflows/steps/contextLengthRecovery.ts
-+++ b/src/mastra/pipeline-report/workflows/steps/contextLengthRecovery.ts
-@@ -282,7 +282,7 @@ export async function recoverFromContextLength(
- 
-   const generateOptions: Record<string, unknown> = {
-     requestContext: summarizationContext,
--    ...buildGenerateOptions(ctx.openaiReasoningEffort),
-+    ...buildGenerateOptions(ctx),
-   };
- 
-   // 4. 要約Agent呼び出し
-diff --git a/src/mastra/pipeline-report/workflows/steps/executeAnalysisStep.ts b/src/mastra/pipeline-report/workflows/steps/executeAnalysisStep.ts
-index 951ad7e..9f73272 100644
---- a/src/mastra/pipeline-report/workflows/steps/executeAnalysisStep.ts
-+++ b/src/mastra/pipeline-report/workflows/steps/executeAnalysisStep.ts
-@@ -212,7 +212,7 @@ export async function executeAnalysisStep(
-             ...(extraGenerateOptions ?? {}),
-             requestContext,
-             memory: { thread: currentThreadId, resource: resourceId },
--            ...buildGenerateOptions(ctx.openaiReasoningEffort),
-+            ...buildGenerateOptions(ctx),
-           };
-           return analysisAgent.generate(prompt, generateOptions);
-         },
-diff --git a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
-index ea8d57b..d6f702f 100644
---- a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
-+++ b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
-@@ -140,7 +140,7 @@ async function callJudgeAgent(params: {
-       schema: reportCompletenessJudgementSchema,
-       errorStrategy: 'strict',
-     },
--    ...buildGenerateOptions(ctx.openaiReasoningEffort),
-+    ...buildGenerateOptions(ctx),
-   };
- 
-   const logger = getLogger();
-diff --git a/src/mastra/review/workflows/steps/checklistSplit.ts b/src/mastra/review/workflows/steps/checklistSplit.ts
-index 64e1e77..dcfc006 100644
---- a/src/mastra/review/workflows/steps/checklistSplit.ts
-+++ b/src/mastra/review/workflows/steps/checklistSplit.ts
-@@ -102,9 +102,7 @@ async function callAgent(
-         {
-           structuredOutput: { schema: aiSplitOutputSchema },
-           requestContext: agentContext.requestContext,
--          ...buildGenerateOptions(
--            (agentContext.requestContext.all as WorkflowRequestContext).openaiReasoningEffort,
--          ),
-+          ...buildGenerateOptions(agentContext.requestContext.all as WorkflowRequestContext),
-         },
-       ),
-     agentContext.rateLimitRetryConfig,
-diff --git a/src/mastra/review/workflows/steps/contextLengthRecovery.ts b/src/mastra/review/workflows/steps/contextLengthRecovery.ts
-index 171c5c9..b1ab4f7 100644
---- a/src/mastra/review/workflows/steps/contextLengthRecovery.ts
-+++ b/src/mastra/review/workflows/steps/contextLengthRecovery.ts
-@@ -335,7 +335,7 @@ export async function recoverFromContextLength(
-   // 5. 要約Agentで会話履歴を要約
-   const generateOptions = {
-     requestContext: summarizationContext,
--    ...buildGenerateOptions(reviewCtx.openaiReasoningEffort),
-+    ...buildGenerateOptions(reviewCtx),
-   };
- 
-   logger.debug(
-diff --git a/src/mastra/review/workflows/steps/reviewExecution.ts b/src/mastra/review/workflows/steps/reviewExecution.ts
-index 6e4acb9..e35c6ef 100644
---- a/src/mastra/review/workflows/steps/reviewExecution.ts
-+++ b/src/mastra/review/workflows/steps/reviewExecution.ts
-@@ -6,11 +6,7 @@ import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
- import { Rating } from '../../../../domain/review/rating/index.js';
- import { CheckItem } from '../../../../domain/review/checkItem/index.js';
- import type { ReviewAgentRequestContext } from '../../requestContext.js';
--import {
--  type WorkflowRequestContext,
--  buildGenerateOptions,
--  sanitizeForLog,
--} from '../../../shared/requestContext.js';
-+import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
- import { readStoredResults, type StoredReviewResult } from '../../types.js';
- import { buildUserPrompt, buildPrepareStepForImageInjection } from '../../agents/reviewAgent.js';
- import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
-@@ -235,9 +231,7 @@ async function executeWithErrorRecovery(params: {
-             memory: memoryOption,
-             maxSteps: 50,
-             prepareStep: buildPrepareStepForImageInjection(requestContext),
--            ...buildGenerateOptions(
--              (requestContext.all as WorkflowRequestContext).openaiReasoningEffort,
--            ),
-+            ...buildGenerateOptions(requestContext.all),
-           });
-         },
-         rateLimitRetryConfig,
-diff --git a/src/mastra/shared/__tests__/requestContext.test.ts b/src/mastra/shared/__tests__/requestContext.test.ts
-index 5396234..b79d863 100644
---- a/src/mastra/shared/__tests__/requestContext.test.ts
-+++ b/src/mastra/shared/__tests__/requestContext.test.ts
-@@ -16,23 +16,21 @@ function createTestContext(overrides?: Partial<WorkflowRequestContext>): Workflo
- }
- 
- describe('buildGenerateOptions', () => {
--  it('reasoningEffortがundefinedの場合、空オブジェクトを返す', () => {
--    const result = buildGenerateOptions(undefined);
-+  it('openaiReasoningEffortがundefinedの場合、空オブジェクトを返す', () => {
-+    const ctx = createTestContext({ openaiReasoningEffort: undefined });
-+    const result = buildGenerateOptions(ctx);
-     expect(result).toEqual({});
-   });
- 
--  it('reasoningEffortがnullの場合、空オブジェクトを返す', () => {
--    const result = buildGenerateOptions(null);
-+  it('openaiReasoningEffortが空文字列の場合、空オブジェクトを返す', () => {
-+    const ctx = createTestContext({ openaiReasoningEffort: '' });
-+    const result = buildGenerateOptions(ctx);
-     expect(result).toEqual({});
-   });
- 
--  it('reasoningEffortが空文字列の場合、空オブジェクトを返す', () => {
--    const result = buildGenerateOptions('');
--    expect(result).toEqual({});
--  });
+ - 指摘事項（in progressの場合のみ）
+ ```
 -
--  it('reasoningEffortが"low"の場合、modelSettingsとproviderOptionsを返す', () => {
--    const result = buildGenerateOptions('low');
-+  it('openaiReasoningEffortが"low"の場合、modelSettingsとproviderOptionsを返す', () => {
-+    const ctx = createTestContext({ openaiReasoningEffort: 'low' });
-+    const result = buildGenerateOptions(ctx);
-     expect(result).toEqual({
-       modelSettings: { temperature: 1 },
-       providerOptions: {
-@@ -41,8 +39,9 @@ describe('buildGenerateOptions', () => {
-     });
-   });
+-# ID: 1
+-- PBI名: `buildGenerateOptions`に関する修正
+-- ステータス: to do
+-- 受け入れ基準
+-  - 引数がWrokflowRequestContextとなっていること
+-  - レビュー機能、パイプライン分析機能から問題なく呼び出せていること
+-- 注意事項
+-- 指摘事項（in progressの場合のみ）
+\ No newline at end of file
+diff --git a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
+index 015fc62..e3910fa 100644
+--- a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
++++ b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
+@@ -1,4 +1,6 @@
+ import * as fs from 'node:fs';
++import * as os from 'node:os';
++import { join } from 'node:path';
+ import { AnalysisReport } from '../../../domain/pipeline-report/analysisReport/index.js';
+ import { ArtifactTree } from '../../../domain/pipeline-report/artifact/index.js';
+ import type { Pipeline } from '../../../domain/pipeline-report/pipeline/index.js';
+@@ -93,7 +95,10 @@ export class PipelineAnalysisService {
  
--  it('reasoningEffortが"high"の場合、正しい値を返す', () => {
--    const result = buildGenerateOptions('high');
-+  it('openaiReasoningEffortが"high"の場合、正しい値を返す', () => {
-+    const ctx = createTestContext({ openaiReasoningEffort: 'high' });
-+    const result = buildGenerateOptions(ctx);
-     expect(result).toEqual({
-       modelSettings: { temperature: 1 },
-       providerOptions: {
-diff --git a/src/mastra/shared/requestContext.ts b/src/mastra/shared/requestContext.ts
-index fc73fae..8f2f7fb 100644
---- a/src/mastra/shared/requestContext.ts
-+++ b/src/mastra/shared/requestContext.ts
-@@ -46,17 +46,16 @@ export function sanitizeForLog(ctx: Record<string, any>): Record<string, unknown
- }
+   async analyze(command: PipelineAnalyzeCommand): Promise<PipelineAnalysisResult> {
+     // 一時ファイルパスを事前に生成（finallyでのクリーンアップのため try 外で宣言）
+-    const resultFilePath = `/tmp/aikata-pipeline-report-${command.projectId}-${command.pipelineId}-${Date.now()}.md`;
++    const resultFilePath = join(
++      os.tmpdir(),
++      `aikata-pipeline-report-${command.projectId}-${command.pipelineId}-${Date.now()}.md`,
++    );
+     try {
+       // Step 1: Pipeline メタ情報取得
+       const pipeline = await this.pipelineGateway.getPipeline(
+diff --git a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
+index bb63622..f445ab9 100644
+--- a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
++++ b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
+@@ -222,8 +222,8 @@ describe('PipelineAnalysisService', () => {
+     expect(runnerCall.targetJobs).toHaveLength(2);
+     expect(runnerCall.jobLogsCompressed.get(5001)).toBe('log for 5001');
+     expect(runnerCall.jobLogsCompressed.get(5002)).toBe('log for 5002');
+-    // サービス内部で一時ファイルパスが生成される（/tmp/aikata-pipeline-report-...）
+-    expect(runnerCall.resultFilePath).toMatch(/^\/tmp\/aikata-pipeline-report-/);
++    // サービス内部で一時ファイルパスが生成される（os.tmpdir()/aikata-pipeline-report-...）
++    expect(runnerCall.resultFilePath).toMatch(/aikata-pipeline-report-/);
+     expect(runnerCall.aiConfig.modelName).toBe('openai/o4-mini');
+     expect(runnerCall.mergedYaml).toBe('stages:\n  - build\n  - test\n');
+     // artifactCacheStatuses がフル情報で渡されている
+diff --git a/src/application/review/reviewExecution/ReviewExecutionService.ts b/src/application/review/reviewExecution/ReviewExecutionService.ts
+index d978946..93eb4d7 100644
+--- a/src/application/review/reviewExecution/ReviewExecutionService.ts
++++ b/src/application/review/reviewExecution/ReviewExecutionService.ts
+@@ -1,4 +1,6 @@
+ import * as fs from 'node:fs';
++import * as os from 'node:os';
++import { join } from 'node:path';
+ import type { MrGateway } from '../../shared/port/gateway/index.js';
+ import type { MrDiscussionGateway } from '../../shared/port/gateway/index.js';
+ import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
+@@ -75,7 +77,10 @@ export class ReviewExecutionService {
+     priorContext: PriorContext,
+     folderTree: string,
+   ): Promise<ReviewExecutionDto> {
+-    const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
++    const resultFilePath = join(
++      os.tmpdir(),
++      `aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
++    );
  
- /**
-- * reasoningEffortが設定されている場合のgenerate()オプションを構築する
-- * 未設定の場合は空オブジェクトを返す（spread時に影響なし）
-+ * WorkflowRequestContextからreasoningEffort関連のgenerate()オプションを構築する
-+ * openaiReasoningEffortが未設定の場合は空オブジェクトを返す（spread時に影響なし）
-  *
-  * review / pipeline-report どちらからも利用可能な汎用シグネチャ。
-- * - review: `buildGenerateOptions(ctx.openaiReasoningEffort)`
-- * - pipeline-report: `buildGenerateOptions(ctx.openaiReasoningEffort)`
-  */
--export function buildGenerateOptions(reasoningEffort: string | null | undefined): {
-+export function buildGenerateOptions(ctx: WorkflowRequestContext): {
-   modelSettings?: { temperature: number };
-   providerOptions?: { openai: { reasoningEffort: string } };
- } {
-+  const reasoningEffort = ctx.openaiReasoningEffort;
-   if (!reasoningEffort) return {};
-   return {
-     modelSettings: { temperature: 1 },
+     // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
+     const compression = this.compressDiff(command, mrContext, folderTree, priorContext);
+@@ -148,7 +153,10 @@ export class ReviewExecutionService {
+     }
+ 
+     // 再レビュー対象あり → ワークフロー実行（対象項目のみ）
+-    const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
++    const resultFilePath = join(
++      os.tmpdir(),
++      `aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
++    );
+ 
+     // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
+     const compression = this.compressDiff(command, mrContext, folderTree, null);
+diff --git a/src/infrastructure/adapter/clone/CloneManager.ts b/src/infrastructure/adapter/clone/CloneManager.ts
+index 547d4d7..4d917d0 100644
+--- a/src/infrastructure/adapter/clone/CloneManager.ts
++++ b/src/infrastructure/adapter/clone/CloneManager.ts
+@@ -1,6 +1,7 @@
+ import { randomUUID } from 'node:crypto';
+ import { execFile } from 'node:child_process';
+ import { rm, mkdir } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+ import type {
+   CloneManagerPort,
+@@ -62,7 +63,7 @@ export class CloneManager implements CloneManagerPort {
+     private readonly cloneTimeoutMs: number = 300_000,
+     private readonly maxDiskMb: number = 1024,
+     private readonly maxConcurrentClones: number = 5,
+-    private readonly baseTmpDir: string = '/tmp/aikata-pr-clones',
++    private readonly baseTmpDir: string = join(tmpdir(), 'aikata-pr-clones'),
+     private readonly semaphoreTimeoutMs: number = 600_000,
+   ) {}
+ 
