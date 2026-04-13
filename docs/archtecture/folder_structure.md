@@ -25,7 +25,8 @@ dist/
   index.js                  # CLIエントリーポイント（bin: aikata-pr）
   server.js                 # APIサーバーエントリーポイント
 docker/
-  prod/                     # 本番用コンテナ構成
+  prod/
+    docker-compose.yml      # APIサーバー用docker-compose（ルートのDockerfileを使用）
 src/
   cli.ts                    # CLIエントリ（サブコマンドディスパッチャ呼び出し）
   server.ts                 # APIサーバエントリ（features配列でルート登録）
@@ -41,6 +42,9 @@ src/
       index.ts              # pipelineReportCliModule + run(args)
       parsePipelineReportArgs.ts
       commandBuilder.ts     # PipelineAnalysisCommand/PipelineReportApiRequest組み立て
+      __tests__/
+    server/                 # APIサーバー起動のCLI実装
+      index.ts              # serverCliModule + run(args)（動的importでstartServer()を呼ぶ）
       __tests__/
   domain/                   # ドメイン層
     shared/                 # 全機能横断のドメイン（将来用）

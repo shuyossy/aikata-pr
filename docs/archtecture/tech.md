@@ -15,7 +15,7 @@
 ## チェックロジック
 本プロジェクトはAIレビュー以外の機能も同一パッケージでホストできる「マルチ機能ホスト」構成を採用している。新機能の追加手順は `docs/archtecture/feature-extension.md` を参照。
 
-CLIはサブコマンド方式で動作する。`aikata-pr review [options]` のように機能名サブコマンドを必須とし、`src/cli/dispatch.ts` のディスパッチャが対象機能の `CliFeatureModule.run(args)` を呼び出す。現時点では `review`（MRのAIレビュー）および `pipeline-report`（CIパイプライン結果のAI分析レポート生成）の2サブコマンドが登録されている。
+CLIはサブコマンド方式で動作する。`aikata-pr review [options]` のように機能名サブコマンドを必須とし、`src/cli/dispatch.ts` のディスパッチャが対象機能の `CliFeatureModule.run(args)` を呼び出す。現時点では `review`（MRのAIレビュー）、`pipeline-report`（CIパイプライン結果のAI分析レポート生成）、`server`（APIサーバー起動）の3サブコマンドが登録されている。
 
 各機能はローカル/APIの2モードで動作する:
 - **ローカルモード**: `AI_API_KEY`、`AI_API_ENDPOINT_URL`、`AI_MODEL_NAME`が全て設定されている場合。CLIが全処理をローカルで実行する（開発用・後方互換）
@@ -27,7 +27,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
 
 ### 機能モジュール登録パターン
 各機能は2種類のモジュールをエクスポートし、それぞれCLI/APIサーバ起動時にレジストリに登録される。
-- **CliFeatureModule**: `{ name, description, run(args) }`。`src/cli/dispatch.ts` の `defaultFeatures = [reviewCliModule, pipelineReportCliModule]` に追加
+- **CliFeatureModule**: `{ name, description, run(args) }`。`src/cli/dispatch.ts` の `defaultFeatures = [reviewCliModule, pipelineReportCliModule, serverCliModule]` に追加
 - **ApiFeatureModule**: `{ name, register(app) }`。`src/server.ts` の `apiFeatures = [reviewApiModule, pipelineReportApiModule]` に追加
 - 新機能を追加する場合は、各レイヤーに `<feature>/` フォルダを作成した上で、両配列にモジュールを追加するだけで配線が完了する
 
@@ -50,7 +50,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
   - Mastra層（`src/mastra`）についてはAIワークフロー実行基盤としてインフラ層の一種とみなす※ポートは`src/application/shared/port/workflow`
 - プレゼンテーション層
   - CLIインターフェース: `node dist/index.js <feature> [options]`（例: `node dist/index.js review --user-id ...`）。サブコマンドは必須で、`src/cli/dispatch.ts` のディスパッチャが対応する `CliFeatureModule` を呼び出す
-  - APIサーバーインターフェース: `node dist/server.js`
+  - APIサーバーインターフェース: `node dist/index.js server`（または `aikata-pr server`）
     - Honoフレームワーク
     - `POST /api/v1/review` — SSEストリーミングレスポンス（review機能）
     - `POST /api/v1/pipeline-report` — SSEストリーミングレスポンス（pipeline-report機能）

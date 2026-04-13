@@ -2,7 +2,8 @@ services:
   aikata-pr-api:
     build:
       context: ../..
-      dockerfile: docker/prod/Dockerfile
+      dockerfile: Dockerfile
+    command: ["aikata-pr", "server"]
     ports:
       - "${API_PORT:-3000}:3000"
     environment:

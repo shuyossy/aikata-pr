@@ -71,11 +71,12 @@ npm run format            # Prettier フォーマット
 npm run format:check      # Prettier フォーマットチェック
 
 # ビルド
-npm run build:cli         # CLI用バンドル（dist/index.js）
+npm run build:cli         # CLI用バンドル（dist/index.js, dist/server.js）
 
 # 実行（サブコマンド必須）
 node dist/index.js review --user-id <userId> [options]          # MRのAIレビュー
 node dist/index.js pipeline-report --user-id <userId> [options] # CIパイプラインのAI分析レポート生成
+node dist/index.js server                                       # APIサーバー起動
 ```
 
 # 作業時の注意点

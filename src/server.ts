@@ -260,13 +260,3 @@ export async function startServer(): Promise<void> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 }
-
-// エントリーポイント（直接実行時のみ起動、テストやimport時には起動しない）
-const isMainModule =
-  process.argv[1]?.endsWith('server.js') || process.argv[1]?.endsWith('server.ts');
-if (isMainModule) {
-  startServer().catch((error) => {
-    console.error('Failed to start API server:', error);
-    process.exit(1);
-  });
-}

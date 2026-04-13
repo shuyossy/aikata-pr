@@ -16,6 +16,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=builder /opt/aikata-pr/dist ./dist
 # aikata-pr コマンドとしてグローバルにリンク
 RUN chmod +x dist/index.js && ln -s /opt/aikata-pr/dist/index.js /usr/local/bin/aikata-pr
+EXPOSE 3000
 # CMD を使用（独自 ENTRYPOINT を持つベースイメージに切り替えた際、
 # /entrypoint.sh が exec "$@" で CMD を実行するパターンに対応）
 CMD ["aikata-pr"]

@@ -61,4 +61,28 @@ describe('cli dispatcher', () => {
     expect(feature!.description.length).toBeGreaterThan(0);
     expect(typeof feature!.run).toBe('function');
   });
+
+  it('defaultFeatures に server が含まれている', () => {
+    expect(defaultFeatures.map((f) => f.name)).toContain('server');
+  });
+
+  it('defaultFeatures の server 機能は name / description / run を持つ', () => {
+    const feature = defaultFeatures.find((f) => f.name === 'server');
+    expect(feature).toBeDefined();
+    expect(typeof feature!.description).toBe('string');
+    expect(feature!.description.length).toBeGreaterThan(0);
+    expect(typeof feature!.run).toBe('function');
+  });
+
+  it('serverサブコマンドを選択するとserver機能のrunが呼ばれる', async () => {
+    const reviewRun = vi.fn().mockResolvedValue(undefined);
+    const serverRun = vi.fn().mockResolvedValue(undefined);
+    const fakeFeatures: CliFeatureModule[] = [
+      { name: 'review', description: 'x', run: reviewRun },
+      { name: 'server', description: 'y', run: serverRun },
+    ];
+    await dispatch(['server'], fakeFeatures);
+    expect(reviewRun).not.toHaveBeenCalled();
+    expect(serverRun).toHaveBeenCalledWith([]);
+  });
 });
