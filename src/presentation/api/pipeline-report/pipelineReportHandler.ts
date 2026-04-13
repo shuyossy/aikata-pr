@@ -336,8 +336,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
             apiKey: deps.aiApiKey,
             endpointUrl: deps.aiApiEndpointUrl,
             modelName: deps.defaultAiModelName,
-            reasoningEffort:
-              (deps.openaiReasoningEffort as 'low' | 'medium' | 'high' | undefined) ?? null,
+            reasoningEffort: deps.openaiReasoningEffort ?? null,
           },
           maxContextLength: deps.maxContextLength ?? null,
           treeMaxDepth: request.treeMaxDepth,

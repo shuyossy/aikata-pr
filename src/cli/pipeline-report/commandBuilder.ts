@@ -110,7 +110,7 @@ export interface BuildPipelineReportCommandOptions {
   /** 圧縮上限（null なら圧縮しない） */
   maxContextLength: number | null;
   /** OpenAI reasoning モデルの reasoning effort */
-  openaiReasoningEffort: 'low' | 'medium' | 'high' | null;
+  openaiReasoningEffort: string | null;
   /** ワークフロー進捗コールバック */
   onProgress: (event: PipelineAnalysisProgressEvent) => void;
 }

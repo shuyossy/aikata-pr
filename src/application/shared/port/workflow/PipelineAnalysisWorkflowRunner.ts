@@ -35,7 +35,7 @@ export interface PipelineAnalysisWorkflowParams {
     apiKey: string;
     endpointUrl: string;
     modelName: string;
-    reasoningEffort: 'low' | 'medium' | 'high' | null;
+    reasoningEffort: string | null;
   };
   /**
    * 進捗イベントのコールバック。

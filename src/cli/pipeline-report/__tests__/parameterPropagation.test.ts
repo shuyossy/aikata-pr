@@ -235,6 +235,66 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(cleanup).toHaveBeenCalledTimes(1);
     });
 
+    it('OPENAI_REASONING_EFFORT に非標準の値を指定してもそのまま伝播する', async () => {
+      process.env['AI_API_KEY'] = 'k';
+      process.env['AI_API_ENDPOINT_URL'] = 'https://ai.example.com';
+      process.env['OPENAI_REASONING_EFFORT'] = 'minimal';
+
+      let capturedCommand: PipelineAnalyzeCommand | undefined;
+      const analyze = vi
+        .fn<(command: PipelineAnalyzeCommand) => Promise<PipelineAnalysisResult>>()
+        .mockImplementation(async (command) => {
+          capturedCommand = command;
+          return {
+            report: AnalysisReport.of(''),
+            targetJobs: [],
+            pipeline: Pipeline.of({
+              projectId: 10,
+              pipelineId: 20,
+              sha: 'x',
+              ref: 'main',
+              status: 'success',
+              webUrl: 'https://gitlab.example.com/pipelines/20',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            }),
+            completenessVerified: true,
+            completenessRetries: 0,
+            workflowFailed: false,
+            tokenStats: {
+              compressed: false,
+              folderTreeStripped: false,
+              compressedJobIds: [],
+            },
+          };
+        });
+      const localDeps: PipelineReportLocalDeps = {
+        service: { analyze },
+        cleanup: () => {},
+      };
+
+      await expect(
+        run(
+          [
+            '--user-id',
+            'alice',
+            '--project-id',
+            '10',
+            '--pipeline-id',
+            '20',
+            '--aikata-pr-gitlab-token',
+            'glt',
+            '--result-file',
+            path.join(tmpDir, 'r.md'),
+          ],
+          { localDepsFactory: () => localDeps },
+        ),
+      ).resolves.toBeUndefined();
+
+      // 非標準の値 'minimal' がそのまま伝播する（review機能と同様に任意の文字列を受け入れる）
+      expect(capturedCommand!.aiConfig.reasoningEffort).toBe('minimal');
+    });
+
     it('PipelineReportSettings.filterJobs がパターンどおりに対象ジョブを絞り込む', async () => {
       // 設定ファイルのパターンが実際にドメインに伝播し、
       // filterJobs が期待通りに動くことを確認する

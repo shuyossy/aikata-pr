@@ -37,7 +37,7 @@ export interface PipelineAnalyzeCommand {
     apiKey: string;
     endpointUrl: string;
     modelName: string;
-    reasoningEffort: 'low' | 'medium' | 'high' | null;
+    reasoningEffort: string | null;
   };
   /** コンテキスト長圧縮の上限（null の場合は圧縮しない） */
   maxContextLength: number | null;

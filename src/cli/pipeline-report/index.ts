@@ -257,13 +257,7 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
       try {
         // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
         const projectDir = env['CI_PROJECT_DIR'] ?? process.cwd();
-        const openaiReasoningEffortRaw = env['OPENAI_REASONING_EFFORT'];
-        const openaiReasoningEffort: 'low' | 'medium' | 'high' | null =
-          openaiReasoningEffortRaw === 'low' ||
-          openaiReasoningEffortRaw === 'medium' ||
-          openaiReasoningEffortRaw === 'high'
-            ? openaiReasoningEffortRaw
-            : null;
+        const openaiReasoningEffort = env['OPENAI_REASONING_EFFORT'] || null;
 
         const command = buildPipelineReportCommand(parsed, validated, {
           settings,
