@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { rm, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
   CloneManagerPort,
@@ -62,7 +63,7 @@ export class CloneManager implements CloneManagerPort {
     private readonly cloneTimeoutMs: number = 300_000,
     private readonly maxDiskMb: number = 1024,
     private readonly maxConcurrentClones: number = 5,
-    private readonly baseTmpDir: string = '/tmp/aikata-pr-clones',
+    private readonly baseTmpDir: string = join(tmpdir(), 'aikata-pr-clones'),
     private readonly semaphoreTimeoutMs: number = 600_000,
   ) {}
 

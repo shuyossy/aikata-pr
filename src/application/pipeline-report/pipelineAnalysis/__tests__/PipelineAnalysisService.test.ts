@@ -222,8 +222,8 @@ describe('PipelineAnalysisService', () => {
     expect(runnerCall.targetJobs).toHaveLength(2);
     expect(runnerCall.jobLogsCompressed.get(5001)).toBe('log for 5001');
     expect(runnerCall.jobLogsCompressed.get(5002)).toBe('log for 5002');
-    // サービス内部で一時ファイルパスが生成される（/tmp/aikata-pipeline-report-...）
-    expect(runnerCall.resultFilePath).toMatch(/^\/tmp\/aikata-pipeline-report-/);
+    // サービス内部で一時ファイルパスが生成される（os.tmpdir()/aikata-pipeline-report-...）
+    expect(runnerCall.resultFilePath).toMatch(/aikata-pipeline-report-/);
     expect(runnerCall.aiConfig.modelName).toBe('openai/o4-mini');
     expect(runnerCall.mergedYaml).toBe('stages:\n  - build\n  - test\n');
     // artifactCacheStatuses がフル情報で渡されている

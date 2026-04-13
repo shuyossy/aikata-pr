@@ -1,4 +1,6 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import { join } from 'node:path';
 import { AnalysisReport } from '../../../domain/pipeline-report/analysisReport/index.js';
 import { ArtifactTree } from '../../../domain/pipeline-report/artifact/index.js';
 import type { Pipeline } from '../../../domain/pipeline-report/pipeline/index.js';
@@ -93,7 +95,10 @@ export class PipelineAnalysisService {
 
   async analyze(command: PipelineAnalyzeCommand): Promise<PipelineAnalysisResult> {
     // 一時ファイルパスを事前に生成（finallyでのクリーンアップのため try 外で宣言）
-    const resultFilePath = `/tmp/aikata-pipeline-report-${command.projectId}-${command.pipelineId}-${Date.now()}.md`;
+    const resultFilePath = join(
+      os.tmpdir(),
+      `aikata-pipeline-report-${command.projectId}-${command.pipelineId}-${Date.now()}.md`,
+    );
     try {
       // Step 1: Pipeline メタ情報取得
       const pipeline = await this.pipelineGateway.getPipeline(

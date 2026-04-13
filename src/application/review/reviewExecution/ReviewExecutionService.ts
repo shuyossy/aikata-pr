@@ -1,4 +1,6 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import { join } from 'node:path';
 import type { MrGateway } from '../../shared/port/gateway/index.js';
 import type { MrDiscussionGateway } from '../../shared/port/gateway/index.js';
 import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
@@ -75,7 +77,10 @@ export class ReviewExecutionService {
     priorContext: PriorContext,
     folderTree: string,
   ): Promise<ReviewExecutionDto> {
-    const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
+    const resultFilePath = join(
+      os.tmpdir(),
+      `aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
+    );
 
     // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
     const compression = this.compressDiff(command, mrContext, folderTree, priorContext);
@@ -148,7 +153,10 @@ export class ReviewExecutionService {
     }
 
     // 再レビュー対象あり → ワークフロー実行（対象項目のみ）
-    const resultFilePath = `/tmp/aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`;
+    const resultFilePath = join(
+      os.tmpdir(),
+      `aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
+    );
 
     // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
     const compression = this.compressDiff(command, mrContext, folderTree, null);
