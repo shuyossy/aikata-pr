@@ -173,7 +173,7 @@ describe('getJobLogDetailTool', () => {
     const omittedLogs = new Map<number, string>([[42, 'line one\nline two\nline three']]);
     const result = await executeGetJobLogDetail({ jobId: 42 }, omittedLogs);
 
-    expect(result.omittedText).toMatch(/^\s*1\| /m);
+    expect(result.omittedText).toMatch(/^\s*1\u2192/m);
     expect(result.totalLines).toBe(3);
     expect(result.shownLines).toBe(3);
     expect(result.truncated).toBe(false);

@@ -157,11 +157,11 @@ describe('getDiffDetailTool', () => {
 
   // --- 出力制限・ページネーション関連のテスト ---
 
-  it('出力に行番号が付与される', async () => {
+  it('出力に行番号が付与される（workspace形式: 右揃え数値→コンテンツ）', async () => {
     const result = await executeWithContext({ filePath: 'src/index.ts' }, sampleOmittedDiffs);
     expect(result.success).toBe(true);
-    // 行番号パターン: "N| content"
-    expect(result.diff).toMatch(/^\s*1\| /m);
+    // workspace形式: "     1→content"
+    expect(result.diff).toMatch(/^\s*1\u2192/m);
     expect(result.totalLines).toBeGreaterThan(0);
     expect(result.shownLines).toBeGreaterThan(0);
     expect(result.truncated).toBe(false);

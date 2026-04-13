@@ -11,7 +11,7 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 4000;
  * 出力制限オプション
  */
 export interface OutputLimitOptions {
-  /** 最大出力トークン数（デフォルト: 3000） */
+  /** 最大出力トークン数（デフォルト: 4000） */
   maxOutputTokens?: number;
   /** 行番号を付与するか（デフォルト: true） */
   showLineNumbers?: boolean;
@@ -45,11 +45,12 @@ function defaultCountTokens(text: string): number {
 
 /**
  * 行番号を付与する
- * 総行数の桁数に合わせて右揃えする（例: "  1| content"）
+ * mastra_workspace_read_fileと同じ形式（"     1→content"）で統一する。
+ * パディング幅は最小6文字、行数が多い場合は拡張される。
  */
 function addLineNumbers(lines: string[], totalLineCount: number): string[] {
-  const width = String(totalLineCount).length;
-  return lines.map((line, i) => `${String(i + 1).padStart(width)}| ${line}`);
+  const width = Math.max(6, String(totalLineCount).length + 1);
+  return lines.map((line, i) => `${String(i + 1).padStart(width)}\u2192${line}`);
 }
 
 /**

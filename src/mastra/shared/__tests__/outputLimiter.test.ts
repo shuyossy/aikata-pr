@@ -36,26 +36,27 @@ describe('applyOutputLimit', () => {
   });
 
   describe('行番号付与', () => {
-    it('デフォルトで行番号が付与される', () => {
+    it('デフォルトで行番号が付与される（mastra_workspace_read_fileと同じ形式）', () => {
       const content = 'aaa\nbbb\nccc';
       const result = applyOutputLimit(content, {
         countTokens: mockCountTokens,
         maxOutputTokens: 10000,
       });
-      expect(result.text).toBe('1| aaa\n2| bbb\n3| ccc');
+      // 最小パディング幅6 + 右矢印(→) + コンテンツ
+      expect(result.text).toBe('     1\u2192aaa\n     2\u2192bbb\n     3\u2192ccc');
     });
 
-    it('行番号は総行数の桁数に合わせて右揃えされる', () => {
+    it('行番号は最小6文字幅で右揃え、行数が多い場合は拡張される', () => {
       const lines = Array.from({ length: 100 }, (_, i) => `line${i + 1}`);
       const content = lines.join('\n');
       const result = applyOutputLimit(content, {
         countTokens: mockCountTokens,
         maxOutputTokens: 100000,
       });
-      // 100行 → 3桁に右揃え
-      expect(result.text).toContain('  1| line1');
-      expect(result.text).toContain(' 10| line10');
-      expect(result.text).toContain('100| line100');
+      // 100行 → max(6, 3+1)=6で、最小幅6のまま
+      expect(result.text).toContain('     1\u2192line1');
+      expect(result.text).toContain('    10\u2192line10');
+      expect(result.text).toContain('   100\u2192line100');
     });
 
     it('showLineNumbers=falseで行番号なし', () => {
@@ -118,9 +119,9 @@ describe('applyOutputLimit', () => {
       // 切り詰め通知を除いた部分が完全な行で構成されていることを確認
       const textBeforeTruncationNotice = result.text.split('\n[output truncated:')[0]!;
       const outputLines = textBeforeTruncationNotice.split('\n');
-      // 各行が行番号パターンで始まることを確認
+      // 各行がworkspace形式の行番号パターン（右揃え数値 + →）で始まることを確認
       for (const line of outputLines) {
-        expect(line).toMatch(/^\s*\d+\| /);
+        expect(line).toMatch(/^\s*\d+\u2192/);
       }
     });
 
@@ -148,7 +149,7 @@ describe('applyOutputLimit', () => {
 
       const result = applyOutputLimit(content, {
         countTokens: charCounter,
-        maxOutputTokens: 5, // "1| abc" = 6文字 → 切り詰め
+        maxOutputTokens: 5, // "     1→abc" = 10文字 → 切り詰め
       });
 
       expect(result.truncated).toBe(true);
@@ -187,7 +188,7 @@ describe('applyOutputLimit', () => {
       expect(result.truncated).toBe(false);
       expect(result.totalLines).toBe(1);
       expect(result.shownLines).toBe(1);
-      expect(result.text).toBe('1| single line');
+      expect(result.text).toBe('     1\u2192single line');
     });
 
     it('1行のみが上限超過の場合でも少なくとも1行は返す', () => {
@@ -203,10 +204,10 @@ describe('applyOutputLimit', () => {
     });
 
     it('全行がちょうど上限トークンの場合はtruncated=false', () => {
-      const content = 'ab'; // "1| ab" = 5文字 → mockCountTokensで2トークン
+      const content = 'ab'; // "     1→ab" = 9文字 → mockCountTokensで3トークン
       const result = applyOutputLimit(content, {
         countTokens: mockCountTokens,
-        maxOutputTokens: 2,
+        maxOutputTokens: 3,
       });
       expect(result.truncated).toBe(false);
     });
