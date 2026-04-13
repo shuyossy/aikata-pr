@@ -9,6 +9,7 @@ import {
   buildUserPrompt,
   createToolset,
   createWorkspaceFromContext,
+  deriveStageOrder,
   pipelineAnalysisAgent,
 } from '../pipelineAnalysisAgent.js';
 
@@ -616,5 +617,121 @@ describe('createWorkspaceFromContext', () => {
     expect(toolsConfig?.mastra_workspace_grep?.maxOutputTokens).toBe(3000);
     expect(toolsConfig?.mastra_workspace_list_files?.maxOutputTokens).toBe(2000);
     expect(toolsConfig?.mastra_workspace_execute_command?.maxOutputTokens).toBe(4000);
+  });
+});
+
+describe('deriveStageOrder', () => {
+  it('ジョブID昇順でユニークなステージ名を初出順に返す', () => {
+    const jobs: TargetJobSummary[] = [
+      { id: 3, name: 'deploy', stage: 'deploy', status: 'success', duration: 30 },
+      { id: 1, name: 'lint', stage: 'check', status: 'success', duration: 10 },
+      { id: 2, name: 'test-unit', stage: 'test', status: 'failed', duration: 60 },
+    ];
+
+    const result = deriveStageOrder(jobs);
+
+    expect(result).toEqual(['check', 'test', 'deploy']);
+  });
+
+  it('同一ステージに複数ジョブがある場合、最小IDで順序を決定する', () => {
+    const jobs: TargetJobSummary[] = [
+      { id: 10, name: 'test-e2e', stage: 'test', status: 'success', duration: 120 },
+      { id: 5, name: 'build-app', stage: 'build', status: 'success', duration: 42 },
+      { id: 7, name: 'test-unit', stage: 'test', status: 'failed', duration: 60 },
+      { id: 6, name: 'build-lib', stage: 'build', status: 'success', duration: 30 },
+    ];
+
+    const result = deriveStageOrder(jobs);
+
+    expect(result).toEqual(['build', 'test']);
+  });
+
+  it('空配列の場合は空配列を返す', () => {
+    const result = deriveStageOrder([]);
+
+    expect(result).toEqual([]);
+  });
+
+  it('単一ステージの場合はそのステージ名のみを返す', () => {
+    const jobs: TargetJobSummary[] = [
+      { id: 1, name: 'test-a', stage: 'test', status: 'success', duration: 10 },
+      { id: 2, name: 'test-b', stage: 'test', status: 'failed', duration: 20 },
+    ];
+
+    const result = deriveStageOrder(jobs);
+
+    expect(result).toEqual(['test']);
+  });
+
+  it('元の配列を変更しない', () => {
+    const jobs: TargetJobSummary[] = [
+      { id: 3, name: 'deploy', stage: 'deploy', status: 'success', duration: 30 },
+      { id: 1, name: 'lint', stage: 'check', status: 'success', duration: 10 },
+    ];
+    const originalOrder = [...jobs];
+
+    deriveStageOrder(jobs);
+
+    expect(jobs).toEqual(originalOrder);
+  });
+});
+
+describe('buildInstructions - Job Section Ordering', () => {
+  it('Job Section Orderingセクションが含まれる', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toContain('Job Section Ordering');
+  });
+
+  it('評価が悪い順にソートする指示が含まれる', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toMatch(/sever|important|problematic/i);
+    expect(result).toMatch(/order|sort/i);
+  });
+
+  it('ステージ実行順が明示的に列挙される', () => {
+    const ctx = createTestRequestContext({
+      targetJobs: [
+        { id: 1, name: 'lint', stage: 'check', status: 'success', duration: 10 },
+        { id: 2, name: 'test-unit', stage: 'test', status: 'failed', duration: 60 },
+        { id: 3, name: 'deploy', stage: 'deploy', status: 'success', duration: 30 },
+      ],
+    });
+
+    const result = buildInstructions(ctx);
+
+    // ステージ順が具体的に列挙されている
+    expect(result).toContain('check');
+    expect(result).toContain('test');
+    expect(result).toContain('deploy');
+  });
+
+  it('Job Section OrderingはRules for Job Blocksの後、Target Jobsの前に配置される', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    const rulesIdx = result.indexOf('Rules for Job Blocks');
+    const orderingIdx = result.indexOf('Job Section Ordering');
+    const targetJobsIdx = result.indexOf('Target Jobs');
+    expect(rulesIdx).toBeGreaterThanOrEqual(0);
+    expect(orderingIdx).toBeGreaterThan(rulesIdx);
+    expect(orderingIdx).toBeLessThan(targetJobsIdx);
+  });
+
+  it('Finishing Instructionsに順序確認の言及がある', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    // Finishing Instructionsセクション内に順序に関する言及
+    const finishingIdx = result.indexOf('Finishing Instructions');
+    const afterFinishing = result.substring(finishingIdx);
+    expect(afterFinishing).toMatch(/order/i);
   });
 });

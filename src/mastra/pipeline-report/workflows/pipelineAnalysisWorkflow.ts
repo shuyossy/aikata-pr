@@ -200,8 +200,7 @@ const analyzeAndVerifyStep = createStep({
       logger.info(
         {
           attempt: inputData.completenessRetries + 1,
-          missingItems: verify.lastJudgement?.missingItems?.length ?? 0,
-          formatDeviations: verify.lastJudgement?.formatDeviations?.length ?? 0,
+          reasons: verify.lastJudgement?.reasons?.length ?? 0,
         },
         'Pipeline-report not complete; will rerun analysis with feedback',
       );

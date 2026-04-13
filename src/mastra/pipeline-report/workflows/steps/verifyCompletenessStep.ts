@@ -10,6 +10,7 @@ import {
   buildReportCompletenessJudgeUserPrompt,
   reportCompletenessJudgementSchema,
 } from '../../agents/reportCompletenessJudgeAgent.js';
+import { deriveStageOrder } from '../../agents/pipelineAnalysisAgent.js';
 import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
 import { getLogger } from '../../../../lib/logger.js';
@@ -52,30 +53,19 @@ export function buildCompletenessFeedbackPrompt(judgement: ReportCompletenessJud
   parts.push('## Completeness Review Feedback');
   parts.push('');
   parts.push(
-    'A strict QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn. Use get-report to re-read the current file, then use patch-report for precise edits.',
+    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn. Use get-report to re-read the current file, then use patch-report for precise edits.',
   );
   parts.push('');
 
-  if (judgement.missingItems.length > 0) {
-    parts.push('### Missing Job Blocks / Unresolved Placeholders');
-    parts.push('');
-    for (const item of judgement.missingItems) {
-      parts.push(`- Job #${item.jobId} \`${item.jobName}\`: ${item.reason}`);
-    }
-    parts.push('');
+  parts.push('### Issues');
+  parts.push('');
+  for (const reason of judgement.reasons) {
+    parts.push(`- ${reason}`);
   }
-
-  if (judgement.formatDeviations.length > 0) {
-    parts.push('### Format Deviations');
-    parts.push('');
-    for (const dev of judgement.formatDeviations) {
-      parts.push(`- ${dev}`);
-    }
-    parts.push('');
-  }
+  parts.push('');
 
   parts.push(
-    'After fixing these issues, run get-report one more time to confirm every placeholder is resolved, every target job has a block, and every format rule is satisfied. Do NOT remove content that is already correct.',
+    'After fixing these issues, run get-report one more time to confirm every target job has a block and the report is fully complete. Do NOT remove content that is already correct.',
   );
 
   return parts.join('\n');
@@ -121,7 +111,7 @@ async function callJudgeAgent(params: {
     targetJobs: ctx.targetJobs,
     jobReportFormat: ctx.jobReportFormat,
     overallTemplate: ctx.overallTemplate,
-    additionalInstructions: ctx.additionalInstructions,
+    stageOrder: deriveStageOrder(ctx.targetJobs),
   });
 
   const judgeContext = new RequestContext<ReportCompletenessJudgeRequestContext>([
@@ -225,8 +215,7 @@ export async function verifyCompletenessStep(
   // 4. 不完全 → フィードバックプロンプトを構築して返す
   logger.info(
     {
-      missingItems: judgement.missingItems.length,
-      formatDeviations: judgement.formatDeviations.length,
+      reasons: judgement.reasons.length,
     },
     'Pipeline-report not complete; feedback generated',
   );

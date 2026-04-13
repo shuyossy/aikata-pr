@@ -35,6 +35,24 @@ export type PipelineAnalysisAgentToolSet = {
 };
 
 /**
+ * 対象ジョブのID昇順からステージ実行順を導出する。
+ * GitLabはパイプライン作成時にステージ定義順でジョブを生成するため、
+ * 早いステージのジョブほどIDが小さい。
+ */
+export function deriveStageOrder(jobs: TargetJobSummary[]): string[] {
+  const sorted = [...jobs].sort((a, b) => a.id - b.id);
+  const seen = new Set<string>();
+  const stages: string[] = [];
+  for (const job of sorted) {
+    if (!seen.has(job.stage)) {
+      seen.add(job.stage);
+      stages.push(job.stage);
+    }
+  }
+  return stages;
+}
+
+/**
  * 対象ジョブ一覧を Markdown テーブルにレンダリングする
  * 設計書 §6.1 "Target Jobs" セクションで使用
  */
@@ -219,6 +237,7 @@ export function buildInstructions(
 ): string {
   const ctx = requestContext.all;
   const targetJobsTable = renderTargetJobsTable(ctx.targetJobs);
+  const stageOrder = deriveStageOrder(ctx.targetJobs);
   const additionalSection = renderAdditionalInstructionsSection(ctx.additionalInstructions);
   const jobDefinitionsSection = renderJobDefinitionsSection(ctx.mergedYaml);
   const toolCatalog = renderToolCatalog(ctx);
@@ -252,6 +271,13 @@ ${ctx.jobReportFormat}
 - When a placeholder uses an enum hint, you MUST write exactly one of the listed enum values. Do not invent new values, do not translate the enum values, and do not add extra words inside the enum slot.
 - Every block MUST contain all sections defined in the format above, in the same order.
 - Every factual claim inside a block MUST be backed by a concrete citation (a log line, an artifact excerpt, or a source file path). Never fabricate evidence.
+
+## Job Section Ordering
+
+To help users quickly identify jobs that need attention, you MUST sort the job sections in the "ジョブ別分析" region of the report in the following order:
+
+1. **Primary — AI assessment severity (worst first):** Place job sections with the most severe/problematic assessment first, and least severe last. For example, if your assessment enum values are "問題あり", "要注意", and "問題なし", the order should be: 問題あり → 要注意 → 問題なし.
+2. **Secondary — Stage execution order:** Within the same assessment level, order jobs by stage execution order: ${stageOrder.length > 0 ? stageOrder.map((s) => `\`${s}\``).join(' → ') : '_(single stage or no jobs)_'}.
 
 ## Target Jobs
 
@@ -296,7 +322,7 @@ ${compressionNotes ? `${compressionNotes}\n\n` : ''}## Writing Constraints
 
 ## Finishing Instructions
 
-You MUST produce a completed block for every target job listed above, and every section in the report skeleton must be filled in. Do NOT stop until all target jobs have been analyzed and their blocks have been written to the report file. Once you believe you are done, do a final get-report and verify every job block is present and every placeholder is resolved before ending your turn.`;
+You MUST produce a completed block for every target job listed above, and every section in the report skeleton must be filled in. Do NOT stop until all target jobs have been analyzed and their blocks have been written to the report file. Once you believe you are done, do a final get-report and verify every job block is present, every placeholder is resolved, and the job sections are ordered according to the Job Section Ordering rules before ending your turn.`;
 }
 
 /**

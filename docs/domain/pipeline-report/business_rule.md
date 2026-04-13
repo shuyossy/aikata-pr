@@ -70,15 +70,15 @@
     - AI 総合評価ラベル（`問題なし` / `要注意` / `問題あり`）はデフォルト `jobReportFormat` のプレースホルダ hint 内に定義される。ユーザが `jobReportFormat` を差し替えればラベル自体を変更できる
   - 結果(アクション)
     - Agent は全体骨組みをそのまま採用し、ジョブブロックだけを `jobReportFormat` に従って生成する
-    - `reportCompletenessJudgeAgent` は hint 内の列挙値（`|` 区切りの選択肢）を読み取り、実際の出力がそのいずれかに一致するかを判定する
+    - `reportCompletenessJudgeAgent` は全対象ジョブのブロックが存在するか・レポートが全て埋まっているか・ジョブセクションの並び順が妥当かを判定する
   - 関連するユースケースorエンティティ: OVERALL_REPORT_TEMPLATE, PipelineReportSettings, pipelineAnalysisAgent, reportCompletenessJudgeAgent
 
 - レポート完成判定ルール
   - 目的/背景
     - AI が途中で離脱したり、フォーマットを一部無視したまま完了を報告する事故を防ぎ、レポート品質を強制する
   - 条件
-    - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportCompletenessJudgeAgent` に (a) 圧縮済みパイプラインコンテキスト / (b) 全体骨組み / (c) `jobReportFormat` / (d) `additionalInstructions` / (e) 対象ジョブ一覧 / (f) 現レポート内容 を渡して JSON 判定
-    - Judge 出力スキーマ: `{ isComplete: boolean, missingItems: Array<{ jobId, jobName, reason }>, formatDeviations: string[] }`
+    - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportCompletenessJudgeAgent` に (a) 全体骨組み / (b) `jobReportFormat` / (c) 対象ジョブ一覧 / (d) 現レポート内容 を渡して JSON 判定
+    - Judge 出力スキーマ: `{ isComplete: boolean, reasons: string[] }`
     - `isComplete=false` なら `missingItems` と `formatDeviations` をフィードバックとして同一スレッドの `pipelineAnalysisAgent` に投げ直して再実行し、再度 verify
     - 再試行回数は `maxCompletenessRetries`（デフォルト 3）まで
   - 結果(アクション)
@@ -130,3 +130,16 @@
     - CLI の終了コードは `0`（通常完了扱い）
     - ただし GitLab API 失敗 / zip 失敗 / AI API 呼び出しエラーなど実行不能なエラーは `exit(1)` とする
   - 関連するユースケースorエンティティ: JobLogCompressor, verifyCompletenessStep, pipelineReportCliModule
+
+- ジョブセクション出力順序ルール
+  - 目的/背景
+    - レポートを見たユーザが対応すべき内容をすぐに把握できるよう、ジョブセクションを重要度順に出力する
+  - 条件
+    - 分析レポートの「ジョブ別分析」セクション内のジョブブロック出力順
+  - 結果(アクション)
+    - 以下の優先順でジョブセクションをソートするよう AI に指示する:
+      1. ジョブ結果に対する AI 評価が悪い順（デフォルトテンプレートでは 問題あり → 要注意 → 問題なし）
+      2. ステージの実行順（パイプライン定義上のステージ順）
+    - ステージ実行順は対象ジョブのジョブ ID 昇順から導出し、AI に明示的に提示する
+    - `reportCompletenessJudgeAgent` でも順序の妥当性をソフトに検証する（formatDeviations として検出）
+  - 関連するユースケースorエンティティ: pipelineAnalysisAgent (buildInstructions), reportCompletenessJudgeAgent

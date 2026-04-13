@@ -72,41 +72,22 @@ function createMockAgent(generateFn: (...args: unknown[]) => Promise<unknown>): 
 }
 
 describe('buildCompletenessFeedbackPrompt', () => {
-  it('missingItems が含まれる場合、ジョブ情報と理由がリスト化される', () => {
+  it('reasons が含まれる場合、各理由がリスト化される', () => {
     const judgement: ReportCompletenessJudgement = {
       isComplete: false,
-      missingItems: [
-        { jobId: 1, jobName: 'build', reason: 'job block missing from the report' },
-        { jobId: 2, jobName: 'test', reason: '<duration> placeholder not resolved' },
+      reasons: [
+        "Job #1 'build' has no block in the report",
+        "Job #2 'test' has no block in the report",
       ],
-      formatDeviations: [],
     };
 
     const result = buildCompletenessFeedbackPrompt(judgement);
 
     expect(result).toContain('Completeness Review Feedback');
-    expect(result).toContain('Missing Job Blocks');
-    expect(result).toContain('#1 `build`');
-    expect(result).toContain('#2 `test`');
-    expect(result).toContain('<duration> placeholder');
+    expect(result).toContain('Issues');
+    expect(result).toContain("Job #1 'build'");
+    expect(result).toContain("Job #2 'test'");
     expect(result).toContain('patch-report');
-  });
-
-  it('formatDeviations が含まれる場合、各項目がリスト化される', () => {
-    const judgement: ReportCompletenessJudgement = {
-      isComplete: false,
-      missingItems: [],
-      formatDeviations: [
-        "job #42 'test-e2e' uses unexpected AI rating value 'Maybe'",
-        'job #1 omits the Evidence section',
-      ],
-    };
-
-    const result = buildCompletenessFeedbackPrompt(judgement);
-
-    expect(result).toContain('Format Deviations');
-    expect(result).toContain("'Maybe'");
-    expect(result).toContain('omits the Evidence section');
   });
 });
 
@@ -158,8 +139,7 @@ describe('verifyCompletenessStep', () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       object: {
         isComplete: true,
-        missingItems: [],
-        formatDeviations: [],
+        reasons: [],
       },
     });
 
@@ -182,10 +162,7 @@ describe('verifyCompletenessStep', () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       object: {
         isComplete: false,
-        missingItems: [
-          { jobId: 102, jobName: 'test', reason: 'job block missing from the report' },
-        ],
-        formatDeviations: [],
+        reasons: ["Job #102 'test' has no block in the report"],
       },
     });
 
@@ -199,8 +176,8 @@ describe('verifyCompletenessStep', () => {
 
     expect(result.isComplete).toBe(false);
     expect(result.feedbackPrompt).toContain('Completeness Review Feedback');
-    expect(result.feedbackPrompt).toContain('#102 `test`');
-    expect(result.lastJudgement?.missingItems).toHaveLength(1);
+    expect(result.feedbackPrompt).toContain("Job #102 'test'");
+    expect(result.lastJudgement?.reasons).toHaveLength(1);
     expect(judgeGenerate).toHaveBeenCalledTimes(1);
   });
 
@@ -225,8 +202,7 @@ describe('verifyCompletenessStep', () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       text: JSON.stringify({
         isComplete: true,
-        missingItems: [],
-        formatDeviations: [],
+        reasons: [],
       }),
     });
 
