@@ -1,143 +1,768 @@
-diff --git a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-index e3910fa..a540a20 100644
---- a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-+++ b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-@@ -37,7 +37,7 @@ export interface PipelineAnalyzeCommand {
-     apiKey: string;
-     endpointUrl: string;
-     modelName: string;
--    reasoningEffort: 'low' | 'medium' | 'high' | null;
-+    reasoningEffort: string | null;
-   };
-   /** コンテキスト長圧縮の上限（null の場合は圧縮しない） */
-   maxContextLength: number | null;
-diff --git a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-index 553d055..490b930 100644
---- a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-+++ b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-@@ -35,7 +35,7 @@ export interface PipelineAnalysisWorkflowParams {
-     apiKey: string;
-     endpointUrl: string;
-     modelName: string;
--    reasoningEffort: 'low' | 'medium' | 'high' | null;
-+    reasoningEffort: string | null;
-   };
-   /**
-    * 進捗イベントのコールバック。
-diff --git a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
-index 77f6bc2..0178cc8 100644
---- a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
-+++ b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
-@@ -235,6 +235,66 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
-       expect(cleanup).toHaveBeenCalledTimes(1);
-     });
+diff --git a/PBI.md b/PBI.md
+index b6d296c..ce3d9bf 100644
+--- a/PBI.md
++++ b/PBI.md
+@@ -8,3 +8,30 @@
+ - 注意事項
+ - 指摘事項（in progressの場合のみ）
+ ```
++
++# ID: 1
++- PBI名: パイプライン分析レポートの見やすさ向上
++- ステータス: done
++- 背景
++  - 現状、分析レポートのジョブセクションにおいて、特にジョブの出力順を指定していない
++- 受け入れ基準
++  - 分析レポートのジョブセクションについて、以下の優先順で出力する様にAIに指示できている
++    1. ユーザが確認すべき重要度
++      - デフォルトテンプレートだと、問題あり→要注意→問題なしの順
++      - ジョブセクションのテンプレートはユーザが指定する可能性があるので、どの様なテンプレートでも対応できる様にしたい
++    2. ステージ順
++- 注意事項
++- 指摘事項（in progressの場合のみ）
++
++# ID: 2
++- PBI名: パイプライン分析レポート完成判定について、厳しすぎるので是正する
++- ステータス: done
++- 背景
++  - 実際にLLMを利用して、レポート分析をさせているが、完成判定Agentが厳し過ぎて、AI APIの発行回数が無駄に増えている
++- 受け入れ基準
++  - 完成判定用Agentのプロンプトを見直しできている
++    - 細かいフォーマットに関する記載は削除
++    - 最低限、レポートが全て埋まっており、全てのジョブが正しいソート順で並んでいれば良い
++- 注意事項
++  - もちろん、プロンプト内で判定を甘めにするような記載はしてはいけないので注意すること
++- 指摘事項（in progressの場合のみ）
+diff --git a/docs/domain/pipeline-report/business_rule.md b/docs/domain/pipeline-report/business_rule.md
+index 9e15c13..5ca32c6 100644
+--- a/docs/domain/pipeline-report/business_rule.md
++++ b/docs/domain/pipeline-report/business_rule.md
+@@ -70,15 +70,15 @@
+     - AI 総合評価ラベル（`問題なし` / `要注意` / `問題あり`）はデフォルト `jobReportFormat` のプレースホルダ hint 内に定義される。ユーザが `jobReportFormat` を差し替えればラベル自体を変更できる
+   - 結果(アクション)
+     - Agent は全体骨組みをそのまま採用し、ジョブブロックだけを `jobReportFormat` に従って生成する
+-    - `reportCompletenessJudgeAgent` は hint 内の列挙値（`|` 区切りの選択肢）を読み取り、実際の出力がそのいずれかに一致するかを判定する
++    - `reportCompletenessJudgeAgent` は全対象ジョブのブロックが存在するか・レポートが全て埋まっているか・ジョブセクションの並び順が妥当かを判定する
+   - 関連するユースケースorエンティティ: OVERALL_REPORT_TEMPLATE, PipelineReportSettings, pipelineAnalysisAgent, reportCompletenessJudgeAgent
  
-+    it('OPENAI_REASONING_EFFORT に非標準の値を指定してもそのまま伝播する', async () => {
-+      process.env['AI_API_KEY'] = 'k';
-+      process.env['AI_API_ENDPOINT_URL'] = 'https://ai.example.com';
-+      process.env['OPENAI_REASONING_EFFORT'] = 'minimal';
+ - レポート完成判定ルール
+   - 目的/背景
+     - AI が途中で離脱したり、フォーマットを一部無視したまま完了を報告する事故を防ぎ、レポート品質を強制する
+   - 条件
+-    - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportCompletenessJudgeAgent` に (a) 圧縮済みパイプラインコンテキスト / (b) 全体骨組み / (c) `jobReportFormat` / (d) `additionalInstructions` / (e) 対象ジョブ一覧 / (f) 現レポート内容 を渡して JSON 判定
+-    - Judge 出力スキーマ: `{ isComplete: boolean, missingItems: Array<{ jobId, jobName, reason }>, formatDeviations: string[] }`
++    - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportCompletenessJudgeAgent` に (a) 全体骨組み / (b) `jobReportFormat` / (c) 対象ジョブ一覧 / (d) 現レポート内容 を渡して JSON 判定
++    - Judge 出力スキーマ: `{ isComplete: boolean, reasons: string[] }`
+     - `isComplete=false` なら `missingItems` と `formatDeviations` をフィードバックとして同一スレッドの `pipelineAnalysisAgent` に投げ直して再実行し、再度 verify
+     - 再試行回数は `maxCompletenessRetries`（デフォルト 3）まで
+   - 結果(アクション)
+@@ -130,3 +130,16 @@
+     - CLI の終了コードは `0`（通常完了扱い）
+     - ただし GitLab API 失敗 / zip 失敗 / AI API 呼び出しエラーなど実行不能なエラーは `exit(1)` とする
+   - 関連するユースケースorエンティティ: JobLogCompressor, verifyCompletenessStep, pipelineReportCliModule
 +
-+      let capturedCommand: PipelineAnalyzeCommand | undefined;
-+      const analyze = vi
-+        .fn<(command: PipelineAnalyzeCommand) => Promise<PipelineAnalysisResult>>()
-+        .mockImplementation(async (command) => {
-+          capturedCommand = command;
-+          return {
-+            report: AnalysisReport.of(''),
-+            targetJobs: [],
-+            pipeline: Pipeline.of({
-+              projectId: 10,
-+              pipelineId: 20,
-+              sha: 'x',
-+              ref: 'main',
-+              status: 'success',
-+              webUrl: 'https://gitlab.example.com/pipelines/20',
-+              createdAt: new Date(),
-+              updatedAt: new Date(),
-+            }),
-+            completenessVerified: true,
-+            completenessRetries: 0,
-+            workflowFailed: false,
-+            tokenStats: {
-+              compressed: false,
-+              folderTreeStripped: false,
-+              compressedJobIds: [],
-+            },
-+          };
-+        });
-+      const localDeps: PipelineReportLocalDeps = {
-+        service: { analyze },
-+        cleanup: () => {},
-+      };
++- ジョブセクション出力順序ルール
++  - 目的/背景
++    - レポートを見たユーザが対応すべき内容をすぐに把握できるよう、ジョブセクションを重要度順に出力する
++  - 条件
++    - 分析レポートの「ジョブ別分析」セクション内のジョブブロック出力順
++  - 結果(アクション)
++    - 以下の優先順でジョブセクションをソートするよう AI に指示する:
++      1. ジョブ結果に対する AI 評価が悪い順（デフォルトテンプレートでは 問題あり → 要注意 → 問題なし）
++      2. ステージの実行順（パイプライン定義上のステージ順）
++    - ステージ実行順は対象ジョブのジョブ ID 昇順から導出し、AI に明示的に提示する
++    - `reportCompletenessJudgeAgent` でも順序の妥当性をソフトに検証する（formatDeviations として検出）
++  - 関連するユースケースorエンティティ: pipelineAnalysisAgent (buildInstructions), reportCompletenessJudgeAgent
+diff --git a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
+index 8d07107..75d8404 100644
+--- a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
++++ b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
+@@ -10,7 +10,7 @@ const DEFAULT_JOB_REPORT_FORMAT = `### ジョブ #<jobId> — \`<jobName>\` (<st
+ 
+ - **実行時間:** <duration>
+ - **Web URL:** <webUrl>
+-- **AI 総合評価:** <以下の3つから1つだけ選ぶ: 「問題なし」「要注意」「問題あり」。「問題なし」= ログ・アーティファクトの観察範囲で特筆すべき懸念がない場合 / 「要注意」= GitLab 上は成功だが警告・スキップ・無視されたエラー等の疑わしい徴候がある、または失敗だが影響範囲が軽微な場合 / 「問題あり」= ジョブが失敗している、または成功していても明確な問題（テストスキップ、エラー握り潰し、重要なリグレッション等）が検出されている場合>
++- **AI 総合評価:** <以下の3つから1つだけ選ぶ: 「問題なし」「要注意」「問題あり」。「問題なし」= ログ・アーティファクトの観察範囲で特筆すべき懸念がない場合 / 「要注意」= GitLab 上は成功だが警告・スキップ・無視されたエラー等の疑わしい徴候がある、または失敗だが影響範囲が軽微な場合（要注意を出し過ぎてもユーザの認知負担が増えるので、真にユーザが確認すべきジョブに限定すること。警告がでているが、そこまで重要度・緊急度が高くない場合は問題なしとし、検出された問題に要注意な内容を記載すること） / 「問題あり」= ジョブが失敗している、または成功していても明確な問題（テストスキップ、エラー握り潰し、重要なリグレッション等）が検出されている場合>
+ 
+ **概要**
+ <1〜3文でこのジョブの顛末を要約>
+diff --git a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
+index 491c37c..6cad47d 100644
+--- a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
++++ b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
+@@ -9,6 +9,7 @@ import {
+   buildUserPrompt,
+   createToolset,
+   createWorkspaceFromContext,
++  deriveStageOrder,
+   pipelineAnalysisAgent,
+ } from '../pipelineAnalysisAgent.js';
+ 
+@@ -618,3 +619,119 @@ describe('createWorkspaceFromContext', () => {
+     expect(toolsConfig?.mastra_workspace_execute_command?.maxOutputTokens).toBe(4000);
+   });
+ });
 +
-+      await expect(
-+        run(
-+          [
-+            '--user-id',
-+            'alice',
-+            '--project-id',
-+            '10',
-+            '--pipeline-id',
-+            '20',
-+            '--aikata-pr-gitlab-token',
-+            'glt',
-+            '--result-file',
-+            path.join(tmpDir, 'r.md'),
-+          ],
-+          { localDepsFactory: () => localDeps },
-+        ),
-+      ).resolves.toBeUndefined();
++describe('deriveStageOrder', () => {
++  it('ジョブID昇順でユニークなステージ名を初出順に返す', () => {
++    const jobs: TargetJobSummary[] = [
++      { id: 3, name: 'deploy', stage: 'deploy', status: 'success', duration: 30 },
++      { id: 1, name: 'lint', stage: 'check', status: 'success', duration: 10 },
++      { id: 2, name: 'test-unit', stage: 'test', status: 'failed', duration: 60 },
++    ];
 +
-+      // 非標準の値 'minimal' がそのまま伝播する（review機能と同様に任意の文字列を受け入れる）
-+      expect(capturedCommand!.aiConfig.reasoningEffort).toBe('minimal');
++    const result = deriveStageOrder(jobs);
++
++    expect(result).toEqual(['check', 'test', 'deploy']);
++  });
++
++  it('同一ステージに複数ジョブがある場合、最小IDで順序を決定する', () => {
++    const jobs: TargetJobSummary[] = [
++      { id: 10, name: 'test-e2e', stage: 'test', status: 'success', duration: 120 },
++      { id: 5, name: 'build-app', stage: 'build', status: 'success', duration: 42 },
++      { id: 7, name: 'test-unit', stage: 'test', status: 'failed', duration: 60 },
++      { id: 6, name: 'build-lib', stage: 'build', status: 'success', duration: 30 },
++    ];
++
++    const result = deriveStageOrder(jobs);
++
++    expect(result).toEqual(['build', 'test']);
++  });
++
++  it('空配列の場合は空配列を返す', () => {
++    const result = deriveStageOrder([]);
++
++    expect(result).toEqual([]);
++  });
++
++  it('単一ステージの場合はそのステージ名のみを返す', () => {
++    const jobs: TargetJobSummary[] = [
++      { id: 1, name: 'test-a', stage: 'test', status: 'success', duration: 10 },
++      { id: 2, name: 'test-b', stage: 'test', status: 'failed', duration: 20 },
++    ];
++
++    const result = deriveStageOrder(jobs);
++
++    expect(result).toEqual(['test']);
++  });
++
++  it('元の配列を変更しない', () => {
++    const jobs: TargetJobSummary[] = [
++      { id: 3, name: 'deploy', stage: 'deploy', status: 'success', duration: 30 },
++      { id: 1, name: 'lint', stage: 'check', status: 'success', duration: 10 },
++    ];
++    const originalOrder = [...jobs];
++
++    deriveStageOrder(jobs);
++
++    expect(jobs).toEqual(originalOrder);
++  });
++});
++
++describe('buildInstructions - Job Section Ordering', () => {
++  it('Job Section Orderingセクションが含まれる', () => {
++    const ctx = createTestRequestContext();
++
++    const result = buildInstructions(ctx);
++
++    expect(result).toContain('Job Section Ordering');
++  });
++
++  it('評価が悪い順にソートする指示が含まれる', () => {
++    const ctx = createTestRequestContext();
++
++    const result = buildInstructions(ctx);
++
++    expect(result).toMatch(/sever|important|problematic/i);
++    expect(result).toMatch(/order|sort/i);
++  });
++
++  it('ステージ実行順が明示的に列挙される', () => {
++    const ctx = createTestRequestContext({
++      targetJobs: [
++        { id: 1, name: 'lint', stage: 'check', status: 'success', duration: 10 },
++        { id: 2, name: 'test-unit', stage: 'test', status: 'failed', duration: 60 },
++        { id: 3, name: 'deploy', stage: 'deploy', status: 'success', duration: 30 },
++      ],
 +    });
 +
-     it('PipelineReportSettings.filterJobs がパターンどおりに対象ジョブを絞り込む', async () => {
-       // 設定ファイルのパターンが実際にドメインに伝播し、
-       // filterJobs が期待通りに動くことを確認する
-diff --git a/src/cli/pipeline-report/commandBuilder.ts b/src/cli/pipeline-report/commandBuilder.ts
-index b8c3a18..ea36106 100644
---- a/src/cli/pipeline-report/commandBuilder.ts
-+++ b/src/cli/pipeline-report/commandBuilder.ts
-@@ -110,7 +110,7 @@ export interface BuildPipelineReportCommandOptions {
-   /** 圧縮上限（null なら圧縮しない） */
-   maxContextLength: number | null;
-   /** OpenAI reasoning モデルの reasoning effort */
--  openaiReasoningEffort: 'low' | 'medium' | 'high' | null;
-+  openaiReasoningEffort: string | null;
-   /** ワークフロー進捗コールバック */
-   onProgress: (event: PipelineAnalysisProgressEvent) => void;
- }
-diff --git a/src/cli/pipeline-report/index.ts b/src/cli/pipeline-report/index.ts
-index e8f23c6..ea65eeb 100644
---- a/src/cli/pipeline-report/index.ts
-+++ b/src/cli/pipeline-report/index.ts
-@@ -257,13 +257,7 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
-       try {
-         // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
-         const projectDir = env['CI_PROJECT_DIR'] ?? process.cwd();
--        const openaiReasoningEffortRaw = env['OPENAI_REASONING_EFFORT'];
--        const openaiReasoningEffort: 'low' | 'medium' | 'high' | null =
--          openaiReasoningEffortRaw === 'low' ||
--          openaiReasoningEffortRaw === 'medium' ||
--          openaiReasoningEffortRaw === 'high'
--            ? openaiReasoningEffortRaw
--            : null;
-+        const openaiReasoningEffort = env['OPENAI_REASONING_EFFORT'] || null;
++    const result = buildInstructions(ctx);
++
++    // ステージ順が具体的に列挙されている
++    expect(result).toContain('check');
++    expect(result).toContain('test');
++    expect(result).toContain('deploy');
++  });
++
++  it('Job Section OrderingはRules for Job Blocksの後、Target Jobsの前に配置される', () => {
++    const ctx = createTestRequestContext();
++
++    const result = buildInstructions(ctx);
++
++    const rulesIdx = result.indexOf('Rules for Job Blocks');
++    const orderingIdx = result.indexOf('Job Section Ordering');
++    const targetJobsIdx = result.indexOf('Target Jobs');
++    expect(rulesIdx).toBeGreaterThanOrEqual(0);
++    expect(orderingIdx).toBeGreaterThan(rulesIdx);
++    expect(orderingIdx).toBeLessThan(targetJobsIdx);
++  });
++
++  it('Finishing Instructionsに順序確認の言及がある', () => {
++    const ctx = createTestRequestContext();
++
++    const result = buildInstructions(ctx);
++
++    // Finishing Instructionsセクション内に順序に関する言及
++    const finishingIdx = result.indexOf('Finishing Instructions');
++    const afterFinishing = result.substring(finishingIdx);
++    expect(afterFinishing).toMatch(/order/i);
++  });
++});
+diff --git a/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
+index 3158d1b..6948424 100644
+--- a/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
++++ b/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
+@@ -3,39 +3,33 @@ import {
+   reportCompletenessJudgeAgent,
+   reportCompletenessJudgementSchema,
+   REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS,
++  buildReportCompletenessJudgeUserPrompt,
+ } from '../reportCompletenessJudgeAgent.js';
++import type { TargetJobSummary } from '../../types.js';
  
-         const command = buildPipelineReportCommand(parsed, validated, {
-           settings,
-diff --git a/src/presentation/api/pipeline-report/pipelineReportHandler.ts b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-index eeef42a..6ec9a7f 100644
---- a/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-+++ b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-@@ -336,8 +336,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
-             apiKey: deps.aiApiKey,
-             endpointUrl: deps.aiApiEndpointUrl,
-             modelName: deps.defaultAiModelName,
--            reasoningEffort:
--              (deps.openaiReasoningEffort as 'low' | 'medium' | 'high' | undefined) ?? null,
-+            reasoningEffort: deps.openaiReasoningEffort ?? null,
-           },
-           maxContextLength: deps.maxContextLength ?? null,
-           treeMaxDepth: request.treeMaxDepth,
+ describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS', () => {
+-  it('厳格なQA監査役の役割が明示される', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('strict QA auditor');
++  it('QA監査役の役割が明示される', () => {
++    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('QA auditor');
+   });
+ 
+   it('JSONのみ返す指示が含まれる', () => {
+     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/JSON only/i);
+   });
+ 
+-  it('missingItems / formatDeviations の出力フィールド説明が含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('missingItems');
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('formatDeviations');
++  it('reasons の出力フィールド説明が含まれる', () => {
++    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('reasons');
+   });
+ 
+   it('対象ジョブ網羅の判定ルールが含まれる', () => {
+-    // 対象ジョブが全てレポートに存在するか
+     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/target job/i);
+     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/missing/i);
+   });
+ 
+-  it('jobReportFormatのhint（列挙型含む）が正しく埋まっているかの判定ルールが含まれる', () => {
+-    // hintやプレースホルダ、列挙値についての記述
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/hint|placeholder/i);
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/enum/i);
++  it('レポート完成度の判定ルールが含まれる', () => {
++    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/fully written/i);
+   });
+ 
+-  it('additionalInstructionsを反映するルールが含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('additionalInstructions');
+-  });
+-
+-  it('ReActフレームワークの判定シグナル（isComplete）が含まれる', () => {
++  it('isCompleteの判定シグナルが含まれる', () => {
+     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('isComplete');
+   });
+ 
+@@ -45,49 +39,31 @@ describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS', () => {
+ });
+ 
+ describe('reportCompletenessJudgementSchema', () => {
+-  it('isComplete=true かつ配列が空の入力をパースできる', () => {
++  it('isComplete=true かつ reasons が空の入力をパースできる', () => {
+     const parsed = reportCompletenessJudgementSchema.parse({
+       isComplete: true,
+-      missingItems: [],
+-      formatDeviations: [],
++      reasons: [],
+     });
+     expect(parsed.isComplete).toBe(true);
+-    expect(parsed.missingItems).toEqual([]);
+-    expect(parsed.formatDeviations).toEqual([]);
++    expect(parsed.reasons).toEqual([]);
+   });
+ 
+-  it('missingItemsの要素は jobId / jobName / reason を持つ', () => {
++  it('isComplete=false かつ reasons に理由が含まれる入力をパースできる', () => {
+     const parsed = reportCompletenessJudgementSchema.parse({
+       isComplete: false,
+-      missingItems: [
+-        { jobId: 101, jobName: 'build', reason: 'not present in report' },
+-        { jobId: 102, jobName: 'test', reason: 'evidence section is empty' },
++      reasons: [
++        "Job #101 'build' has no block in the report",
++        'Job sections are not ordered by assessment severity',
+       ],
+-      formatDeviations: ['job #103 block uses wrong AI rating enum value'],
+     });
+     expect(parsed.isComplete).toBe(false);
+-    expect(parsed.missingItems).toHaveLength(2);
+-    expect(parsed.missingItems[0]).toEqual({
+-      jobId: 101,
+-      jobName: 'build',
+-      reason: 'not present in report',
+-    });
+-    expect(parsed.formatDeviations).toEqual(['job #103 block uses wrong AI rating enum value']);
++    expect(parsed.reasons).toHaveLength(2);
++    expect(parsed.reasons[0]).toContain('build');
+   });
+ 
+-  it('missingItemsが欠けている入力はパースに失敗する', () => {
++  it('reasons が欠けている入力はパースに失敗する', () => {
+     const result = reportCompletenessJudgementSchema.safeParse({
+       isComplete: true,
+-      formatDeviations: [],
+-    });
+-    expect(result.success).toBe(false);
+-  });
+-
+-  it('missingItems要素の jobId が数値でない場合はパースに失敗する', () => {
+-    const result = reportCompletenessJudgementSchema.safeParse({
+-      isComplete: false,
+-      missingItems: [{ jobId: 'abc', jobName: 'build', reason: 'x' }],
+-      formatDeviations: [],
+     });
+     expect(result.success).toBe(false);
+   });
+@@ -95,21 +71,7 @@ describe('reportCompletenessJudgementSchema', () => {
+   it('各フィールドにdescribeが設定されている', () => {
+     const shape = reportCompletenessJudgementSchema.shape;
+     expect(shape.isComplete.description).toBeDefined();
+-    expect(shape.missingItems.description).toBeDefined();
+-    expect(shape.formatDeviations.description).toBeDefined();
+-    // ネストされたmissingItemsの要素フィールドにもdescribeが設定されている
+-    const missingItemShape = shape.missingItems.element.shape;
+-    expect(missingItemShape.jobId.description).toBeDefined();
+-    expect(missingItemShape.jobName.description).toBeDefined();
+-    expect(missingItemShape.reason.description).toBeDefined();
+-  });
+-
+-  it('formatDeviationsが欠けている入力はパースに失敗する', () => {
+-    const result = reportCompletenessJudgementSchema.safeParse({
+-      isComplete: true,
+-      missingItems: [],
+-    });
+-    expect(result.success).toBe(false);
++    expect(shape.reasons.description).toBeDefined();
+   });
+ });
+ 
+@@ -119,3 +81,47 @@ describe('reportCompletenessJudgeAgent', () => {
+     expect(reportCompletenessJudgeAgent.name).toBe('Report Completeness Judge Agent');
+   });
+ });
++
++describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS - ordering rule', () => {
++  it('ジョブセクション順序に関する判定ルールが含まれる', () => {
++    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/order/i);
++    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/stage/i);
++  });
++
++  it('順序違反はreasonsとして検出する指示が含まれる', () => {
++    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/reason/i);
++  });
++});
++
++describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
++  const baseInputs = {
++    currentReportContent: '# テストレポート',
++    targetJobs: [
++      { id: 1, name: 'lint', stage: 'check', status: 'success' as const },
++      { id: 2, name: 'test', stage: 'test', status: 'failed' as const },
++    ] satisfies Omit<TargetJobSummary, 'duration'>[] as unknown as TargetJobSummary[],
++    jobReportFormat: '### ジョブ #<jobId>',
++    overallTemplate: '# レポート\n{{job-sections}}',
++  };
++
++  it('stageOrderが指定された場合、Stage Execution Orderセクションが含まれる', () => {
++    const result = buildReportCompletenessJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: ['check', 'test', 'deploy'],
++    });
++
++    expect(result).toContain('Stage Execution Order');
++    expect(result).toContain('check');
++    expect(result).toContain('test');
++    expect(result).toContain('deploy');
++  });
++
++  it('stageOrderが空配列の場合、Stage Execution Orderセクションが含まれない', () => {
++    const result = buildReportCompletenessJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++    });
++
++    expect(result).not.toContain('Stage Execution Order');
++  });
++});
+diff --git a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
+index 111eb6f..2511107 100644
+--- a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
++++ b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
+@@ -34,6 +34,24 @@ export type PipelineAnalysisAgentToolSet = {
+   readImage?: typeof readImageTool;
+ };
+ 
++/**
++ * 対象ジョブのID昇順からステージ実行順を導出する。
++ * GitLabはパイプライン作成時にステージ定義順でジョブを生成するため、
++ * 早いステージのジョブほどIDが小さい。
++ */
++export function deriveStageOrder(jobs: TargetJobSummary[]): string[] {
++  const sorted = [...jobs].sort((a, b) => a.id - b.id);
++  const seen = new Set<string>();
++  const stages: string[] = [];
++  for (const job of sorted) {
++    if (!seen.has(job.stage)) {
++      seen.add(job.stage);
++      stages.push(job.stage);
++    }
++  }
++  return stages;
++}
++
+ /**
+  * 対象ジョブ一覧を Markdown テーブルにレンダリングする
+  * 設計書 §6.1 "Target Jobs" セクションで使用
+@@ -219,6 +237,7 @@ export function buildInstructions(
+ ): string {
+   const ctx = requestContext.all;
+   const targetJobsTable = renderTargetJobsTable(ctx.targetJobs);
++  const stageOrder = deriveStageOrder(ctx.targetJobs);
+   const additionalSection = renderAdditionalInstructionsSection(ctx.additionalInstructions);
+   const jobDefinitionsSection = renderJobDefinitionsSection(ctx.mergedYaml);
+   const toolCatalog = renderToolCatalog(ctx);
+@@ -253,6 +272,13 @@ ${ctx.jobReportFormat}
+ - Every block MUST contain all sections defined in the format above, in the same order.
+ - Every factual claim inside a block MUST be backed by a concrete citation (a log line, an artifact excerpt, or a source file path). Never fabricate evidence.
+ 
++## Job Section Ordering
++
++To help users quickly identify jobs that need attention, you MUST sort the job sections in the "ジョブ別分析" region of the report in the following order:
++
++1. **Primary — AI assessment severity (worst first):** Place job sections with the most severe/problematic assessment first, and least severe last. For example, if your assessment enum values are "問題あり", "要注意", and "問題なし", the order should be: 問題あり → 要注意 → 問題なし.
++2. **Secondary — Stage execution order:** Within the same assessment level, order jobs by stage execution order: ${stageOrder.length > 0 ? stageOrder.map((s) => `\`${s}\``).join(' → ') : '_(single stage or no jobs)_'}.
++
+ ## Target Jobs
+ 
+ You must produce a block for every job in the following table:
+@@ -296,7 +322,7 @@ ${compressionNotes ? `${compressionNotes}\n\n` : ''}## Writing Constraints
+ 
+ ## Finishing Instructions
+ 
+-You MUST produce a completed block for every target job listed above, and every section in the report skeleton must be filled in. Do NOT stop until all target jobs have been analyzed and their blocks have been written to the report file. Once you believe you are done, do a final get-report and verify every job block is present and every placeholder is resolved before ending your turn.`;
++You MUST produce a completed block for every target job listed above, and every section in the report skeleton must be filled in. Do NOT stop until all target jobs have been analyzed and their blocks have been written to the report file. Once you believe you are done, do a final get-report and verify every job block is present, every placeholder is resolved, and the job sections are ordered according to the Job Section Ordering rules before ending your turn.`;
+ }
+ 
+ /**
+diff --git a/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts b/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
+index 97294c9..150699a 100644
+--- a/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
++++ b/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
+@@ -9,32 +9,11 @@ import { createModelFromContext } from '../../shared/requestContext.js';
+  * pipelineAnalysisWorkflowのverifyCompletenessStepで構造化出力として利用する
+  */
+ export const reportCompletenessJudgementSchema = z.object({
+-  isComplete: z
+-    .boolean()
+-    .describe('MUST be true if and only if missingItems is empty AND formatDeviations is empty'),
+-  missingItems: z
+-    .array(
+-      z.object({
+-        jobId: z
+-          .number()
+-          .describe('ID of the job that has a missing block or unresolved placeholder'),
+-        jobName: z
+-          .string()
+-          .describe('Name of the job that has a missing block or unresolved placeholder'),
+-        reason: z
+-          .string()
+-          .describe(
+-            'Actionable description of why this job block is incomplete (e.g. "job block missing from the report" or "placeholder <duration> is still unresolved")',
+-          ),
+-      }),
+-    )
+-    .describe(
+-      'Array of jobs with missing blocks or unresolved placeholders; empty when the report is complete',
+-    ),
+-  formatDeviations: z
++  isComplete: z.boolean().describe('MUST be true if and only if reasons is empty'),
++  reasons: z
+     .array(z.string())
+     .describe(
+-      'Array of strings describing format violations found in the report; empty when the report is complete',
++      'Array of actionable reasons why the report is not complete; empty when the report is complete',
+     ),
+ });
+ 
+@@ -43,21 +22,19 @@ export const reportCompletenessJudgementSchema = z.object({
+  * ユーザ指定の jobReportFormat / additionalInstructions、対象ジョブ一覧、
+  * および現在のレポート内容に基づいてレポートが完成しているか判定する
+  */
+-export const REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS = `You are a strict QA auditor for CI/CD pipeline analysis reports. Your sole responsibility is to decide whether the current report file is complete according to a strict set of rules. You do not write the report — you only judge it.
++export const REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS = `You are a QA auditor for CI/CD pipeline analysis reports. Your sole responsibility is to decide whether the current report file is complete according to the rules below. You do not write the report — you only judge it.
+ 
+ You will be given, in the user message:
+ 1. The target job list (jobId, jobName, stage, status).
+-2. The expected per-job block format (\`jobReportFormat\`), with placeholder hints in angle brackets such as \`<jobId>\`, \`<duration>\`, or enum hints like \`<choose one: "A" | "B" | "C">\`.
+-3. Any user-supplied \`additionalInstructions\`.
+-4. The full current contents of the report file.
++2. The expected per-job block format (\`jobReportFormat\`).
++3. The full current contents of the report file.
+ 
+ You MUST return a single JSON object that conforms to the following schema, and nothing else. JSON only. Do not call tools. Do not emit markdown, prose, or explanations outside the JSON value.
+ 
+ \`\`\`
+ {
+   "isComplete": boolean,
+-  "missingItems": [ { "jobId": number, "jobName": string, "reason": string }, ... ],
+-  "formatDeviations": [ string, ... ]
++  "reasons": [ string, ... ]
+ }
+ \`\`\`
+ 
+@@ -65,22 +42,18 @@ You MUST return a single JSON object that conforms to the following schema, and
+ 
+ Apply every rule below. The report is complete only when every rule passes.
+ 
+-1. **Target job coverage**: Every target job in the provided list MUST appear in the report with its own per-job block. If a job has no block in the report, add an entry to \`missingItems\` with \`{ jobId, jobName, reason: "job block missing from the report" }\`. Do not fabricate blocks that are not in the report.
+-
+-2. **Placeholder / hint resolution**: For each per-job block, every placeholder or hint (\`<...>\`) defined in \`jobReportFormat\` MUST be replaced with a concrete value. A block where a hint still appears verbatim (for example \`<duration>\` or \`<choose one: ...>\` still written literally) is NOT complete. Record such cases in \`missingItems\` with a reason that names the unresolved placeholder.
++1. **Target job coverage**: Every target job in the provided list MUST appear in the report with its own per-job block. If a job has no block, add a reason describing which job is missing.
+ 
+-3. **Enum hint values**: When \`jobReportFormat\` uses an enum hint such as \`<choose one: "A" | "B" | "C">\`, the written value MUST be exactly one of the listed enum values. Any value that is not in the enum is a format deviation — add a descriptive string to \`formatDeviations\` (e.g. "job #42 'test-e2e' uses unexpected AI rating value 'Maybe'").
++2. **Report completeness**: The report MUST be fully written. No section in the report should be blank, contain only placeholder text, or be obviously unfinished. If any section is incomplete, add a reason describing which part is unfinished.
+ 
+-4. **additionalInstructions compliance**: If \`additionalInstructions\` is present, verify that the report honors every concrete, testable instruction in it. Any visible violation is a format deviation — add a descriptive string to \`formatDeviations\` citing both the instruction and where it was violated.
+-
+-5. **Block structure fidelity**: A per-job block that omits an entire section defined in \`jobReportFormat\` (even if the surrounding prose is plausible) is a format deviation. Record it in \`formatDeviations\`.
++3. **Job section ordering**: Job sections should be ordered by (1) AI assessment severity, with the most severe/problematic jobs first, then (2) stage execution order within the same severity level. If the stage execution order is provided in the user message, use it as reference. If the sections are clearly out of order, add a reason describing the ordering issue.
+ 
+ ## Decision
+ 
+-- \`isComplete\` MUST be \`true\` if and only if \`missingItems\` is empty AND \`formatDeviations\` is empty.
++- \`isComplete\` MUST be \`true\` if and only if \`reasons\` is empty.
+ - Otherwise \`isComplete\` MUST be \`false\`.
+ 
+-Be strict. Do not downgrade issues just because they look minor. When in doubt, mark the report as not complete and populate \`missingItems\` / \`formatDeviations\` with precise, actionable reasons so the analysis agent can fix them.`;
++When the report does not satisfy a rule above, populate \`reasons\` with precise, actionable descriptions so the analysis agent can fix the specific issues.`;
+ 
+ /**
+  * レポート完全性判定 Agent の user プロンプトビルダー入力
+@@ -94,8 +67,8 @@ export interface BuildReportCompletenessJudgeUserPromptInputs {
+   jobReportFormat: string;
+   /** レポート全体のスケルトン */
+   overallTemplate: string;
+-  /** ユーザ指定の追加指示（未指定なら null） */
+-  additionalInstructions: string | null;
++  /** ステージ実行順（ジョブセクション順序検証用） */
++  stageOrder: string[];
+ }
+ 
+ /**
+@@ -146,15 +119,10 @@ export function buildReportCompletenessJudgeUserPrompt(
+   parts.push('```');
+   parts.push('');
+ 
+-  if (inputs.additionalInstructions && inputs.additionalInstructions.trim() !== '') {
+-    parts.push('## additionalInstructions');
+-    parts.push('');
+-    parts.push(inputs.additionalInstructions);
+-    parts.push('');
+-  } else {
+-    parts.push('## additionalInstructions');
++  if (inputs.stageOrder.length > 0) {
++    parts.push('## Stage Execution Order');
+     parts.push('');
+-    parts.push('_(none)_');
++    parts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
+     parts.push('');
+   }
+ 
+diff --git a/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts b/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
+index ceb4384..0286e0c 100644
+--- a/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
++++ b/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
+@@ -200,8 +200,7 @@ const analyzeAndVerifyStep = createStep({
+       logger.info(
+         {
+           attempt: inputData.completenessRetries + 1,
+-          missingItems: verify.lastJudgement?.missingItems?.length ?? 0,
+-          formatDeviations: verify.lastJudgement?.formatDeviations?.length ?? 0,
++          reasons: verify.lastJudgement?.reasons?.length ?? 0,
+         },
+         'Pipeline-report not complete; will rerun analysis with feedback',
+       );
+diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
+index 71ada51..5c22d1a 100644
+--- a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
++++ b/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
+@@ -72,42 +72,23 @@ function createMockAgent(generateFn: (...args: unknown[]) => Promise<unknown>):
+ }
+ 
+ describe('buildCompletenessFeedbackPrompt', () => {
+-  it('missingItems が含まれる場合、ジョブ情報と理由がリスト化される', () => {
++  it('reasons が含まれる場合、各理由がリスト化される', () => {
+     const judgement: ReportCompletenessJudgement = {
+       isComplete: false,
+-      missingItems: [
+-        { jobId: 1, jobName: 'build', reason: 'job block missing from the report' },
+-        { jobId: 2, jobName: 'test', reason: '<duration> placeholder not resolved' },
++      reasons: [
++        "Job #1 'build' has no block in the report",
++        "Job #2 'test' has no block in the report",
+       ],
+-      formatDeviations: [],
+     };
+ 
+     const result = buildCompletenessFeedbackPrompt(judgement);
+ 
+     expect(result).toContain('Completeness Review Feedback');
+-    expect(result).toContain('Missing Job Blocks');
+-    expect(result).toContain('#1 `build`');
+-    expect(result).toContain('#2 `test`');
+-    expect(result).toContain('<duration> placeholder');
++    expect(result).toContain('Issues');
++    expect(result).toContain("Job #1 'build'");
++    expect(result).toContain("Job #2 'test'");
+     expect(result).toContain('patch-report');
+   });
+-
+-  it('formatDeviations が含まれる場合、各項目がリスト化される', () => {
+-    const judgement: ReportCompletenessJudgement = {
+-      isComplete: false,
+-      missingItems: [],
+-      formatDeviations: [
+-        "job #42 'test-e2e' uses unexpected AI rating value 'Maybe'",
+-        'job #1 omits the Evidence section',
+-      ],
+-    };
+-
+-    const result = buildCompletenessFeedbackPrompt(judgement);
+-
+-    expect(result).toContain('Format Deviations');
+-    expect(result).toContain("'Maybe'");
+-    expect(result).toContain('omits the Evidence section');
+-  });
+ });
+ 
+ describe('buildFeedbackWithReportPrompt', () => {
+@@ -158,8 +139,7 @@ describe('verifyCompletenessStep', () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+         isComplete: true,
+-        missingItems: [],
+-        formatDeviations: [],
++        reasons: [],
+       },
+     });
+ 
+@@ -182,10 +162,7 @@ describe('verifyCompletenessStep', () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+         isComplete: false,
+-        missingItems: [
+-          { jobId: 102, jobName: 'test', reason: 'job block missing from the report' },
+-        ],
+-        formatDeviations: [],
++        reasons: ["Job #102 'test' has no block in the report"],
+       },
+     });
+ 
+@@ -199,8 +176,8 @@ describe('verifyCompletenessStep', () => {
+ 
+     expect(result.isComplete).toBe(false);
+     expect(result.feedbackPrompt).toContain('Completeness Review Feedback');
+-    expect(result.feedbackPrompt).toContain('#102 `test`');
+-    expect(result.lastJudgement?.missingItems).toHaveLength(1);
++    expect(result.feedbackPrompt).toContain("Job #102 'test'");
++    expect(result.lastJudgement?.reasons).toHaveLength(1);
+     expect(judgeGenerate).toHaveBeenCalledTimes(1);
+   });
+ 
+@@ -225,8 +202,7 @@ describe('verifyCompletenessStep', () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       text: JSON.stringify({
+         isComplete: true,
+-        missingItems: [],
+-        formatDeviations: [],
++        reasons: [],
+       }),
+     });
+ 
+diff --git a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
+index d6f702f..68f91f9 100644
+--- a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
++++ b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
+@@ -10,6 +10,7 @@ import {
+   buildReportCompletenessJudgeUserPrompt,
+   reportCompletenessJudgementSchema,
+ } from '../../agents/reportCompletenessJudgeAgent.js';
++import { deriveStageOrder } from '../../agents/pipelineAnalysisAgent.js';
+ import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
+ import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
+ import { getLogger } from '../../../../lib/logger.js';
+@@ -52,30 +53,19 @@ export function buildCompletenessFeedbackPrompt(judgement: ReportCompletenessJud
+   parts.push('## Completeness Review Feedback');
+   parts.push('');
+   parts.push(
+-    'A strict QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn. Use get-report to re-read the current file, then use patch-report for precise edits.',
++    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn. Use get-report to re-read the current file, then use patch-report for precise edits.',
+   );
+   parts.push('');
+ 
+-  if (judgement.missingItems.length > 0) {
+-    parts.push('### Missing Job Blocks / Unresolved Placeholders');
+-    parts.push('');
+-    for (const item of judgement.missingItems) {
+-      parts.push(`- Job #${item.jobId} \`${item.jobName}\`: ${item.reason}`);
+-    }
+-    parts.push('');
+-  }
+-
+-  if (judgement.formatDeviations.length > 0) {
+-    parts.push('### Format Deviations');
+-    parts.push('');
+-    for (const dev of judgement.formatDeviations) {
+-      parts.push(`- ${dev}`);
+-    }
+-    parts.push('');
++  parts.push('### Issues');
++  parts.push('');
++  for (const reason of judgement.reasons) {
++    parts.push(`- ${reason}`);
+   }
++  parts.push('');
+ 
+   parts.push(
+-    'After fixing these issues, run get-report one more time to confirm every placeholder is resolved, every target job has a block, and every format rule is satisfied. Do NOT remove content that is already correct.',
++    'After fixing these issues, run get-report one more time to confirm every target job has a block and the report is fully complete. Do NOT remove content that is already correct.',
+   );
+ 
+   return parts.join('\n');
+@@ -121,7 +111,7 @@ async function callJudgeAgent(params: {
+     targetJobs: ctx.targetJobs,
+     jobReportFormat: ctx.jobReportFormat,
+     overallTemplate: ctx.overallTemplate,
+-    additionalInstructions: ctx.additionalInstructions,
++    stageOrder: deriveStageOrder(ctx.targetJobs),
+   });
+ 
+   const judgeContext = new RequestContext<ReportCompletenessJudgeRequestContext>([
+@@ -225,8 +215,7 @@ export async function verifyCompletenessStep(
+   // 4. 不完全 → フィードバックプロンプトを構築して返す
+   logger.info(
+     {
+-      missingItems: judgement.missingItems.length,
+-      formatDeviations: judgement.formatDeviations.length,
++      reasons: judgement.reasons.length,
+     },
+     'Pipeline-report not complete; feedback generated',
+   );
