@@ -335,7 +335,7 @@ export async function recoverFromContextLength(
   // 5. 要約Agentで会話履歴を要約
   const generateOptions = {
     requestContext: summarizationContext,
-    ...buildGenerateOptions(reviewCtx.openaiReasoningEffort),
+    ...buildGenerateOptions(reviewCtx),
   };
 
   logger.debug(

@@ -282,7 +282,7 @@ export async function recoverFromContextLength(
 
   const generateOptions: Record<string, unknown> = {
     requestContext: summarizationContext,
-    ...buildGenerateOptions(ctx.openaiReasoningEffort),
+    ...buildGenerateOptions(ctx),
   };
 
   // 4. 要約Agent呼び出し

@@ -140,7 +140,7 @@ async function callJudgeAgent(params: {
       schema: reportCompletenessJudgementSchema,
       errorStrategy: 'strict',
     },
-    ...buildGenerateOptions(ctx.openaiReasoningEffort),
+    ...buildGenerateOptions(ctx),
   };
 
   const logger = getLogger();

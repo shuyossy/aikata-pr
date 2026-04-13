@@ -212,7 +212,7 @@ export async function executeAnalysisStep(
             ...(extraGenerateOptions ?? {}),
             requestContext,
             memory: { thread: currentThreadId, resource: resourceId },
-            ...buildGenerateOptions(ctx.openaiReasoningEffort),
+            ...buildGenerateOptions(ctx),
           };
           return analysisAgent.generate(prompt, generateOptions);
         },

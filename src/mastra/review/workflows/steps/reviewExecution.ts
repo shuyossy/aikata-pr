@@ -6,11 +6,7 @@ import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
 import { Rating } from '../../../../domain/review/rating/index.js';
 import { CheckItem } from '../../../../domain/review/checkItem/index.js';
 import type { ReviewAgentRequestContext } from '../../requestContext.js';
-import {
-  type WorkflowRequestContext,
-  buildGenerateOptions,
-  sanitizeForLog,
-} from '../../../shared/requestContext.js';
+import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
 import { readStoredResults, type StoredReviewResult } from '../../types.js';
 import { buildUserPrompt, buildPrepareStepForImageInjection } from '../../agents/reviewAgent.js';
 import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
@@ -235,9 +231,7 @@ async function executeWithErrorRecovery(params: {
             memory: memoryOption,
             maxSteps: 50,
             prepareStep: buildPrepareStepForImageInjection(requestContext),
-            ...buildGenerateOptions(
-              (requestContext.all as WorkflowRequestContext).openaiReasoningEffort,
-            ),
+            ...buildGenerateOptions(requestContext.all),
           });
         },
         rateLimitRetryConfig,
