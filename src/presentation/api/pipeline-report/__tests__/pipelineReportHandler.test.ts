@@ -17,7 +17,6 @@ function createValidRequestBody(): Record<string, unknown> {
     selfJobId: 3001,
     settings: {},
     commentLanguage: 'Japanese',
-    maxContextLength: null,
     maxCompletenessRetries: 3,
     skillsRelPaths: [],
   };
@@ -77,12 +76,6 @@ describe('pipelineReportRequestSchema', () => {
 
   it('pipelineId が負数の場合にバリデーションエラーとなること', () => {
     const input = { ...createValidRequestBody(), pipelineId: -1 };
-    const result = pipelineReportRequestSchema.safeParse(input);
-    expect(result.success).toBe(false);
-  });
-
-  it('maxContextLength が 0 以下の場合にバリデーションエラーとなること', () => {
-    const input = { ...createValidRequestBody(), maxContextLength: 0 };
     const result = pipelineReportRequestSchema.safeParse(input);
     expect(result.success).toBe(false);
   });

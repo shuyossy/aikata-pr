@@ -157,7 +157,6 @@ export function buildPipelineReportApiRequest(
   parsed: PipelineReportCliOptions,
   validated: ValidatedPipelineReportParams,
   settings: PipelineReportSettings,
-  maxContextLength: number | null,
 ): PipelineReportApiRequest {
   return {
     userId: validated.userId,
@@ -172,7 +171,6 @@ export function buildPipelineReportApiRequest(
       excludeJobPatterns: settings.excludeJobPatterns.map((re) => re.source),
     },
     commentLanguage: parsed.commentLanguage,
-    maxContextLength,
     maxCompletenessRetries: parsed.maxCompletenessRetries,
     skillsRelPaths: parsed.skills ? [parsed.skills] : [],
     treeMaxDepth: parsed.treeMaxDepth,

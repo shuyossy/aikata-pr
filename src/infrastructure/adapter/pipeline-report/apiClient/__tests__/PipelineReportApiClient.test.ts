@@ -61,7 +61,6 @@ describe('PipelineReportApiClient', () => {
       excludeJobPatterns: [],
     },
     commentLanguage: 'Japanese',
-    maxContextLength: null,
     maxCompletenessRetries: 3,
     skillsRelPaths: [],
     treeMaxDepth: undefined,

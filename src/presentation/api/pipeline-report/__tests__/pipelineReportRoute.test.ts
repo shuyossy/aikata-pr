@@ -201,7 +201,6 @@ function createValidRequestBody(): Record<string, unknown> {
       excludeJobPatterns: [],
     },
     commentLanguage: 'Japanese',
-    maxContextLength: null,
     maxCompletenessRetries: 3,
     skillsRelPaths: [],
   };
@@ -380,6 +379,34 @@ describe('pipelineReportRoute', () => {
       expect(command.options.maxCompletenessRetries).toBe(3);
       expect(command.settings.includeJobPatterns.length).toBe(1);
       expect(command.settings.includeJobPatterns[0].source).toBe('^test:');
+    });
+
+    it('deps.maxContextLength がサーバ環境変数由来で analyze コマンドに伝播すること', async () => {
+      const analysisResult = createDefaultAnalysisResult();
+      const analyzeMock = vi
+        .fn<PipelineAnalysisExecutor['analyze']>()
+        .mockResolvedValue(analysisResult);
+      const serviceFactory: PipelineReportServiceFactory = {
+        create: vi.fn().mockReturnValue({
+          metaFetcher: {
+            getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline),
+          },
+          executor: { analyze: analyzeMock },
+        }),
+      };
+
+      const app = createTestApp({ serviceFactory, maxContextLength: 80000 });
+
+      const res = await app.request('/pipeline-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      await res.text();
+
+      expect(analyzeMock).toHaveBeenCalledTimes(1);
+      const command = analyzeMock.mock.calls[0][0];
+      expect(command.maxContextLength).toBe(80000);
     });
 
     it('rateLimiter に registerProject / unregisterProject が呼ばれること', async () => {

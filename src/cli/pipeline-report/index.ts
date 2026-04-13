@@ -313,12 +313,7 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
     } else {
       // === APIモード ===
       const apiDeps = runOptions.apiDeps ?? defaultApiDeps;
-      const apiRequest = buildPipelineReportApiRequest(
-        parsed,
-        validated,
-        settings,
-        maxContextLength,
-      );
+      const apiRequest = buildPipelineReportApiRequest(parsed, validated, settings);
 
       const client = apiDeps.createClient({
         baseUrl: validated.aikataApiUrl!,

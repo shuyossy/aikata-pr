@@ -488,7 +488,6 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(req.selfJobId).toBe(888);
       expect(req.gitlabToken).toBe('glpat-api');
       expect(req.commentLanguage).toBe('English');
-      expect(req.maxContextLength).toBe(54321);
       expect(req.maxCompletenessRetries).toBe(7);
       expect(req.treeMaxDepth).toBe(4);
       expect(req.skillsRelPaths).toEqual(['.skills/api']);
@@ -571,8 +570,6 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(req.maxCompletenessRetries).toBe(3);
       // treeMaxDepth 未指定時は undefined
       expect(req.treeMaxDepth).toBeUndefined();
-      // maxContextLength 未指定時は null
-      expect(req.maxContextLength).toBeNull();
       // skills 未指定時は空配列
       expect(req.skillsRelPaths).toEqual([]);
     });

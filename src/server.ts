@@ -212,6 +212,7 @@ export async function startServer(): Promise<void> {
     defaultAiModelName,
     openaiReasoningEffort,
     analysisTimeoutMs: reviewTimeoutMs,
+    maxContextLength,
   };
 
   const deps: ServerDeps = {

@@ -204,7 +204,7 @@ describe('buildPipelineReportApiRequest', () => {
       excludeJobPatterns: [/^skip-.*/],
     });
 
-    const request = buildPipelineReportApiRequest(options, validated, settings, 200000);
+    const request = buildPipelineReportApiRequest(options, validated, settings);
 
     expect(request.userId).toBe('alice');
     expect(request.gitlabToken).toBe('gitlab-token');
@@ -216,7 +216,6 @@ describe('buildPipelineReportApiRequest', () => {
     expect(request.settings.includeJobPatterns).toEqual(['^build-.*', '^test-.*']);
     expect(request.settings.excludeJobPatterns).toEqual(['^skip-.*']);
     expect(request.commentLanguage).toBe('Japanese');
-    expect(request.maxContextLength).toBe(200000);
     expect(request.maxCompletenessRetries).toBe(3);
     expect(request.skillsRelPaths).toEqual(['/skills']);
     expect(request.treeMaxDepth).toBe(2);
@@ -228,10 +227,9 @@ describe('buildPipelineReportApiRequest', () => {
     const validated = validateRequiredParams(options, env);
     const settings = PipelineReportSettings.default();
 
-    const request = buildPipelineReportApiRequest(options, validated, settings, null);
+    const request = buildPipelineReportApiRequest(options, validated, settings);
 
     expect(request.skillsRelPaths).toEqual([]);
-    expect(request.maxContextLength).toBeNull();
     expect(request.settings.includeJobPatterns).toEqual([]);
     expect(request.settings.excludeJobPatterns).toEqual([]);
   });

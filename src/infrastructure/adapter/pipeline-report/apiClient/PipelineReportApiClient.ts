@@ -22,8 +22,6 @@ export interface PipelineReportApiRequest {
     excludeJobPatterns: string[];
   };
   commentLanguage: string;
-  /** null の場合はAPIサーバー側で圧縮しない */
-  maxContextLength: number | null;
   maxCompletenessRetries: number;
   skillsRelPaths: string[];
   /** フォルダツリー走査の最大深度。undefined なら無制限 */

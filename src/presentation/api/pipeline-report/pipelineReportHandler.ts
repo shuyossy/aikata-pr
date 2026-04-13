@@ -42,8 +42,6 @@ export const pipelineReportRequestSchema = z.object({
     })
     .optional(),
   commentLanguage: z.string().min(1),
-  /** null の場合は圧縮しない */
-  maxContextLength: z.number().int().positive().nullable(),
   maxCompletenessRetries: z.number().int().min(0),
   skillsRelPaths: z.array(z.string()),
   /** フォルダツリー走査の最大深度。省略時は無制限 */
@@ -132,6 +130,8 @@ export interface PipelineReportHandlerDeps {
   openaiReasoningEffort?: string;
   /** 解析全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
   analysisTimeoutMs?: number;
+  /** AIモデルのコンテキスト長（トークン数）。未設定時は圧縮しない */
+  maxContextLength?: number;
 }
 
 /**
@@ -339,7 +339,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
             reasoningEffort:
               (deps.openaiReasoningEffort as 'low' | 'medium' | 'high' | undefined) ?? null,
           },
-          maxContextLength: request.maxContextLength,
+          maxContextLength: deps.maxContextLength ?? null,
           treeMaxDepth: request.treeMaxDepth,
           options: {
             maxCompletenessRetries: request.maxCompletenessRetries,
