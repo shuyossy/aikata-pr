@@ -233,6 +233,8 @@ describe('PipelineAnalysisService', () => {
     expect(runnerCall.artifactCacheStatuses.get(5002)).toEqual(
       expect.objectContaining({ kind: 'cached' }),
     );
+    // archiveReader がworkflow runnerに渡されている
+    expect(runnerCall.archiveReader).toBe(archiveReader);
 
     // 結果
     expect(result.report.content).toBe('# Final report content\n- done');

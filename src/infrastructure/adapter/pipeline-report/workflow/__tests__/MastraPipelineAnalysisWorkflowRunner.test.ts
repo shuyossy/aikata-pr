@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mastra } from '@mastra/core';
 import type { PipelineAnalysisWorkflowParams } from '../../../../../application/shared/port/workflow/index.js';
 import type { ArtifactCacheEntryStatus } from '../../../../../application/pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
+import type { ArtifactArchiveReader } from '../../../../../application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
 import { Pipeline } from '../../../../../domain/pipeline-report/pipeline/Pipeline.js';
 import { Job } from '../../../../../domain/pipeline-report/job/Job.js';
 import { ArtifactTree } from '../../../../../domain/pipeline-report/artifact/ArtifactTree.js';
@@ -76,6 +77,10 @@ function createParams(
     [5001, { kind: 'cached', zipPath: '/tmp/cache/5001.zip', bytes: 1024 }],
     [5002, { kind: 'no-artifacts' }],
   ]);
+  const fakeArchiveReader: ArtifactArchiveReader = {
+    listEntries: vi.fn().mockResolvedValue([]),
+    readFile: vi.fn().mockResolvedValue({ data: Buffer.from(''), truncated: false }),
+  };
   return {
     userId: 'test-user',
     projectId: 42,
@@ -94,6 +99,7 @@ function createParams(
     resultFilePath: '/tmp/result.md',
     projectDir: '/workspace/project',
     artifactCacheStatuses,
+    archiveReader: fakeArchiveReader,
     mergedYaml: 'stages:\n  - build\n  - test\n',
     maxCompletenessRetries: 2,
     skipCompletenessCheck: false,
@@ -192,6 +198,14 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
     const cachePaths = ctx.get('artifactCachePaths') as Map<number, string | null>;
     expect(cachePaths.get(5001)).toBe('/tmp/cache/5001.zip');
     expect(cachePaths.get(5002)).toBeNull();
+    // artifactArchiveReader がRequestContextに注入されていること
+    expect(ctx.get('artifactArchiveReader')).toBeDefined();
+    expect(typeof (ctx.get('artifactArchiveReader') as ArtifactArchiveReader).listEntries).toBe(
+      'function',
+    );
+    expect(typeof (ctx.get('artifactArchiveReader') as ArtifactArchiveReader).readFile).toBe(
+      'function',
+    );
     expect(ctx.get('hasImages')).toBe(false);
     expect(ctx.get('pendingImages')).toEqual([]);
     expect(ctx.get('workspaceAvailable')).toBe(true);

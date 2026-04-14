@@ -217,6 +217,7 @@ export class PipelineAnalysisService {
           resultFilePath,
           projectDir: command.projectDir,
           artifactCacheStatuses,
+          archiveReader: this.archiveReader,
           maxCompletenessRetries: command.options.maxCompletenessRetries,
           skipCompletenessCheck: command.options.skipCompletenessCheck,
           aiConfig: command.aiConfig,

@@ -1,5 +1,6 @@
 import type { WorkflowRequestContext } from '../shared/requestContext.js';
 import type { PendingImageData } from '../shared/readImageCommon.js';
+import type { ArtifactArchiveReader } from '../../application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
 import type { TargetJobSummary } from './types.js';
 
 /**
@@ -26,6 +27,8 @@ export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestCont
   omittedJobLogs: Map<number, string>;
   /** ダウンロード済みアーティファクトzipのキャッシュパス（jobId → zipパス or null） */
   artifactCachePaths: Map<number, string | null>;
+  /** アーティファクトzipアーカイブの読み取り実装（getArtifactContentツールが使用） */
+  artifactArchiveReader: ArtifactArchiveReader;
   /** 画像アーティファクトが1つ以上参照可能かどうか */
   hasImages: boolean;
   /** 画像取得Tool経由で蓄積された画像データ（review機能と同形式のPendingImageData配列） */

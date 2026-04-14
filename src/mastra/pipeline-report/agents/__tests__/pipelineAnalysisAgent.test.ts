@@ -44,6 +44,10 @@ function createTestContextObject(
     folderTreeStripped: false,
     omittedJobLogs: new Map<number, string>(),
     artifactCachePaths: new Map<number, string | null>(),
+    artifactArchiveReader: overrides.artifactArchiveReader ?? {
+      listEntries: async () => [],
+      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
+    },
     hasImages: false,
     pendingImages: [],
     reportLockTimeoutMs: undefined,

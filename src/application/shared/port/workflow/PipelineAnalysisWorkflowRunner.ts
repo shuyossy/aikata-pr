@@ -2,6 +2,7 @@ import type { Pipeline } from '../../../../domain/pipeline-report/pipeline/Pipel
 import type { Job } from '../../../../domain/pipeline-report/job/Job.js';
 import type { ArtifactTree } from '../../../../domain/pipeline-report/artifact/ArtifactTree.js';
 import type { ArtifactCacheEntryStatus } from '../../../pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
+import type { ArtifactArchiveReader } from '../../../pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
 
 /**
  * pipeline-report 機能の AI 分析ワークフロー実行パラメータ。
@@ -30,6 +31,8 @@ export interface PipelineAnalysisWorkflowParams {
   projectDir: string;
   /** ジョブ ID -> artifacts キャッシュステータス（no-artifacts / cached / error 等の詳細を保持） */
   artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>;
+  /** アーティファクトzipアーカイブの読み取り実装（workflow内のgetArtifactContentツールが使用） */
+  archiveReader: ArtifactArchiveReader;
   maxCompletenessRetries: number;
   skipCompletenessCheck: boolean;
   aiConfig: {

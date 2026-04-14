@@ -44,6 +44,10 @@ function createTestRequestContext(
     folderTreeStripped: false,
     omittedJobLogs: new Map(),
     artifactCachePaths: new Map(),
+    artifactArchiveReader: {
+      listEntries: async () => [],
+      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
+    },
     hasImages: false,
     pendingImages: [],
     reportLockTimeoutMs: undefined,
