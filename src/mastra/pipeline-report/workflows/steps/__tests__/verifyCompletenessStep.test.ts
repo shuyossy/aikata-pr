@@ -134,6 +134,33 @@ describe('verifyCompletenessStep', () => {
     resetRateLimiter();
   });
 
+  it('judge agentに2つのuserメッセージが渡される', async () => {
+    const judgeGenerate = vi.fn().mockResolvedValue({
+      object: { isComplete: true, reasons: [] },
+    });
+
+    const config: VerifyCompletenessStepConfig = {
+      judgeAgent: createMockAgent(judgeGenerate),
+      requestContext: createTestRequestContext({ resultFilePath }),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await verifyCompletenessStep(config);
+
+    const prompt = judgeGenerate.mock.calls[0][0] as Array<{ role: string; content: string }>;
+    expect(Array.isArray(prompt)).toBe(true);
+    expect(prompt).toHaveLength(2);
+    expect(prompt[0].role).toBe('user');
+    expect(prompt[1].role).toBe('user');
+    // 1つ目: 判定基準コンテキスト
+    expect(prompt[0].content).toContain('Target Jobs');
+    expect(prompt[0].content).toContain('jobReportFormat');
+    expect(prompt[0].content).not.toContain('Current Report Contents');
+    // 2つ目: レポート本文
+    expect(prompt[1].content).toContain('Current Report Contents');
+    expect(prompt[1].content).toContain('# Report\n(initial)');
+  });
+
   it('isComplete=true の場合、完了で feedbackPrompt=null を返す', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       object: {

@@ -106,7 +106,7 @@ async function callJudgeAgent(params: {
   const { judgeAgent, requestContext, currentReportContent, rateLimitRetryConfig } = params;
   const ctx = requestContext.all;
 
-  const userPrompt = buildReportCompletenessJudgeUserPrompt({
+  const userMessages = buildReportCompletenessJudgeUserPrompt({
     currentReportContent,
     targetJobs: ctx.targetJobs,
     jobReportFormat: ctx.jobReportFormat,
@@ -140,7 +140,7 @@ async function callJudgeAgent(params: {
   );
 
   const result = await withRateLimitRetry(
-    () => judgeAgent.generate(userPrompt, generateOptions),
+    () => judgeAgent.generate(userMessages, generateOptions),
     rateLimitRetryConfig,
     { projectId: ctx.projectId },
   );

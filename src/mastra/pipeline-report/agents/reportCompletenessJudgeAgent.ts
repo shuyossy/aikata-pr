@@ -24,10 +24,9 @@ export const reportCompletenessJudgementSchema = z.object({
  */
 export const REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS = `You are a QA auditor for CI/CD pipeline analysis reports. Your sole responsibility is to decide whether the current report file is complete according to the rules below. You do not write the report — you only judge it.
 
-You will be given, in the user message:
-1. The target job list (jobId, jobName, stage, status).
-2. The expected per-job block format (\`jobReportFormat\`).
-3. The full current contents of the report file.
+You will be given two user messages:
+- First message: The target job list (jobId, jobName, stage, status), the expected per-job block format (\`jobReportFormat\`), and the overall report skeleton.
+- Second message: The full current contents of the report file.
 
 You MUST return a single JSON object that conforms to the following schema, and nothing else. JSON only. Do not call tools. Do not emit markdown, prose, or explanations outside the JSON value.
 
@@ -85,54 +84,59 @@ function renderTargetJobsTable(jobs: TargetJobSummary[]): string {
 }
 
 /**
- * 完全性判定 Agent の user プロンプトを組み立てる
+ * 完全性判定 Agent の user メッセージ配列を組み立てる
  *
- * reportCompletenessJudgeAgent に渡すべき情報は以下の4点:
- * 1. Target job list
- * 2. Expected per-job block format (`jobReportFormat`)
- * 3. Optional `additionalInstructions`
- * 4. 現在のレポート本文
+ * 2つの user メッセージに分割して返す:
+ * 1つ目: 判定基準（Target job list, jobReportFormat, overallTemplate, stageOrder）
+ * 2つ目: 現在のレポート本文
  *
- * `overallTemplate` はスケルトン理解のための補助情報として添付する。
+ * レポートが長くなった場合でも LLM が最新の user メッセージとして
+ * レポート本文を正しく認識できるようにするための構造。
  */
 export function buildReportCompletenessJudgeUserPrompt(
   inputs: BuildReportCompletenessJudgeUserPromptInputs,
-): string {
-  const parts: string[] = [];
+): Array<{ role: 'user'; content: string }> {
+  // 1つ目: 判定基準コンテキスト
+  const contextParts: string[] = [];
 
-  parts.push('## Target Jobs');
-  parts.push('');
-  parts.push(renderTargetJobsTable(inputs.targetJobs));
-  parts.push('');
+  contextParts.push('## Target Jobs');
+  contextParts.push('');
+  contextParts.push(renderTargetJobsTable(inputs.targetJobs));
+  contextParts.push('');
 
-  parts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
-  parts.push('');
-  parts.push('```');
-  parts.push(inputs.jobReportFormat);
-  parts.push('```');
-  parts.push('');
+  contextParts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
+  contextParts.push('');
+  contextParts.push('```');
+  contextParts.push(inputs.jobReportFormat);
+  contextParts.push('```');
+  contextParts.push('');
 
-  parts.push('## Overall Report Skeleton (`overallTemplate`)');
-  parts.push('');
-  parts.push('```');
-  parts.push(inputs.overallTemplate);
-  parts.push('```');
-  parts.push('');
+  contextParts.push('## Overall Report Skeleton (`overallTemplate`)');
+  contextParts.push('');
+  contextParts.push('```');
+  contextParts.push(inputs.overallTemplate);
+  contextParts.push('```');
+  contextParts.push('');
 
   if (inputs.stageOrder.length > 0) {
-    parts.push('## Stage Execution Order');
-    parts.push('');
-    parts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
-    parts.push('');
+    contextParts.push('## Stage Execution Order');
+    contextParts.push('');
+    contextParts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
+    contextParts.push('');
   }
 
-  parts.push('## Current Report Contents');
-  parts.push('');
-  parts.push('```');
-  parts.push(inputs.currentReportContent);
-  parts.push('```');
+  // 2つ目: レポート本文
+  const reportParts: string[] = [];
+  reportParts.push('## Current Report Contents');
+  reportParts.push('');
+  reportParts.push('```');
+  reportParts.push(inputs.currentReportContent);
+  reportParts.push('```');
 
-  return parts.join('\n');
+  return [
+    { role: 'user' as const, content: contextParts.join('\n') },
+    { role: 'user' as const, content: reportParts.join('\n') },
+  ];
 }
 
 /**

@@ -20,6 +20,10 @@ describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS', () => {
     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('reasons');
   });
 
+  it('2つのuserメッセージで入力を受け取ることが明示される', () => {
+    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/two user messages/i);
+  });
+
   it('対象ジョブ網羅の判定ルールが含まれる', () => {
     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/target job/i);
     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/missing/i);
@@ -93,7 +97,7 @@ describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS - ordering rule', () => {
   });
 });
 
-describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
+describe('buildReportCompletenessJudgeUserPrompt', () => {
   const baseInputs = {
     currentReportContent: '# テストレポート',
     targetJobs: [
@@ -104,16 +108,70 @@ describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
     overallTemplate: '# レポート\n{{job-sections}}',
   };
 
-  it('stageOrderが指定された場合、Stage Execution Orderセクションが含まれる', () => {
+  it('2つのuserメッセージを返す', () => {
+    const result = buildReportCompletenessJudgeUserPrompt({
+      ...baseInputs,
+      stageOrder: [],
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result[0].role).toBe('user');
+    expect(result[1].role).toBe('user');
+  });
+
+  it('1つ目のメッセージにTarget Jobs・jobReportFormat・overallTemplateが含まれる', () => {
+    const result = buildReportCompletenessJudgeUserPrompt({
+      ...baseInputs,
+      stageOrder: [],
+    });
+
+    expect(result[0].content).toContain('Target Jobs');
+    expect(result[0].content).toContain('jobReportFormat');
+    expect(result[0].content).toContain('overallTemplate');
+    expect(result[0].content).toContain('### ジョブ #<jobId>');
+    expect(result[0].content).toContain('# レポート');
+  });
+
+  it('1つ目のメッセージにレポート本文が含まれない', () => {
+    const result = buildReportCompletenessJudgeUserPrompt({
+      ...baseInputs,
+      stageOrder: [],
+    });
+
+    expect(result[0].content).not.toContain('Current Report Contents');
+    expect(result[0].content).not.toContain('# テストレポート');
+  });
+
+  it('2つ目のメッセージにレポート本文が含まれる', () => {
+    const result = buildReportCompletenessJudgeUserPrompt({
+      ...baseInputs,
+      stageOrder: [],
+    });
+
+    expect(result[1].content).toContain('Current Report Contents');
+    expect(result[1].content).toContain('# テストレポート');
+  });
+
+  it('2つ目のメッセージにTarget Jobsが含まれない', () => {
+    const result = buildReportCompletenessJudgeUserPrompt({
+      ...baseInputs,
+      stageOrder: [],
+    });
+
+    expect(result[1].content).not.toContain('Target Jobs');
+    expect(result[1].content).not.toContain('jobReportFormat');
+  });
+
+  it('stageOrderが指定された場合、1つ目のメッセージにStage Execution Orderセクションが含まれる', () => {
     const result = buildReportCompletenessJudgeUserPrompt({
       ...baseInputs,
       stageOrder: ['check', 'test', 'deploy'],
     });
 
-    expect(result).toContain('Stage Execution Order');
-    expect(result).toContain('check');
-    expect(result).toContain('test');
-    expect(result).toContain('deploy');
+    expect(result[0].content).toContain('Stage Execution Order');
+    expect(result[0].content).toContain('check');
+    expect(result[0].content).toContain('test');
+    expect(result[0].content).toContain('deploy');
   });
 
   it('stageOrderが空配列の場合、Stage Execution Orderセクションが含まれない', () => {
@@ -122,6 +180,6 @@ describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
       stageOrder: [],
     });
 
-    expect(result).not.toContain('Stage Execution Order');
+    expect(result[0].content).not.toContain('Stage Execution Order');
   });
 });
