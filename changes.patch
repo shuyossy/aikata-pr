@@ -1,399 +1,205 @@
-diff --git a/PBI.md b/PBI.md
-index ad2afa3..b6d296c 100644
---- a/PBI.md
-+++ b/PBI.md
-@@ -8,5 +8,3 @@
- - 注意事項
- - 指摘事項（in progressの場合のみ）
- ```
--
--
+diff --git a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
+index 68f36e6..b7b81a0 100644
+--- a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
++++ b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
+@@ -217,6 +217,7 @@ export class PipelineAnalysisService {
+           resultFilePath,
+           projectDir: command.projectDir,
+           artifactCacheStatuses,
++          archiveReader: this.archiveReader,
+           maxCompletenessRetries: command.options.maxCompletenessRetries,
+           skipCompletenessCheck: command.options.skipCompletenessCheck,
+           aiConfig: command.aiConfig,
+diff --git a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
+index 23e2f0e..5a931b7 100644
+--- a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
++++ b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
+@@ -233,6 +233,8 @@ describe('PipelineAnalysisService', () => {
+     expect(runnerCall.artifactCacheStatuses.get(5002)).toEqual(
+       expect.objectContaining({ kind: 'cached' }),
+     );
++    // archiveReader がworkflow runnerに渡されている
++    expect(runnerCall.archiveReader).toBe(archiveReader);
+ 
+     // 結果
+     expect(result.report.content).toBe('# Final report content\n- done');
+diff --git a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
+index af4b8de..09cf646 100644
+--- a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
++++ b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
+@@ -2,6 +2,7 @@ import type { Pipeline } from '../../../../domain/pipeline-report/pipeline/Pipel
+ import type { Job } from '../../../../domain/pipeline-report/job/Job.js';
+ import type { ArtifactTree } from '../../../../domain/pipeline-report/artifact/ArtifactTree.js';
+ import type { ArtifactCacheEntryStatus } from '../../../pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
++import type { ArtifactArchiveReader } from '../../../pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
+ 
+ /**
+  * pipeline-report 機能の AI 分析ワークフロー実行パラメータ。
+@@ -30,6 +31,8 @@ export interface PipelineAnalysisWorkflowParams {
+   projectDir: string;
+   /** ジョブ ID -> artifacts キャッシュステータス（no-artifacts / cached / error 等の詳細を保持） */
+   artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>;
++  /** アーティファクトzipアーカイブの読み取り実装（workflow内のgetArtifactContentツールが使用） */
++  archiveReader: ArtifactArchiveReader;
+   maxCompletenessRetries: number;
+   skipCompletenessCheck: boolean;
+   aiConfig: {
+diff --git a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
+index b1a2aed..e975e04 100644
+--- a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
++++ b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
+@@ -22,7 +22,7 @@ const DEFAULT_JOB_REPORT_FORMAT = `### ジョブ #<jobId> — \`<jobName>\` (<st
+ - \`<ログ行またはアーティファクト抜粋>\` — <なぜこれが根拠になるのか。アーティファクトについては中身を見て何かしらの判断をしたのか、それとも存在を確認して根拠としたのかわかる様に記載>
+ 
+ **推奨される次のアクション**
+-<具体的なアクション、または「特になし」>
++<具体的なアクション、または「特になし」。アクション内容は必要あればコードベースやアーティファクトのファイル内容を調査する等して、ユーザへネクストアクションが明確に伝わる様にすること>
+ `;
+ 
+ /**
+diff --git a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
+index 4f014cc..eb20d8a 100644
+--- a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
++++ b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
+@@ -67,6 +67,7 @@ function buildAgentRequestContext(
+     folderTreeStripped: params.folderTreeStripped,
+     omittedJobLogs: params.omittedJobLogs,
+     artifactCachePaths: deriveCachePaths(params.artifactCacheStatuses),
++    artifactArchiveReader: params.archiveReader,
+     mergedYaml: params.mergedYaml,
+     hasImages: false,
+     pendingImages: [],
+@@ -143,6 +144,7 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
+         ['folderTreeStripped', agentRequestContext.folderTreeStripped],
+         ['omittedJobLogs', agentRequestContext.omittedJobLogs],
+         ['artifactCachePaths', agentRequestContext.artifactCachePaths],
++        ['artifactArchiveReader', agentRequestContext.artifactArchiveReader],
+         ['hasImages', agentRequestContext.hasImages],
+         ['pendingImages', agentRequestContext.pendingImages],
+         ['reportLockTimeoutMs', agentRequestContext.reportLockTimeoutMs],
+diff --git a/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts b/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
+index 2e36fc9..7b6a1e9 100644
+--- a/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
++++ b/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
+@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
+ import type { Mastra } from '@mastra/core';
+ import type { PipelineAnalysisWorkflowParams } from '../../../../../application/shared/port/workflow/index.js';
+ import type { ArtifactCacheEntryStatus } from '../../../../../application/pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
++import type { ArtifactArchiveReader } from '../../../../../application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
+ import { Pipeline } from '../../../../../domain/pipeline-report/pipeline/Pipeline.js';
+ import { Job } from '../../../../../domain/pipeline-report/job/Job.js';
+ import { ArtifactTree } from '../../../../../domain/pipeline-report/artifact/ArtifactTree.js';
+@@ -76,6 +77,10 @@ function createParams(
+     [5001, { kind: 'cached', zipPath: '/tmp/cache/5001.zip', bytes: 1024 }],
+     [5002, { kind: 'no-artifacts' }],
+   ]);
++  const fakeArchiveReader: ArtifactArchiveReader = {
++    listEntries: vi.fn().mockResolvedValue([]),
++    readFile: vi.fn().mockResolvedValue({ data: Buffer.from(''), truncated: false }),
++  };
+   return {
+     userId: 'test-user',
+     projectId: 42,
+@@ -94,6 +99,7 @@ function createParams(
+     resultFilePath: '/tmp/result.md',
+     projectDir: '/workspace/project',
+     artifactCacheStatuses,
++    archiveReader: fakeArchiveReader,
+     mergedYaml: 'stages:\n  - build\n  - test\n',
+     maxCompletenessRetries: 2,
+     skipCompletenessCheck: false,
+@@ -192,6 +198,14 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
+     const cachePaths = ctx.get('artifactCachePaths') as Map<number, string | null>;
+     expect(cachePaths.get(5001)).toBe('/tmp/cache/5001.zip');
+     expect(cachePaths.get(5002)).toBeNull();
++    // artifactArchiveReader がRequestContextに注入されていること
++    expect(ctx.get('artifactArchiveReader')).toBeDefined();
++    expect(typeof (ctx.get('artifactArchiveReader') as ArtifactArchiveReader).listEntries).toBe(
++      'function',
++    );
++    expect(typeof (ctx.get('artifactArchiveReader') as ArtifactArchiveReader).readFile).toBe(
++      'function',
++    );
+     expect(ctx.get('hasImages')).toBe(false);
+     expect(ctx.get('pendingImages')).toEqual([]);
+     expect(ctx.get('workspaceAvailable')).toBe(true);
 diff --git a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
-index 6cad47d..7f67e93 100644
+index 7f67e93..d675247 100644
 --- a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
 +++ b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
-@@ -324,6 +324,42 @@ describe('buildInstructions', () => {
-     expect(result).toMatch(/all.*target jobs|every target job|MUST.*complete/i);
-   });
- 
-+  it('Missionセクションでレポートをtoolで書くことが警告付きで強制される', () => {
-+    const ctx = createTestRequestContext();
-+
-+    const result = buildInstructions(ctx);
-+
-+    expect(result).toContain('WARNING');
-+    expect(result).toMatch(/MUST write all report content using the report tools/);
-+    expect(result).toMatch(/Never output report content as plain text/);
-+  });
-+
-+  it('REASONセクションでアーティファクト調査の指示が含まれる', () => {
-+    const ctx = createTestRequestContext();
-+
-+    const result = buildInstructions(ctx);
-+
-+    expect(result).toMatch(/open key artifacts with get-artifact-content/);
-+  });
-+
-+  it('REASONセクションでコードベース調査の指示が含まれる', () => {
-+    const ctx = createTestRequestContext();
-+
-+    const result = buildInstructions(ctx);
-+
-+    expect(result).toMatch(/reading project source code/);
-+    expect(result).toMatch(/recommended actions/);
-+  });
-+
-+  it('Writing Constraintsでプレーンテキストでのレポート出力が禁止される', () => {
-+    const ctx = createTestRequestContext();
-+
-+    const result = buildInstructions(ctx);
-+
-+    expect(result).toMatch(/Never write report content as plain conversation text/);
-+    expect(result).toMatch(/must go through write-report or patch-report/);
-+  });
-+
-   it('最小構成（省略なし・画像なし・追加指示なし）: 条件付きセクションが全て省かれる', () => {
-     const ctx = createTestRequestContext({
-       omittedJobLogs: new Map(),
-diff --git a/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
-index 6948424..c8dba89 100644
---- a/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
-+++ b/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
-@@ -20,6 +20,10 @@ describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS', () => {
-     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('reasons');
-   });
- 
-+  it('2つのuserメッセージで入力を受け取ることが明示される', () => {
-+    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/two user messages/i);
-+  });
-+
-   it('対象ジョブ網羅の判定ルールが含まれる', () => {
-     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/target job/i);
-     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/missing/i);
-@@ -93,7 +97,7 @@ describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS - ordering rule', () => {
-   });
- });
- 
--describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
-+describe('buildReportCompletenessJudgeUserPrompt', () => {
-   const baseInputs = {
-     currentReportContent: '# テストレポート',
-     targetJobs: [
-@@ -104,16 +108,70 @@ describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
-     overallTemplate: '# レポート\n{{job-sections}}',
-   };
- 
--  it('stageOrderが指定された場合、Stage Execution Orderセクションが含まれる', () => {
-+  it('2つのuserメッセージを返す', () => {
-+    const result = buildReportCompletenessJudgeUserPrompt({
-+      ...baseInputs,
-+      stageOrder: [],
-+    });
-+
-+    expect(result).toHaveLength(2);
-+    expect(result[0].role).toBe('user');
-+    expect(result[1].role).toBe('user');
-+  });
-+
-+  it('1つ目のメッセージにTarget Jobs・jobReportFormat・overallTemplateが含まれる', () => {
-+    const result = buildReportCompletenessJudgeUserPrompt({
-+      ...baseInputs,
-+      stageOrder: [],
-+    });
-+
-+    expect(result[0].content).toContain('Target Jobs');
-+    expect(result[0].content).toContain('jobReportFormat');
-+    expect(result[0].content).toContain('overallTemplate');
-+    expect(result[0].content).toContain('### ジョブ #<jobId>');
-+    expect(result[0].content).toContain('# レポート');
-+  });
-+
-+  it('1つ目のメッセージにレポート本文が含まれない', () => {
-+    const result = buildReportCompletenessJudgeUserPrompt({
-+      ...baseInputs,
-+      stageOrder: [],
-+    });
-+
-+    expect(result[0].content).not.toContain('Current Report Contents');
-+    expect(result[0].content).not.toContain('# テストレポート');
-+  });
-+
-+  it('2つ目のメッセージにレポート本文が含まれる', () => {
-+    const result = buildReportCompletenessJudgeUserPrompt({
-+      ...baseInputs,
-+      stageOrder: [],
-+    });
-+
-+    expect(result[1].content).toContain('Current Report Contents');
-+    expect(result[1].content).toContain('# テストレポート');
-+  });
-+
-+  it('2つ目のメッセージにTarget Jobsが含まれない', () => {
-+    const result = buildReportCompletenessJudgeUserPrompt({
-+      ...baseInputs,
-+      stageOrder: [],
-+    });
-+
-+    expect(result[1].content).not.toContain('Target Jobs');
-+    expect(result[1].content).not.toContain('jobReportFormat');
-+  });
-+
-+  it('stageOrderが指定された場合、1つ目のメッセージにStage Execution Orderセクションが含まれる', () => {
-     const result = buildReportCompletenessJudgeUserPrompt({
-       ...baseInputs,
-       stageOrder: ['check', 'test', 'deploy'],
-     });
- 
--    expect(result).toContain('Stage Execution Order');
--    expect(result).toContain('check');
--    expect(result).toContain('test');
--    expect(result).toContain('deploy');
-+    expect(result[0].content).toContain('Stage Execution Order');
-+    expect(result[0].content).toContain('check');
-+    expect(result[0].content).toContain('test');
-+    expect(result[0].content).toContain('deploy');
-   });
- 
-   it('stageOrderが空配列の場合、Stage Execution Orderセクションが含まれない', () => {
-@@ -122,6 +180,6 @@ describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
-       stageOrder: [],
-     });
- 
--    expect(result).not.toContain('Stage Execution Order');
-+    expect(result[0].content).not.toContain('Stage Execution Order');
-   });
- });
-diff --git a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
-index 2511107..764538e 100644
---- a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
-+++ b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
-@@ -167,7 +167,7 @@ function renderToolCatalog(ctx: PipelineAnalysisAgentRequestContext): string {
-     lines.push('- File search: Find code patterns across the codebase');
-     lines.push('- Sandbox commands: Run git commands, grep, or other CLI tools');
-     lines.push(
--      'Use these when the job log or artifacts alone are not enough to understand what a job did — for example, when you need to look at the failing test file or the build script referenced in a log line.',
-+      'Use these when the job log or artifacts alone are not enough to understand what a job did, or when you need codebase context to formulate recommended actions — for example, look at the failing test file, the build script referenced in a log line, or related source code to propose concrete next steps.',
-     );
-     lines.push('The workspace root is the project repository root directory.');
-   }
-@@ -247,7 +247,7 @@ export function buildInstructions(
- 
- ## Mission
- 
--Your mission is to produce a complete analysis report. A report file is maintained throughout the analysis — use the report tools (get-report to read, write-report to replace, patch-report to edit) to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
-+Your mission is to produce a complete analysis report by writing it to the report file using the report tools. WARNING: You MUST write all report content using the report tools (write-report to replace, patch-report to edit, get-report to read). Never output report content as plain text in the conversation — it will be lost. The report file is maintained throughout the analysis; use the tools to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
- 
- ${additionalSection}## Report Structure
- 
-@@ -291,7 +291,8 @@ For each target job, apply the Reason-Act-Observe cycle until you can confidentl
- 
- **REASON**: Assess what you currently know about this job.
- - What does the job log say?
--- What does the job's artifact file list suggest?
-+- What does the job's artifact file list suggest? If the job succeeded but the log lacks detail, open key artifacts with get-artifact-content to check for hidden warnings or anomalies.
-+- Would reading project source code help you understand the job behavior or write better recommended actions?
- - What does the report format require that you still lack evidence for?
- 
- **ACT**: Take one concrete step.
-@@ -319,6 +320,7 @@ ${compressionNotes ? `${compressionNotes}\n\n` : ''}## Writing Constraints
- - Keep citations short. Quote a single log line or a small excerpt rather than pasting a full log section.
- - Do NOT wrap the entire report in a single outer code block. Use code blocks only for log lines, file paths, shell commands, or short code excerpts that genuinely benefit from monospace rendering.
- - Use patch-report for incremental edits whenever possible. Reserve write-report for the initial template or a full rewrite.
-+- Never write report content as plain conversation text. All report content must go through write-report or patch-report.
- 
- ## Finishing Instructions
- 
-diff --git a/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts b/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
-index 150699a..688e0d6 100644
---- a/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
-+++ b/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
-@@ -24,10 +24,9 @@ export const reportCompletenessJudgementSchema = z.object({
-  */
- export const REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS = `You are a QA auditor for CI/CD pipeline analysis reports. Your sole responsibility is to decide whether the current report file is complete according to the rules below. You do not write the report — you only judge it.
- 
--You will be given, in the user message:
--1. The target job list (jobId, jobName, stage, status).
--2. The expected per-job block format (\`jobReportFormat\`).
--3. The full current contents of the report file.
-+You will be given two user messages:
-+- First message: The target job list (jobId, jobName, stage, status), the expected per-job block format (\`jobReportFormat\`), and the overall report skeleton.
-+- Second message: The full current contents of the report file.
- 
- You MUST return a single JSON object that conforms to the following schema, and nothing else. JSON only. Do not call tools. Do not emit markdown, prose, or explanations outside the JSON value.
- 
-@@ -85,54 +84,59 @@ function renderTargetJobsTable(jobs: TargetJobSummary[]): string {
- }
+@@ -44,6 +44,10 @@ function createTestContextObject(
+     folderTreeStripped: false,
+     omittedJobLogs: new Map<number, string>(),
+     artifactCachePaths: new Map<number, string | null>(),
++    artifactArchiveReader: overrides.artifactArchiveReader ?? {
++      listEntries: async () => [],
++      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
++    },
+     hasImages: false,
+     pendingImages: [],
+     reportLockTimeoutMs: undefined,
+diff --git a/src/mastra/pipeline-report/requestContext.ts b/src/mastra/pipeline-report/requestContext.ts
+index 280302e..16eca4e 100644
+--- a/src/mastra/pipeline-report/requestContext.ts
++++ b/src/mastra/pipeline-report/requestContext.ts
+@@ -1,5 +1,6 @@
+ import type { WorkflowRequestContext } from '../shared/requestContext.js';
+ import type { PendingImageData } from '../shared/readImageCommon.js';
++import type { ArtifactArchiveReader } from '../../application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
+ import type { TargetJobSummary } from './types.js';
  
  /**
-- * 完全性判定 Agent の user プロンプトを組み立てる
-+ * 完全性判定 Agent の user メッセージ配列を組み立てる
-  *
-- * reportCompletenessJudgeAgent に渡すべき情報は以下の4点:
-- * 1. Target job list
-- * 2. Expected per-job block format (`jobReportFormat`)
-- * 3. Optional `additionalInstructions`
-- * 4. 現在のレポート本文
-+ * 2つの user メッセージに分割して返す:
-+ * 1つ目: 判定基準（Target job list, jobReportFormat, overallTemplate, stageOrder）
-+ * 2つ目: 現在のレポート本文
-  *
-- * `overallTemplate` はスケルトン理解のための補助情報として添付する。
-+ * レポートが長くなった場合でも LLM が最新の user メッセージとして
-+ * レポート本文を正しく認識できるようにするための構造。
-  */
- export function buildReportCompletenessJudgeUserPrompt(
-   inputs: BuildReportCompletenessJudgeUserPromptInputs,
--): string {
--  const parts: string[] = [];
--
--  parts.push('## Target Jobs');
--  parts.push('');
--  parts.push(renderTargetJobsTable(inputs.targetJobs));
--  parts.push('');
--
--  parts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
--  parts.push('');
--  parts.push('```');
--  parts.push(inputs.jobReportFormat);
--  parts.push('```');
--  parts.push('');
--
--  parts.push('## Overall Report Skeleton (`overallTemplate`)');
--  parts.push('');
--  parts.push('```');
--  parts.push(inputs.overallTemplate);
--  parts.push('```');
--  parts.push('');
-+): Array<{ role: 'user'; content: string }> {
-+  // 1つ目: 判定基準コンテキスト
-+  const contextParts: string[] = [];
-+
-+  contextParts.push('## Target Jobs');
-+  contextParts.push('');
-+  contextParts.push(renderTargetJobsTable(inputs.targetJobs));
-+  contextParts.push('');
-+
-+  contextParts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
-+  contextParts.push('');
-+  contextParts.push('```');
-+  contextParts.push(inputs.jobReportFormat);
-+  contextParts.push('```');
-+  contextParts.push('');
-+
-+  contextParts.push('## Overall Report Skeleton (`overallTemplate`)');
-+  contextParts.push('');
-+  contextParts.push('```');
-+  contextParts.push(inputs.overallTemplate);
-+  contextParts.push('```');
-+  contextParts.push('');
- 
-   if (inputs.stageOrder.length > 0) {
--    parts.push('## Stage Execution Order');
--    parts.push('');
--    parts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
--    parts.push('');
-+    contextParts.push('## Stage Execution Order');
-+    contextParts.push('');
-+    contextParts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
-+    contextParts.push('');
-   }
- 
--  parts.push('## Current Report Contents');
--  parts.push('');
--  parts.push('```');
--  parts.push(inputs.currentReportContent);
--  parts.push('```');
--
--  return parts.join('\n');
-+  // 2つ目: レポート本文
-+  const reportParts: string[] = [];
-+  reportParts.push('## Current Report Contents');
-+  reportParts.push('');
-+  reportParts.push('```');
-+  reportParts.push(inputs.currentReportContent);
-+  reportParts.push('```');
-+
-+  return [
-+    { role: 'user' as const, content: contextParts.join('\n') },
-+    { role: 'user' as const, content: reportParts.join('\n') },
-+  ];
- }
- 
- /**
+@@ -26,6 +27,8 @@ export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestCont
+   omittedJobLogs: Map<number, string>;
+   /** ダウンロード済みアーティファクトzipのキャッシュパス（jobId → zipパス or null） */
+   artifactCachePaths: Map<number, string | null>;
++  /** アーティファクトzipアーカイブの読み取り実装（getArtifactContentツールが使用） */
++  artifactArchiveReader: ArtifactArchiveReader;
+   /** 画像アーティファクトが1つ以上参照可能かどうか */
+   hasImages: boolean;
+   /** 画像取得Tool経由で蓄積された画像データ（review機能と同形式のPendingImageData配列） */
+diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
+index 93824b5..3254f4a 100644
+--- a/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
++++ b/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
+@@ -118,6 +118,10 @@ function createTestRequestContext(
+     folderTreeStripped: false,
+     omittedJobLogs: new Map(),
+     artifactCachePaths: new Map(),
++    artifactArchiveReader: {
++      listEntries: async () => [],
++      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
++    },
+     hasImages: false,
+     pendingImages: [],
+     reportLockTimeoutMs: undefined,
+diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
+index e64dc49..328da40 100644
+--- a/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
++++ b/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
+@@ -49,6 +49,10 @@ function createTestRequestContext(
+     folderTreeStripped: false,
+     omittedJobLogs: new Map(),
+     artifactCachePaths: new Map(),
++    artifactArchiveReader: {
++      listEntries: async () => [],
++      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
++    },
+     hasImages: false,
+     pendingImages: [],
+     reportLockTimeoutMs: undefined,
 diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
-index 5c22d1a..fb89308 100644
+index fb89308..99dfead 100644
 --- a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
 +++ b/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
-@@ -87,7 +87,6 @@ describe('buildCompletenessFeedbackPrompt', () => {
-     expect(result).toContain('Issues');
-     expect(result).toContain("Job #1 'build'");
-     expect(result).toContain("Job #2 'test'");
--    expect(result).toContain('patch-report');
-   });
- });
- 
-@@ -135,6 +134,33 @@ describe('verifyCompletenessStep', () => {
-     resetRateLimiter();
-   });
- 
-+  it('judge agentに2つのuserメッセージが渡される', async () => {
-+    const judgeGenerate = vi.fn().mockResolvedValue({
-+      object: { isComplete: true, reasons: [] },
-+    });
-+
-+    const config: VerifyCompletenessStepConfig = {
-+      judgeAgent: createMockAgent(judgeGenerate),
-+      requestContext: createTestRequestContext({ resultFilePath }),
-+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
-+    };
-+
-+    await verifyCompletenessStep(config);
-+
-+    const prompt = judgeGenerate.mock.calls[0][0] as Array<{ role: string; content: string }>;
-+    expect(Array.isArray(prompt)).toBe(true);
-+    expect(prompt).toHaveLength(2);
-+    expect(prompt[0].role).toBe('user');
-+    expect(prompt[1].role).toBe('user');
-+    // 1つ目: 判定基準コンテキスト
-+    expect(prompt[0].content).toContain('Target Jobs');
-+    expect(prompt[0].content).toContain('jobReportFormat');
-+    expect(prompt[0].content).not.toContain('Current Report Contents');
-+    // 2つ目: レポート本文
-+    expect(prompt[1].content).toContain('Current Report Contents');
-+    expect(prompt[1].content).toContain('# Report\n(initial)');
-+  });
-+
-   it('isComplete=true の場合、完了で feedbackPrompt=null を返す', async () => {
-     const judgeGenerate = vi.fn().mockResolvedValue({
-       object: {
-diff --git a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
-index 68f91f9..7cbfb82 100644
---- a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
-+++ b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
-@@ -53,7 +53,7 @@ export function buildCompletenessFeedbackPrompt(judgement: ReportCompletenessJud
-   parts.push('## Completeness Review Feedback');
-   parts.push('');
-   parts.push(
--    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn. Use get-report to re-read the current file, then use patch-report for precise edits.',
-+    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn.',
-   );
-   parts.push('');
- 
-@@ -106,7 +106,7 @@ async function callJudgeAgent(params: {
-   const { judgeAgent, requestContext, currentReportContent, rateLimitRetryConfig } = params;
-   const ctx = requestContext.all;
- 
--  const userPrompt = buildReportCompletenessJudgeUserPrompt({
-+  const userMessages = buildReportCompletenessJudgeUserPrompt({
-     currentReportContent,
-     targetJobs: ctx.targetJobs,
-     jobReportFormat: ctx.jobReportFormat,
-@@ -140,7 +140,7 @@ async function callJudgeAgent(params: {
-   );
- 
-   const result = await withRateLimitRetry(
--    () => judgeAgent.generate(userPrompt, generateOptions),
-+    () => judgeAgent.generate(userMessages, generateOptions),
-     rateLimitRetryConfig,
-     { projectId: ctx.projectId },
-   );
+@@ -44,6 +44,10 @@ function createTestRequestContext(
+     folderTreeStripped: false,
+     omittedJobLogs: new Map(),
+     artifactCachePaths: new Map(),
++    artifactArchiveReader: {
++      listEntries: async () => [],
++      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
++    },
+     hasImages: false,
+     pendingImages: [],
+     reportLockTimeoutMs: undefined,
