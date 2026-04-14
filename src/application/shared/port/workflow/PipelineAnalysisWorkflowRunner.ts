@@ -31,6 +31,7 @@ export interface PipelineAnalysisWorkflowParams {
   /** ジョブ ID -> artifacts キャッシュステータス（no-artifacts / cached / error 等の詳細を保持） */
   artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>;
   maxCompletenessRetries: number;
+  skipCompletenessCheck: boolean;
   aiConfig: {
     apiKey: string;
     endpointUrl: string;

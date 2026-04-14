@@ -45,6 +45,7 @@ export interface PipelineAnalyzeCommand {
   treeMaxDepth: number | undefined;
   options: {
     maxCompletenessRetries: number;
+    skipCompletenessCheck: boolean;
   };
   /** 進捗イベントのコールバック */
   onProgress: (event: PipelineAnalysisProgressEvent) => void;
@@ -217,6 +218,7 @@ export class PipelineAnalysisService {
           projectDir: command.projectDir,
           artifactCacheStatuses,
           maxCompletenessRetries: command.options.maxCompletenessRetries,
+          skipCompletenessCheck: command.options.skipCompletenessCheck,
           aiConfig: command.aiConfig,
           onProgress: command.onProgress,
         });

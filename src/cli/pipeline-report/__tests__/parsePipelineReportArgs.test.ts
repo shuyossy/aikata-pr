@@ -213,6 +213,30 @@ describe('parsePipelineReportArgs', () => {
     );
   });
 
+  it('--skip-completeness-checkをパースできる', () => {
+    const result = parsePipelineReportArgs(['--skip-completeness-check'], {});
+    expect(result.skipCompletenessCheck).toBe(true);
+  });
+
+  it('PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK環境変数にフォールバックする', () => {
+    const result = parsePipelineReportArgs([], {
+      PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK: 'true',
+    });
+    expect(result.skipCompletenessCheck).toBe(true);
+  });
+
+  it('skipCompletenessCheckのデフォルトはfalse', () => {
+    const result = parsePipelineReportArgs([], {});
+    expect(result.skipCompletenessCheck).toBe(false);
+  });
+
+  it('PIPELINE_REPORT_SKIP_COMPLETENESS_CHECKがfalse文字列ならfalse', () => {
+    const result = parsePipelineReportArgs([], {
+      PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK: 'false',
+    });
+    expect(result.skipCompletenessCheck).toBe(false);
+  });
+
   it('全オプションを一括でパースできる', () => {
     const result = parsePipelineReportArgs(
       [
@@ -245,6 +269,7 @@ describe('parsePipelineReportArgs', () => {
         '--tree-max-depth',
         '4',
         '--pretty-print',
+        '--skip-completeness-check',
       ],
       {},
     );
@@ -263,5 +288,6 @@ describe('parsePipelineReportArgs', () => {
     expect(result.maxCompletenessRetries).toBe(5);
     expect(result.treeMaxDepth).toBe(4);
     expect(result.prettyPrint).toBe(true);
+    expect(result.skipCompletenessCheck).toBe(true);
   });
 });

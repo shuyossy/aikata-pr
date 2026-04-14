@@ -77,6 +77,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
     - `--pipeline-report-settings` / `PIPELINE_REPORT_SETTINGS_PATH`: 分析設定ファイルパス（JSON）
     - `--result-file` / `PIPELINE_REPORT_RESULT_FILE`: レポート出力ファイルパス（デフォルト: `./aikata-pipeline-report.md`）
     - `--max-completeness-retries` / `PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES`: 完成判定ループ上限（デフォルト: `3`）
+    - `--skip-completeness-check` / `PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK`: 完成判定ステップをスキップする（デフォルト: `false`）
   - 環境変数のみ（秘密情報・環境固有）
     - `AI_API_KEY`: AI APIキー（ローカルモード時のみ必要、APIモード時はAPIサーバー側で管理）
     - `AI_API_ENDPOINT_URL`: AI APIエンドポイントURL（同上）

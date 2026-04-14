@@ -72,6 +72,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
     delete process.env['COMMENT_LANGUAGE'];
     delete process.env['SKILLS_PATH'];
     delete process.env['TREE_MAX_DEPTH'];
+    delete process.env['PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK'];
 
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`process.exit:${code}`);
@@ -218,6 +219,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       // CLI フラグ由来のフィールド
       expect(cmd.commentLanguage).toBe('Japanese');
       expect(cmd.options.maxCompletenessRetries).toBe(5);
+      expect(cmd.options.skipCompletenessCheck).toBe(false);
       expect(cmd.treeMaxDepth).toBe(3);
       expect(cmd.skillsPaths).toEqual(['.skills/custom']);
 
@@ -449,6 +451,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(capturedCommand!.maxContextLength).toBeNull();
       // maxCompletenessRetries 未指定時は 3
       expect(capturedCommand!.options.maxCompletenessRetries).toBe(3);
+      // skipCompletenessCheck 未指定時は false
+      expect(capturedCommand!.options.skipCompletenessCheck).toBe(false);
       // OPENAI_REASONING_EFFORT 未指定時は null
       expect(capturedCommand!.aiConfig.reasoningEffort).toBeNull();
     });
@@ -549,6 +553,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(req.gitlabToken).toBe('glpat-api');
       expect(req.commentLanguage).toBe('English');
       expect(req.maxCompletenessRetries).toBe(7);
+      expect(req.skipCompletenessCheck).toBe(false);
       expect(req.treeMaxDepth).toBe(4);
       expect(req.skillsRelPaths).toEqual(['.skills/api']);
 
@@ -628,6 +633,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       expect(req.commentLanguage).toBe('Japanese');
       // デフォルト maxCompletenessRetries は 3
       expect(req.maxCompletenessRetries).toBe(3);
+      // デフォルト skipCompletenessCheck は false
+      expect(req.skipCompletenessCheck).toBe(false);
       // treeMaxDepth 未指定時は undefined
       expect(req.treeMaxDepth).toBeUndefined();
       // skills 未指定時は空配列

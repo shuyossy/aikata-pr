@@ -377,6 +377,7 @@ describe('pipelineReportRoute', () => {
       expect(command.aiConfig.modelName).toBe('test-server-model');
       expect(command.maxContextLength).toBeNull();
       expect(command.options.maxCompletenessRetries).toBe(3);
+      expect(command.options.skipCompletenessCheck).toBe(false);
       expect(command.settings.includeJobPatterns.length).toBe(1);
       expect(command.settings.includeJobPatterns[0].source).toBe('^test:');
     });

@@ -117,6 +117,7 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
         resultFilePath: params.resultFilePath,
         commentLanguage: params.commentLanguage,
         maxCompletenessRetries: params.maxCompletenessRetries,
+        skipCompletenessCheck: params.skipCompletenessCheck,
       };
 
       // RequestContext: workflow の requestContextSchema に合致するフィールドを詰める

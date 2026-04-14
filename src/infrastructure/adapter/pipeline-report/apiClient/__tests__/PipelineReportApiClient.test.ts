@@ -62,6 +62,7 @@ describe('PipelineReportApiClient', () => {
     },
     commentLanguage: 'Japanese',
     maxCompletenessRetries: 3,
+    skipCompletenessCheck: false,
     skillsRelPaths: [],
     treeMaxDepth: undefined,
   };

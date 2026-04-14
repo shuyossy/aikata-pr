@@ -113,6 +113,24 @@ describe('pipelineReportRequestSchema', () => {
     const result = pipelineReportRequestSchema.safeParse(input);
     expect(result.success).toBe(true);
   });
+
+  it('skipCompletenessCheck=true のリクエストが通ること', () => {
+    const input = { ...createValidRequestBody(), skipCompletenessCheck: true };
+    const result = pipelineReportRequestSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.skipCompletenessCheck).toBe(true);
+    }
+  });
+
+  it('skipCompletenessCheck が省略された場合にデフォルト false となること', () => {
+    const input = createValidRequestBody();
+    const result = pipelineReportRequestSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.skipCompletenessCheck).toBe(false);
+    }
+  });
 });
 
 describe('buildPipelineReportSettings', () => {

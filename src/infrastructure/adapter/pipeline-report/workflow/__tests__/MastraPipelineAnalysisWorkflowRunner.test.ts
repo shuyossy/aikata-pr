@@ -96,6 +96,7 @@ function createParams(
     artifactCacheStatuses,
     mergedYaml: 'stages:\n  - build\n  - test\n',
     maxCompletenessRetries: 2,
+    skipCompletenessCheck: false,
     aiConfig: {
       apiKey: 'test-api-key',
       endpointUrl: 'https://api.example.com/v1',
@@ -162,6 +163,7 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
     expect(startArg.inputData.resultFilePath).toBe(params.resultFilePath);
     expect(startArg.inputData.commentLanguage).toBe(params.commentLanguage);
     expect(startArg.inputData.maxCompletenessRetries).toBe(params.maxCompletenessRetries);
+    expect(startArg.inputData.skipCompletenessCheck).toBe(false);
 
     // requestContext: PipelineAnalysisAgentRequestContext の主要フィールド
     const ctx = startArg.requestContext;

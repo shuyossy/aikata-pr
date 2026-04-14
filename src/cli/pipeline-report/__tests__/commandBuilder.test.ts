@@ -27,6 +27,7 @@ function createCliOptions(overrides?: Partial<PipelineReportCliOptions>): Pipeli
     resultFile: './aikata-pipeline-report.md',
     maxCompletenessRetries: 3,
     treeMaxDepth: undefined,
+    skipCompletenessCheck: false,
     ...overrides,
   };
 }
@@ -163,7 +164,25 @@ describe('buildPipelineReportCommand', () => {
     expect(command.maxContextLength).toBe(100000);
     expect(command.treeMaxDepth).toBe(3);
     expect(command.options.maxCompletenessRetries).toBe(5);
+    expect(command.options.skipCompletenessCheck).toBe(false);
     expect(command.onProgress).toBe(onProgress);
+  });
+
+  it('skipCompletenessCheck=trueが伝播する', () => {
+    const options = createCliOptions({ skipCompletenessCheck: true });
+    const env = { AI_API_KEY: 'k', AI_API_ENDPOINT_URL: 'https://x' };
+    const validated = validateRequiredParams(options, env);
+    const settings = PipelineReportSettings.default();
+
+    const command = buildPipelineReportCommand(options, validated, {
+      settings,
+      projectDir: '/tmp/project',
+      maxContextLength: null,
+      openaiReasoningEffort: null,
+      onProgress: () => {},
+    });
+
+    expect(command.options.skipCompletenessCheck).toBe(true);
   });
 
   it('skills未指定時は空配列になる', () => {
@@ -217,8 +236,22 @@ describe('buildPipelineReportApiRequest', () => {
     expect(request.settings.excludeJobPatterns).toEqual(['^skip-.*']);
     expect(request.commentLanguage).toBe('Japanese');
     expect(request.maxCompletenessRetries).toBe(3);
+    expect(request.skipCompletenessCheck).toBe(false);
     expect(request.skillsRelPaths).toEqual(['/skills']);
     expect(request.treeMaxDepth).toBe(2);
+  });
+
+  it('skipCompletenessCheck=trueがAPIリクエストに伝播する', () => {
+    const options = createCliOptions({
+      aikataApiUrl: 'https://api.example.com',
+      skipCompletenessCheck: true,
+    });
+    const env = {};
+    const validated = validateRequiredParams(options, env);
+    const settings = PipelineReportSettings.default();
+
+    const request = buildPipelineReportApiRequest(options, validated, settings);
+    expect(request.skipCompletenessCheck).toBe(true);
   });
 
   it('skills未指定時は空配列になる', () => {

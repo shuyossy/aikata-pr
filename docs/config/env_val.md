@@ -31,6 +31,7 @@
 | APIモード | AIKATA_JWT | APIモード時必須 | - | GitLab CI/CDのid_tokensで自動生成されるJWTトークン。APIモード時に必要（review/pipeline-report共通） | なし（環境変数のみ） | - |
 | pipeline-report | PIPELINE_REPORT_RESULT_FILE | No | ./aikata-pipeline-report.md | レポート出力ファイルパス。artifactsとして保存される | --result-file | - |
 | pipeline-report | PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES | No | 3 | 完成判定ループの上限回数 | --max-completeness-retries | - |
+| pipeline-report | PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK | No | false | 完成判定ステップをスキップする（true: 分析1回のみで判定なし） | --skip-completeness-check | - |
 | pipeline-report | PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB | No | 50 | 1ジョブのartifacts zipダウンロード上限MB | なし（環境変数のみ） | - |
 | pipeline-report | PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB | No | 500 | 全ジョブ合計のartifacts zipディスク使用量上限MB | なし（環境変数のみ） | - |
 | pipeline-report | PIPELINE_REPORT_MAX_ARTIFACT_FILE_BYTES | No | 2097152 | `getArtifactContent`ツールが単一ファイルから読み取る最大バイト数 | なし（環境変数のみ） | - |

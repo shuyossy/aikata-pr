@@ -43,6 +43,7 @@ export const pipelineReportRequestSchema = z.object({
     .optional(),
   commentLanguage: z.string().min(1),
   maxCompletenessRetries: z.number().int().min(0),
+  skipCompletenessCheck: z.boolean().optional().default(false),
   skillsRelPaths: z.array(z.string()),
   /** フォルダツリー走査の最大深度。省略時は無制限 */
   treeMaxDepth: z.number().int().positive().optional(),
@@ -342,6 +343,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
           treeMaxDepth: request.treeMaxDepth,
           options: {
             maxCompletenessRetries: request.maxCompletenessRetries,
+            skipCompletenessCheck: request.skipCompletenessCheck ?? false,
           },
           onProgress,
         });

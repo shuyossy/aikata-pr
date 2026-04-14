@@ -143,6 +143,7 @@ export function buildPipelineReportCommand(
     treeMaxDepth: parsed.treeMaxDepth,
     options: {
       maxCompletenessRetries: parsed.maxCompletenessRetries,
+      skipCompletenessCheck: parsed.skipCompletenessCheck,
     },
     onProgress: extras.onProgress,
   };
@@ -172,6 +173,7 @@ export function buildPipelineReportApiRequest(
     },
     commentLanguage: parsed.commentLanguage,
     maxCompletenessRetries: parsed.maxCompletenessRetries,
+    skipCompletenessCheck: parsed.skipCompletenessCheck,
     skillsRelPaths: parsed.skills ? [parsed.skills] : [],
     treeMaxDepth: parsed.treeMaxDepth,
   };

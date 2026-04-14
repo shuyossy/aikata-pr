@@ -68,7 +68,7 @@ function createCommand(overrides?: Partial<PipelineAnalyzeCommand>): PipelineAna
     },
     maxContextLength: null,
     treeMaxDepth: undefined,
-    options: { maxCompletenessRetries: 3 },
+    options: { maxCompletenessRetries: 3, skipCompletenessCheck: false },
     onProgress: () => {
       /* no-op */
     },

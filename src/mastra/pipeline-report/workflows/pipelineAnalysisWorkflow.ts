@@ -60,6 +60,8 @@ export const workflowInputSchema = z.object({
   commentLanguage: z.string(),
   /** completeness verify の再実行上限 */
   maxCompletenessRetries: z.number().int().nonnegative(),
+  /** completeness verify をスキップするか */
+  skipCompletenessCheck: z.boolean(),
 });
 
 /**
@@ -182,14 +184,28 @@ const analyzeAndVerifyStep = createStep({
       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     });
 
-    // 2. judge agent で完成判定
+    // 2. skipCompletenessCheck が有効な場合は判定をスキップ
+    if (initData.skipCompletenessCheck) {
+      logger.info('Completeness check skipped by skipCompletenessCheck flag');
+      return {
+        prompt: inputData.prompt,
+        threadId: analysis.finalThreadId,
+        isComplete: true,
+        feedbackPrompt: null,
+        contextLengthRecoveries:
+          inputData.contextLengthRecoveries + analysis.contextLengthRecoveries,
+        completenessRetries: 0,
+      };
+    }
+
+    // 3. judge agent で完成判定
     const verify = await verifyCompletenessStep({
       judgeAgent,
       requestContext: typedContext,
       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     });
 
-    // 3. 次イテレーションの状態を構築
+    // 4. 次イテレーションの状態を構築
     let nextPrompt = inputData.prompt;
     let nextFeedbackPrompt: string | null = null;
 

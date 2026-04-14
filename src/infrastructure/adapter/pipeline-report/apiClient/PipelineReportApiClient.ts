@@ -23,6 +23,7 @@ export interface PipelineReportApiRequest {
   };
   commentLanguage: string;
   maxCompletenessRetries: number;
+  skipCompletenessCheck: boolean;
   skillsRelPaths: string[];
   /** フォルダツリー走査の最大深度。undefined なら無制限 */
   treeMaxDepth: number | undefined;

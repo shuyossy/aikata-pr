@@ -25,6 +25,8 @@ export interface PipelineReportCliOptions {
   maxCompletenessRetries: number;
   /** フォルダツリー走査の最大深度。未指定時は undefined（無制限） */
   treeMaxDepth: number | undefined;
+  /** 完成判定ステップをスキップするか（デフォルト: false） */
+  skipCompletenessCheck: boolean;
 }
 
 /**
@@ -119,6 +121,9 @@ export function parsePipelineReportArgs(
       case '--tree-max-depth':
         parsed['treeMaxDepth'] = args[++i]!;
         break;
+      case '--skip-completeness-check':
+        parsed['skipCompletenessCheck'] = true;
+        break;
     }
   }
 
@@ -146,6 +151,14 @@ export function parsePipelineReportArgs(
   const treeMaxDepth =
     treeMaxDepthRaw !== undefined ? parsePositiveInt(treeMaxDepthRaw, 'tree-max-depth') : undefined;
 
+  // 完成判定スキップ（CLI > env > default(false)）
+  const skipCompletenessCheck =
+    parsed['skipCompletenessCheck'] !== undefined
+      ? (parsed['skipCompletenessCheck'] as boolean)
+      : env['PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK'] !== undefined
+        ? env['PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK'] === 'true'
+        : false;
+
   return {
     userId: (parsed['userId'] as string) ?? env['USER_ID'],
     projectId: (parsed['projectId'] as string) ?? env['GITLAB_PROJECT_ID'],
@@ -169,5 +182,6 @@ export function parsePipelineReportArgs(
     resultFile,
     maxCompletenessRetries,
     treeMaxDepth,
+    skipCompletenessCheck,
   };
 }

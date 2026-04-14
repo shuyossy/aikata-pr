@@ -30,11 +30,33 @@ describe('pipelineAnalysisWorkflow', () => {
       resultFilePath: '/tmp/report.md',
       commentLanguage: 'Japanese',
       maxCompletenessRetries: 3,
+      skipCompletenessCheck: false,
     };
 
     const result = workflowInputSchema.safeParse(validInput);
 
     expect(result.success).toBe(true);
+  });
+
+  it('入力スキーマは skipCompletenessCheck=true を受け付ける', () => {
+    const input = {
+      initialUserPrompt: 'Analyze',
+      targetJobs: [],
+      overallTemplate: '# Report',
+      jobReportFormat: '### Job',
+      additionalInstructions: null,
+      resultFilePath: '/tmp/report.md',
+      commentLanguage: 'Japanese',
+      maxCompletenessRetries: 0,
+      skipCompletenessCheck: true,
+    };
+
+    const result = workflowInputSchema.safeParse(input);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.skipCompletenessCheck).toBe(true);
+    }
   });
 
   it('入力スキーマは不正な入力（必須フィールド欠落）を拒否する', () => {
@@ -58,6 +80,7 @@ describe('pipelineAnalysisWorkflow', () => {
       resultFilePath: '/tmp/report.md',
       commentLanguage: 'Japanese',
       maxCompletenessRetries: 0,
+      skipCompletenessCheck: false,
     };
 
     const result = workflowInputSchema.safeParse(input);
