@@ -87,7 +87,6 @@ describe('buildCompletenessFeedbackPrompt', () => {
     expect(result).toContain('Issues');
     expect(result).toContain("Job #1 'build'");
     expect(result).toContain("Job #2 'test'");
-    expect(result).toContain('patch-report');
   });
 });
 

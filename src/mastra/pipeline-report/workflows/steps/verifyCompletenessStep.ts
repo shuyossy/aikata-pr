@@ -53,7 +53,7 @@ export function buildCompletenessFeedbackPrompt(judgement: ReportCompletenessJud
   parts.push('## Completeness Review Feedback');
   parts.push('');
   parts.push(
-    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn. Use get-report to re-read the current file, then use patch-report for precise edits.',
+    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn.',
   );
   parts.push('');
 

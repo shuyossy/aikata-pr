@@ -167,7 +167,7 @@ function renderToolCatalog(ctx: PipelineAnalysisAgentRequestContext): string {
     lines.push('- File search: Find code patterns across the codebase');
     lines.push('- Sandbox commands: Run git commands, grep, or other CLI tools');
     lines.push(
-      'Use these when the job log or artifacts alone are not enough to understand what a job did — for example, when you need to look at the failing test file or the build script referenced in a log line.',
+      'Use these when the job log or artifacts alone are not enough to understand what a job did, or when you need codebase context to formulate recommended actions — for example, look at the failing test file, the build script referenced in a log line, or related source code to propose concrete next steps.',
     );
     lines.push('The workspace root is the project repository root directory.');
   }
@@ -247,7 +247,7 @@ export function buildInstructions(
 
 ## Mission
 
-Your mission is to produce a complete analysis report. A report file is maintained throughout the analysis — use the report tools (get-report to read, write-report to replace, patch-report to edit) to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
+Your mission is to produce a complete analysis report by writing it to the report file using the report tools. WARNING: You MUST write all report content using the report tools (write-report to replace, patch-report to edit, get-report to read). Never output report content as plain text in the conversation — it will be lost. The report file is maintained throughout the analysis; use the tools to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
 
 ${additionalSection}## Report Structure
 
@@ -291,7 +291,8 @@ For each target job, apply the Reason-Act-Observe cycle until you can confidentl
 
 **REASON**: Assess what you currently know about this job.
 - What does the job log say?
-- What does the job's artifact file list suggest?
+- What does the job's artifact file list suggest? If the job succeeded but the log lacks detail, open key artifacts with get-artifact-content to check for hidden warnings or anomalies.
+- Would reading project source code help you understand the job behavior or write better recommended actions?
 - What does the report format require that you still lack evidence for?
 
 **ACT**: Take one concrete step.
@@ -319,6 +320,7 @@ ${compressionNotes ? `${compressionNotes}\n\n` : ''}## Writing Constraints
 - Keep citations short. Quote a single log line or a small excerpt rather than pasting a full log section.
 - Do NOT wrap the entire report in a single outer code block. Use code blocks only for log lines, file paths, shell commands, or short code excerpts that genuinely benefit from monospace rendering.
 - Use patch-report for incremental edits whenever possible. Reserve write-report for the initial template or a full rewrite.
+- Never write report content as plain conversation text. All report content must go through write-report or patch-report.
 
 ## Finishing Instructions
 

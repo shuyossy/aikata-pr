@@ -324,6 +324,42 @@ describe('buildInstructions', () => {
     expect(result).toMatch(/all.*target jobs|every target job|MUST.*complete/i);
   });
 
+  it('Missionセクションでレポートをtoolで書くことが警告付きで強制される', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toContain('WARNING');
+    expect(result).toMatch(/MUST write all report content using the report tools/);
+    expect(result).toMatch(/Never output report content as plain text/);
+  });
+
+  it('REASONセクションでアーティファクト調査の指示が含まれる', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toMatch(/open key artifacts with get-artifact-content/);
+  });
+
+  it('REASONセクションでコードベース調査の指示が含まれる', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toMatch(/reading project source code/);
+    expect(result).toMatch(/recommended actions/);
+  });
+
+  it('Writing Constraintsでプレーンテキストでのレポート出力が禁止される', () => {
+    const ctx = createTestRequestContext();
+
+    const result = buildInstructions(ctx);
+
+    expect(result).toMatch(/Never write report content as plain conversation text/);
+    expect(result).toMatch(/must go through write-report or patch-report/);
+  });
+
   it('最小構成（省略なし・画像なし・追加指示なし）: 条件付きセクションが全て省かれる', () => {
     const ctx = createTestRequestContext({
       omittedJobLogs: new Map(),
