@@ -1,838 +1,399 @@
-diff --git a/.ci-template/variable/pipeline-report.yml b/.ci-template/variable/pipeline-report.yml
-index 7a1abdc..20cd215 100644
---- a/.ci-template/variable/pipeline-report.yml
-+++ b/.ci-template/variable/pipeline-report.yml
-@@ -12,3 +12,4 @@ variables:
-   PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB: "500"
-   PIPELINE_REPORT_MAX_ARTIFACT_FILE_BYTES: "2097152"
-   PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES: "3"
-+  PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK: "false"
-diff --git a/.env.example b/.env.example
-index ff89dde..cb0918f 100644
---- a/.env.example
-+++ b/.env.example
-@@ -42,6 +42,7 @@ AIKATA_API_URL=
- # PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB=500
- # PIPELINE_REPORT_MAX_ARTIFACT_FILE_BYTES=2097152
- # PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES=3
-+# PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK=false
- # GITLAB_PIPELINE_ID=
- # GITLAB_SELF_JOB_ID=
- 
-diff --git a/AGENTS.md b/AGENTS.md
-index 64cca4c..489ded6 100644
---- a/AGENTS.md
-+++ b/AGENTS.md
-@@ -71,11 +71,12 @@ npm run format            # Prettier フォーマット
- npm run format:check      # Prettier フォーマットチェック
- 
- # ビルド
--npm run build:cli         # CLI用バンドル（dist/index.js）
-+npm run build:cli         # CLI用バンドル（dist/index.js, dist/server.js）
- 
- # 実行（サブコマンド必須）
- node dist/index.js review --user-id <userId> [options]          # MRのAIレビュー
- node dist/index.js pipeline-report --user-id <userId> [options] # CIパイプラインのAI分析レポート生成
-+node dist/index.js server                                       # APIサーバー起動
- ```
- 
- # 作業時の注意点
-diff --git a/Dockerfile b/Dockerfile
-index eeb773e..601afed 100644
---- a/Dockerfile
-+++ b/Dockerfile
-@@ -16,6 +16,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
- COPY --from=builder /opt/aikata-pr/dist ./dist
- # aikata-pr コマンドとしてグローバルにリンク
- RUN chmod +x dist/index.js && ln -s /opt/aikata-pr/dist/index.js /usr/local/bin/aikata-pr
-+EXPOSE 3000
- # CMD を使用（独自 ENTRYPOINT を持つベースイメージに切り替えた際、
- # /entrypoint.sh が exec "$@" で CMD を実行するパターンに対応）
- CMD ["aikata-pr"]
 diff --git a/PBI.md b/PBI.md
-index ce3d9bf..ad2afa3 100644
+index ad2afa3..b6d296c 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -9,29 +9,4 @@
+@@ -8,5 +8,3 @@
+ - 注意事項
  - 指摘事項（in progressの場合のみ）
  ```
- 
--# ID: 1
--- PBI名: パイプライン分析レポートの見やすさ向上
--- ステータス: done
--- 背景
--  - 現状、分析レポートのジョブセクションにおいて、特にジョブの出力順を指定していない
--- 受け入れ基準
--  - 分析レポートのジョブセクションについて、以下の優先順で出力する様にAIに指示できている
--    1. ユーザが確認すべき重要度
--      - デフォルトテンプレートだと、問題あり→要注意→問題なしの順
--      - ジョブセクションのテンプレートはユーザが指定する可能性があるので、どの様なテンプレートでも対応できる様にしたい
--    2. ステージ順
--- 注意事項
--- 指摘事項（in progressの場合のみ）
- 
--# ID: 2
--- PBI名: パイプライン分析レポート完成判定について、厳しすぎるので是正する
--- ステータス: done
--- 背景
--  - 実際にLLMを利用して、レポート分析をさせているが、完成判定Agentが厳し過ぎて、AI APIの発行回数が無駄に増えている
--- 受け入れ基準
--  - 完成判定用Agentのプロンプトを見直しできている
--    - 細かいフォーマットに関する記載は削除
--    - 最低限、レポートが全て埋まっており、全てのジョブが正しいソート順で並んでいれば良い
--- 注意事項
--  - もちろん、プロンプト内で判定を甘めにするような記載はしてはいけないので注意すること
--- 指摘事項（in progressの場合のみ）
-diff --git a/docker/prod/Dockerfile b/docker/prod/Dockerfile
-deleted file mode 100644
-index e05f7d9..0000000
---- a/docker/prod/Dockerfile
-+++ /dev/null
-@@ -1,38 +0,0 @@
--# --- builder: dist/server.js を生成 ---
--FROM node:22-alpine AS builder
 -
--WORKDIR /app
 -
--COPY package.json package-lock.json ./
--RUN npm ci
--
--COPY tsconfig.json build.ts ./
--COPY src ./src
--
--RUN npm run build:cli
--
--# --- deps: 本番用 node_modules のみ ---
--FROM node:22-alpine AS deps
--
--WORKDIR /app
--
--COPY package.json package-lock.json ./
--RUN npm ci --omit=dev
--
--# --- runtime ---
--FROM node:22-alpine
--
--# gitコマンドが必要（リポジトリクローン用）
--RUN apk add --no-cache git
--
--WORKDIR /app
--
--# dist/server.js はESMバンドルのため、"type": "module" を効かせる目的で package.json が必須
--COPY package.json ./
--COPY --from=builder /app/dist/server.js ./
--COPY --from=builder /app/dist/server.js.map ./
--COPY --from=deps /app/node_modules ./node_modules/
--
--EXPOSE 3000
--
--CMD ["node", "server.js"]
-diff --git a/docker/prod/docker-compose.yml b/docker/prod/docker-compose.yml
-index 48cc9a2..20e7604 100644
---- a/docker/prod/docker-compose.yml
-+++ b/docker/prod/docker-compose.yml
-@@ -2,7 +2,8 @@ services:
-   aikata-pr-api:
-     build:
-       context: ../..
--      dockerfile: docker/prod/Dockerfile
-+      dockerfile: Dockerfile
-+    command: ["aikata-pr", "server"]
-     ports:
-       - "${API_PORT:-3000}:3000"
-     environment:
-diff --git a/docs/archtecture/folder_structure.md b/docs/archtecture/folder_structure.md
-index f92c292..05e112a 100644
---- a/docs/archtecture/folder_structure.md
-+++ b/docs/archtecture/folder_structure.md
-@@ -25,7 +25,8 @@ dist/
-   index.js                  # CLIエントリーポイント（bin: aikata-pr）
-   server.js                 # APIサーバーエントリーポイント
- docker/
--  prod/                     # 本番用コンテナ構成
-+  prod/
-+    docker-compose.yml      # APIサーバー用docker-compose（ルートのDockerfileを使用）
- src/
-   cli.ts                    # CLIエントリ（サブコマンドディスパッチャ呼び出し）
-   server.ts                 # APIサーバエントリ（features配列でルート登録）
-@@ -42,6 +43,9 @@ src/
-       parsePipelineReportArgs.ts
-       commandBuilder.ts     # PipelineAnalysisCommand/PipelineReportApiRequest組み立て
-       __tests__/
-+    server/                 # APIサーバー起動のCLI実装
-+      index.ts              # serverCliModule + run(args)（動的importでstartServer()を呼ぶ）
-+      __tests__/
-   domain/                   # ドメイン層
-     shared/                 # 全機能横断のドメイン（将来用）
-     review/                 # review機能のドメイン
-diff --git a/docs/archtecture/tech.md b/docs/archtecture/tech.md
-index 98b976e..4c4eee0 100644
---- a/docs/archtecture/tech.md
-+++ b/docs/archtecture/tech.md
-@@ -15,7 +15,7 @@
- ## チェックロジック
- 本プロジェクトはAIレビュー以外の機能も同一パッケージでホストできる「マルチ機能ホスト」構成を採用している。新機能の追加手順は `docs/archtecture/feature-extension.md` を参照。
- 
--CLIはサブコマンド方式で動作する。`aikata-pr review [options]` のように機能名サブコマンドを必須とし、`src/cli/dispatch.ts` のディスパッチャが対象機能の `CliFeatureModule.run(args)` を呼び出す。現時点では `review`（MRのAIレビュー）および `pipeline-report`（CIパイプライン結果のAI分析レポート生成）の2サブコマンドが登録されている。
-+CLIはサブコマンド方式で動作する。`aikata-pr review [options]` のように機能名サブコマンドを必須とし、`src/cli/dispatch.ts` のディスパッチャが対象機能の `CliFeatureModule.run(args)` を呼び出す。現時点では `review`（MRのAIレビュー）、`pipeline-report`（CIパイプライン結果のAI分析レポート生成）、`server`（APIサーバー起動）の3サブコマンドが登録されている。
- 
- 各機能はローカル/APIの2モードで動作する:
- - **ローカルモード**: `AI_API_KEY`、`AI_API_ENDPOINT_URL`、`AI_MODEL_NAME`が全て設定されている場合。CLIが全処理をローカルで実行する（開発用・後方互換）
-@@ -27,7 +27,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
- 
- ### 機能モジュール登録パターン
- 各機能は2種類のモジュールをエクスポートし、それぞれCLI/APIサーバ起動時にレジストリに登録される。
--- **CliFeatureModule**: `{ name, description, run(args) }`。`src/cli/dispatch.ts` の `defaultFeatures = [reviewCliModule, pipelineReportCliModule]` に追加
-+- **CliFeatureModule**: `{ name, description, run(args) }`。`src/cli/dispatch.ts` の `defaultFeatures = [reviewCliModule, pipelineReportCliModule, serverCliModule]` に追加
- - **ApiFeatureModule**: `{ name, register(app) }`。`src/server.ts` の `apiFeatures = [reviewApiModule, pipelineReportApiModule]` に追加
- - 新機能を追加する場合は、各レイヤーに `<feature>/` フォルダを作成した上で、両配列にモジュールを追加するだけで配線が完了する
- 
-@@ -50,7 +50,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
-   - Mastra層（`src/mastra`）についてはAIワークフロー実行基盤としてインフラ層の一種とみなす※ポートは`src/application/shared/port/workflow`
- - プレゼンテーション層
-   - CLIインターフェース: `node dist/index.js <feature> [options]`（例: `node dist/index.js review --user-id ...`）。サブコマンドは必須で、`src/cli/dispatch.ts` のディスパッチャが対応する `CliFeatureModule` を呼び出す
--  - APIサーバーインターフェース: `node dist/server.js`
-+  - APIサーバーインターフェース: `node dist/index.js server`（または `aikata-pr server`）
-     - Honoフレームワーク
-     - `POST /api/v1/review` — SSEストリーミングレスポンス（review機能）
-     - `POST /api/v1/pipeline-report` — SSEストリーミングレスポンス（pipeline-report機能）
-@@ -77,6 +77,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
-     - `--pipeline-report-settings` / `PIPELINE_REPORT_SETTINGS_PATH`: 分析設定ファイルパス（JSON）
-     - `--result-file` / `PIPELINE_REPORT_RESULT_FILE`: レポート出力ファイルパス（デフォルト: `./aikata-pipeline-report.md`）
-     - `--max-completeness-retries` / `PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES`: 完成判定ループ上限（デフォルト: `3`）
-+    - `--skip-completeness-check` / `PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK`: 完成判定ステップをスキップする（デフォルト: `false`）
-   - 環境変数のみ（秘密情報・環境固有）
-     - `AI_API_KEY`: AI APIキー（ローカルモード時のみ必要、APIモード時はAPIサーバー側で管理）
-     - `AI_API_ENDPOINT_URL`: AI APIエンドポイントURL（同上）
-diff --git a/docs/config/env_val.md b/docs/config/env_val.md
-index bb99f6c..3949507 100644
---- a/docs/config/env_val.md
-+++ b/docs/config/env_val.md
-@@ -31,6 +31,7 @@
- | APIモード | AIKATA_JWT | APIモード時必須 | - | GitLab CI/CDのid_tokensで自動生成されるJWTトークン。APIモード時に必要（review/pipeline-report共通） | なし（環境変数のみ） | - |
- | pipeline-report | PIPELINE_REPORT_RESULT_FILE | No | ./aikata-pipeline-report.md | レポート出力ファイルパス。artifactsとして保存される | --result-file | - |
- | pipeline-report | PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES | No | 3 | 完成判定ループの上限回数 | --max-completeness-retries | - |
-+| pipeline-report | PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK | No | false | 完成判定ステップをスキップする（true: 分析1回のみで判定なし） | --skip-completeness-check | - |
- | pipeline-report | PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB | No | 50 | 1ジョブのartifacts zipダウンロード上限MB | なし（環境変数のみ） | - |
- | pipeline-report | PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB | No | 500 | 全ジョブ合計のartifacts zipディスク使用量上限MB | なし（環境変数のみ） | - |
- | pipeline-report | PIPELINE_REPORT_MAX_ARTIFACT_FILE_BYTES | No | 2097152 | `getArtifactContent`ツールが単一ファイルから読み取る最大バイト数 | なし（環境変数のみ） | - |
-diff --git a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-index a540a20..68f36e6 100644
---- a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-+++ b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-@@ -45,6 +45,7 @@ export interface PipelineAnalyzeCommand {
-   treeMaxDepth: number | undefined;
-   options: {
-     maxCompletenessRetries: number;
-+    skipCompletenessCheck: boolean;
-   };
-   /** 進捗イベントのコールバック */
-   onProgress: (event: PipelineAnalysisProgressEvent) => void;
-@@ -217,6 +218,7 @@ export class PipelineAnalysisService {
-           projectDir: command.projectDir,
-           artifactCacheStatuses,
-           maxCompletenessRetries: command.options.maxCompletenessRetries,
-+          skipCompletenessCheck: command.options.skipCompletenessCheck,
-           aiConfig: command.aiConfig,
-           onProgress: command.onProgress,
-         });
-diff --git a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-index f445ab9..23e2f0e 100644
---- a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-+++ b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-@@ -68,7 +68,7 @@ function createCommand(overrides?: Partial<PipelineAnalyzeCommand>): PipelineAna
-     },
-     maxContextLength: null,
-     treeMaxDepth: undefined,
--    options: { maxCompletenessRetries: 3 },
-+    options: { maxCompletenessRetries: 3, skipCompletenessCheck: false },
-     onProgress: () => {
-       /* no-op */
-     },
-diff --git a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-index 490b930..af4b8de 100644
---- a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-+++ b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-@@ -31,6 +31,7 @@ export interface PipelineAnalysisWorkflowParams {
-   /** ジョブ ID -> artifacts キャッシュステータス（no-artifacts / cached / error 等の詳細を保持） */
-   artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>;
-   maxCompletenessRetries: number;
-+  skipCompletenessCheck: boolean;
-   aiConfig: {
-     apiKey: string;
-     endpointUrl: string;
-diff --git a/src/cli/__tests__/dispatch.test.ts b/src/cli/__tests__/dispatch.test.ts
-index ddcfcec..5a89048 100644
---- a/src/cli/__tests__/dispatch.test.ts
-+++ b/src/cli/__tests__/dispatch.test.ts
-@@ -61,4 +61,28 @@ describe('cli dispatcher', () => {
-     expect(feature!.description.length).toBeGreaterThan(0);
-     expect(typeof feature!.run).toBe('function');
+diff --git a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
+index 6cad47d..7f67e93 100644
+--- a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
++++ b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
+@@ -324,6 +324,42 @@ describe('buildInstructions', () => {
+     expect(result).toMatch(/all.*target jobs|every target job|MUST.*complete/i);
    });
+ 
++  it('Missionセクションでレポートをtoolで書くことが警告付きで強制される', () => {
++    const ctx = createTestRequestContext();
 +
-+  it('defaultFeatures に server が含まれている', () => {
-+    expect(defaultFeatures.map((f) => f.name)).toContain('server');
++    const result = buildInstructions(ctx);
++
++    expect(result).toContain('WARNING');
++    expect(result).toMatch(/MUST write all report content using the report tools/);
++    expect(result).toMatch(/Never output report content as plain text/);
 +  });
 +
-+  it('defaultFeatures の server 機能は name / description / run を持つ', () => {
-+    const feature = defaultFeatures.find((f) => f.name === 'server');
-+    expect(feature).toBeDefined();
-+    expect(typeof feature!.description).toBe('string');
-+    expect(feature!.description.length).toBeGreaterThan(0);
-+    expect(typeof feature!.run).toBe('function');
++  it('REASONセクションでアーティファクト調査の指示が含まれる', () => {
++    const ctx = createTestRequestContext();
++
++    const result = buildInstructions(ctx);
++
++    expect(result).toMatch(/open key artifacts with get-artifact-content/);
 +  });
 +
-+  it('serverサブコマンドを選択するとserver機能のrunが呼ばれる', async () => {
-+    const reviewRun = vi.fn().mockResolvedValue(undefined);
-+    const serverRun = vi.fn().mockResolvedValue(undefined);
-+    const fakeFeatures: CliFeatureModule[] = [
-+      { name: 'review', description: 'x', run: reviewRun },
-+      { name: 'server', description: 'y', run: serverRun },
-+    ];
-+    await dispatch(['server'], fakeFeatures);
-+    expect(reviewRun).not.toHaveBeenCalled();
-+    expect(serverRun).toHaveBeenCalledWith([]);
++  it('REASONセクションでコードベース調査の指示が含まれる', () => {
++    const ctx = createTestRequestContext();
++
++    const result = buildInstructions(ctx);
++
++    expect(result).toMatch(/reading project source code/);
++    expect(result).toMatch(/recommended actions/);
 +  });
++
++  it('Writing Constraintsでプレーンテキストでのレポート出力が禁止される', () => {
++    const ctx = createTestRequestContext();
++
++    const result = buildInstructions(ctx);
++
++    expect(result).toMatch(/Never write report content as plain conversation text/);
++    expect(result).toMatch(/must go through write-report or patch-report/);
++  });
++
+   it('最小構成（省略なし・画像なし・追加指示なし）: 条件付きセクションが全て省かれる', () => {
+     const ctx = createTestRequestContext({
+       omittedJobLogs: new Map(),
+diff --git a/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
+index 6948424..c8dba89 100644
+--- a/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
++++ b/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
+@@ -20,6 +20,10 @@ describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS', () => {
+     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('reasons');
+   });
+ 
++  it('2つのuserメッセージで入力を受け取ることが明示される', () => {
++    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/two user messages/i);
++  });
++
+   it('対象ジョブ網羅の判定ルールが含まれる', () => {
+     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/target job/i);
+     expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/missing/i);
+@@ -93,7 +97,7 @@ describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS - ordering rule', () => {
+   });
  });
-diff --git a/src/cli/dispatch.ts b/src/cli/dispatch.ts
-index 9cba7a4..15d5ee5 100644
---- a/src/cli/dispatch.ts
-+++ b/src/cli/dispatch.ts
-@@ -1,5 +1,6 @@
- import { reviewCliModule } from './review/index.js';
- import { pipelineReportCliModule } from './pipeline-report/index.js';
-+import { serverCliModule } from './server/index.js';
  
- /**
-  * CLI機能モジュールのインターフェース。
-@@ -15,7 +16,11 @@ export interface CliFeatureModule {
-  * デフォルトで登録される機能モジュール。
-  * 将来新機能を追加する際はここに1行追加する。
-  */
--export const defaultFeatures: CliFeatureModule[] = [reviewCliModule, pipelineReportCliModule];
-+export const defaultFeatures: CliFeatureModule[] = [
-+  reviewCliModule,
-+  pipelineReportCliModule,
-+  serverCliModule,
-+];
- 
- export function printUsage(features: CliFeatureModule[]): void {
-   const lines = [
-diff --git a/src/cli/pipeline-report/__tests__/commandBuilder.test.ts b/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
-index a6c5869..23660a6 100644
---- a/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
-+++ b/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
-@@ -27,6 +27,7 @@ function createCliOptions(overrides?: Partial<PipelineReportCliOptions>): Pipeli
-     resultFile: './aikata-pipeline-report.md',
-     maxCompletenessRetries: 3,
-     treeMaxDepth: undefined,
-+    skipCompletenessCheck: false,
-     ...overrides,
+-describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
++describe('buildReportCompletenessJudgeUserPrompt', () => {
+   const baseInputs = {
+     currentReportContent: '# テストレポート',
+     targetJobs: [
+@@ -104,16 +108,70 @@ describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
+     overallTemplate: '# レポート\n{{job-sections}}',
    };
- }
-@@ -163,9 +164,27 @@ describe('buildPipelineReportCommand', () => {
-     expect(command.maxContextLength).toBe(100000);
-     expect(command.treeMaxDepth).toBe(3);
-     expect(command.options.maxCompletenessRetries).toBe(5);
-+    expect(command.options.skipCompletenessCheck).toBe(false);
-     expect(command.onProgress).toBe(onProgress);
-   });
  
-+  it('skipCompletenessCheck=trueが伝播する', () => {
-+    const options = createCliOptions({ skipCompletenessCheck: true });
-+    const env = { AI_API_KEY: 'k', AI_API_ENDPOINT_URL: 'https://x' };
-+    const validated = validateRequiredParams(options, env);
-+    const settings = PipelineReportSettings.default();
-+
-+    const command = buildPipelineReportCommand(options, validated, {
-+      settings,
-+      projectDir: '/tmp/project',
-+      maxContextLength: null,
-+      openaiReasoningEffort: null,
-+      onProgress: () => {},
+-  it('stageOrderが指定された場合、Stage Execution Orderセクションが含まれる', () => {
++  it('2つのuserメッセージを返す', () => {
++    const result = buildReportCompletenessJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
 +    });
 +
-+    expect(command.options.skipCompletenessCheck).toBe(true);
++    expect(result).toHaveLength(2);
++    expect(result[0].role).toBe('user');
++    expect(result[1].role).toBe('user');
 +  });
 +
-   it('skills未指定時は空配列になる', () => {
-     const options = createCliOptions();
-     const env = { AI_API_KEY: 'k', AI_API_ENDPOINT_URL: 'https://x' };
-@@ -217,10 +236,24 @@ describe('buildPipelineReportApiRequest', () => {
-     expect(request.settings.excludeJobPatterns).toEqual(['^skip-.*']);
-     expect(request.commentLanguage).toBe('Japanese');
-     expect(request.maxCompletenessRetries).toBe(3);
-+    expect(request.skipCompletenessCheck).toBe(false);
-     expect(request.skillsRelPaths).toEqual(['/skills']);
-     expect(request.treeMaxDepth).toBe(2);
-   });
- 
-+  it('skipCompletenessCheck=trueがAPIリクエストに伝播する', () => {
-+    const options = createCliOptions({
-+      aikataApiUrl: 'https://api.example.com',
-+      skipCompletenessCheck: true,
++  it('1つ目のメッセージにTarget Jobs・jobReportFormat・overallTemplateが含まれる', () => {
++    const result = buildReportCompletenessJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
 +    });
-+    const env = {};
-+    const validated = validateRequiredParams(options, env);
-+    const settings = PipelineReportSettings.default();
 +
-+    const request = buildPipelineReportApiRequest(options, validated, settings);
-+    expect(request.skipCompletenessCheck).toBe(true);
++    expect(result[0].content).toContain('Target Jobs');
++    expect(result[0].content).toContain('jobReportFormat');
++    expect(result[0].content).toContain('overallTemplate');
++    expect(result[0].content).toContain('### ジョブ #<jobId>');
++    expect(result[0].content).toContain('# レポート');
 +  });
 +
-   it('skills未指定時は空配列になる', () => {
-     const options = createCliOptions({ aikataApiUrl: 'https://api.example.com' });
-     const env = {};
-diff --git a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
-index 0178cc8..5f61ec0 100644
---- a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
-+++ b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
-@@ -72,6 +72,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
-     delete process.env['COMMENT_LANGUAGE'];
-     delete process.env['SKILLS_PATH'];
-     delete process.env['TREE_MAX_DEPTH'];
-+    delete process.env['PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK'];
- 
-     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-       throw new Error(`process.exit:${code}`);
-@@ -218,6 +219,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
-       // CLI フラグ由来のフィールド
-       expect(cmd.commentLanguage).toBe('Japanese');
-       expect(cmd.options.maxCompletenessRetries).toBe(5);
-+      expect(cmd.options.skipCompletenessCheck).toBe(false);
-       expect(cmd.treeMaxDepth).toBe(3);
-       expect(cmd.skillsPaths).toEqual(['.skills/custom']);
- 
-@@ -449,6 +451,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
-       expect(capturedCommand!.maxContextLength).toBeNull();
-       // maxCompletenessRetries 未指定時は 3
-       expect(capturedCommand!.options.maxCompletenessRetries).toBe(3);
-+      // skipCompletenessCheck 未指定時は false
-+      expect(capturedCommand!.options.skipCompletenessCheck).toBe(false);
-       // OPENAI_REASONING_EFFORT 未指定時は null
-       expect(capturedCommand!.aiConfig.reasoningEffort).toBeNull();
++  it('1つ目のメッセージにレポート本文が含まれない', () => {
++    const result = buildReportCompletenessJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++    });
++
++    expect(result[0].content).not.toContain('Current Report Contents');
++    expect(result[0].content).not.toContain('# テストレポート');
++  });
++
++  it('2つ目のメッセージにレポート本文が含まれる', () => {
++    const result = buildReportCompletenessJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++    });
++
++    expect(result[1].content).toContain('Current Report Contents');
++    expect(result[1].content).toContain('# テストレポート');
++  });
++
++  it('2つ目のメッセージにTarget Jobsが含まれない', () => {
++    const result = buildReportCompletenessJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++    });
++
++    expect(result[1].content).not.toContain('Target Jobs');
++    expect(result[1].content).not.toContain('jobReportFormat');
++  });
++
++  it('stageOrderが指定された場合、1つ目のメッセージにStage Execution Orderセクションが含まれる', () => {
+     const result = buildReportCompletenessJudgeUserPrompt({
+       ...baseInputs,
+       stageOrder: ['check', 'test', 'deploy'],
      });
-@@ -549,6 +553,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
-       expect(req.gitlabToken).toBe('glpat-api');
-       expect(req.commentLanguage).toBe('English');
-       expect(req.maxCompletenessRetries).toBe(7);
-+      expect(req.skipCompletenessCheck).toBe(false);
-       expect(req.treeMaxDepth).toBe(4);
-       expect(req.skillsRelPaths).toEqual(['.skills/api']);
  
-@@ -628,6 +633,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
-       expect(req.commentLanguage).toBe('Japanese');
-       // デフォルト maxCompletenessRetries は 3
-       expect(req.maxCompletenessRetries).toBe(3);
-+      // デフォルト skipCompletenessCheck は false
-+      expect(req.skipCompletenessCheck).toBe(false);
-       // treeMaxDepth 未指定時は undefined
-       expect(req.treeMaxDepth).toBeUndefined();
-       // skills 未指定時は空配列
-diff --git a/src/cli/pipeline-report/__tests__/parsePipelineReportArgs.test.ts b/src/cli/pipeline-report/__tests__/parsePipelineReportArgs.test.ts
-index 4d09514..9d7b1a5 100644
---- a/src/cli/pipeline-report/__tests__/parsePipelineReportArgs.test.ts
-+++ b/src/cli/pipeline-report/__tests__/parsePipelineReportArgs.test.ts
-@@ -213,6 +213,30 @@ describe('parsePipelineReportArgs', () => {
-     );
+-    expect(result).toContain('Stage Execution Order');
+-    expect(result).toContain('check');
+-    expect(result).toContain('test');
+-    expect(result).toContain('deploy');
++    expect(result[0].content).toContain('Stage Execution Order');
++    expect(result[0].content).toContain('check');
++    expect(result[0].content).toContain('test');
++    expect(result[0].content).toContain('deploy');
    });
  
-+  it('--skip-completeness-checkをパースできる', () => {
-+    const result = parsePipelineReportArgs(['--skip-completeness-check'], {});
-+    expect(result.skipCompletenessCheck).toBe(true);
-+  });
-+
-+  it('PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK環境変数にフォールバックする', () => {
-+    const result = parsePipelineReportArgs([], {
-+      PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK: 'true',
-+    });
-+    expect(result.skipCompletenessCheck).toBe(true);
-+  });
-+
-+  it('skipCompletenessCheckのデフォルトはfalse', () => {
-+    const result = parsePipelineReportArgs([], {});
-+    expect(result.skipCompletenessCheck).toBe(false);
-+  });
-+
-+  it('PIPELINE_REPORT_SKIP_COMPLETENESS_CHECKがfalse文字列ならfalse', () => {
-+    const result = parsePipelineReportArgs([], {
-+      PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK: 'false',
-+    });
-+    expect(result.skipCompletenessCheck).toBe(false);
-+  });
-+
-   it('全オプションを一括でパースできる', () => {
-     const result = parsePipelineReportArgs(
-       [
-@@ -245,6 +269,7 @@ describe('parsePipelineReportArgs', () => {
-         '--tree-max-depth',
-         '4',
-         '--pretty-print',
-+        '--skip-completeness-check',
-       ],
-       {},
-     );
-@@ -263,5 +288,6 @@ describe('parsePipelineReportArgs', () => {
-     expect(result.maxCompletenessRetries).toBe(5);
-     expect(result.treeMaxDepth).toBe(4);
-     expect(result.prettyPrint).toBe(true);
-+    expect(result.skipCompletenessCheck).toBe(true);
+   it('stageOrderが空配列の場合、Stage Execution Orderセクションが含まれない', () => {
+@@ -122,6 +180,6 @@ describe('buildReportCompletenessJudgeUserPrompt - stageOrder', () => {
+       stageOrder: [],
+     });
+ 
+-    expect(result).not.toContain('Stage Execution Order');
++    expect(result[0].content).not.toContain('Stage Execution Order');
    });
  });
-diff --git a/src/cli/pipeline-report/commandBuilder.ts b/src/cli/pipeline-report/commandBuilder.ts
-index ea36106..16f8fdb 100644
---- a/src/cli/pipeline-report/commandBuilder.ts
-+++ b/src/cli/pipeline-report/commandBuilder.ts
-@@ -143,6 +143,7 @@ export function buildPipelineReportCommand(
-     treeMaxDepth: parsed.treeMaxDepth,
-     options: {
-       maxCompletenessRetries: parsed.maxCompletenessRetries,
-+      skipCompletenessCheck: parsed.skipCompletenessCheck,
-     },
-     onProgress: extras.onProgress,
-   };
-@@ -172,6 +173,7 @@ export function buildPipelineReportApiRequest(
-     },
-     commentLanguage: parsed.commentLanguage,
-     maxCompletenessRetries: parsed.maxCompletenessRetries,
-+    skipCompletenessCheck: parsed.skipCompletenessCheck,
-     skillsRelPaths: parsed.skills ? [parsed.skills] : [],
-     treeMaxDepth: parsed.treeMaxDepth,
-   };
-diff --git a/src/cli/pipeline-report/parsePipelineReportArgs.ts b/src/cli/pipeline-report/parsePipelineReportArgs.ts
-index 73f725c..0216e52 100644
---- a/src/cli/pipeline-report/parsePipelineReportArgs.ts
-+++ b/src/cli/pipeline-report/parsePipelineReportArgs.ts
-@@ -25,6 +25,8 @@ export interface PipelineReportCliOptions {
-   maxCompletenessRetries: number;
-   /** フォルダツリー走査の最大深度。未指定時は undefined（無制限） */
-   treeMaxDepth: number | undefined;
-+  /** 完成判定ステップをスキップするか（デフォルト: false） */
-+  skipCompletenessCheck: boolean;
+diff --git a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
+index 2511107..764538e 100644
+--- a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
++++ b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
+@@ -167,7 +167,7 @@ function renderToolCatalog(ctx: PipelineAnalysisAgentRequestContext): string {
+     lines.push('- File search: Find code patterns across the codebase');
+     lines.push('- Sandbox commands: Run git commands, grep, or other CLI tools');
+     lines.push(
+-      'Use these when the job log or artifacts alone are not enough to understand what a job did — for example, when you need to look at the failing test file or the build script referenced in a log line.',
++      'Use these when the job log or artifacts alone are not enough to understand what a job did, or when you need codebase context to formulate recommended actions — for example, look at the failing test file, the build script referenced in a log line, or related source code to propose concrete next steps.',
+     );
+     lines.push('The workspace root is the project repository root directory.');
+   }
+@@ -247,7 +247,7 @@ export function buildInstructions(
+ 
+ ## Mission
+ 
+-Your mission is to produce a complete analysis report. A report file is maintained throughout the analysis — use the report tools (get-report to read, write-report to replace, patch-report to edit) to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
++Your mission is to produce a complete analysis report by writing it to the report file using the report tools. WARNING: You MUST write all report content using the report tools (write-report to replace, patch-report to edit, get-report to read). Never output report content as plain text in the conversation — it will be lost. The report file is maintained throughout the analysis; use the tools to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
+ 
+ ${additionalSection}## Report Structure
+ 
+@@ -291,7 +291,8 @@ For each target job, apply the Reason-Act-Observe cycle until you can confidentl
+ 
+ **REASON**: Assess what you currently know about this job.
+ - What does the job log say?
+-- What does the job's artifact file list suggest?
++- What does the job's artifact file list suggest? If the job succeeded but the log lacks detail, open key artifacts with get-artifact-content to check for hidden warnings or anomalies.
++- Would reading project source code help you understand the job behavior or write better recommended actions?
+ - What does the report format require that you still lack evidence for?
+ 
+ **ACT**: Take one concrete step.
+@@ -319,6 +320,7 @@ ${compressionNotes ? `${compressionNotes}\n\n` : ''}## Writing Constraints
+ - Keep citations short. Quote a single log line or a small excerpt rather than pasting a full log section.
+ - Do NOT wrap the entire report in a single outer code block. Use code blocks only for log lines, file paths, shell commands, or short code excerpts that genuinely benefit from monospace rendering.
+ - Use patch-report for incremental edits whenever possible. Reserve write-report for the initial template or a full rewrite.
++- Never write report content as plain conversation text. All report content must go through write-report or patch-report.
+ 
+ ## Finishing Instructions
+ 
+diff --git a/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts b/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
+index 150699a..688e0d6 100644
+--- a/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
++++ b/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
+@@ -24,10 +24,9 @@ export const reportCompletenessJudgementSchema = z.object({
+  */
+ export const REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS = `You are a QA auditor for CI/CD pipeline analysis reports. Your sole responsibility is to decide whether the current report file is complete according to the rules below. You do not write the report — you only judge it.
+ 
+-You will be given, in the user message:
+-1. The target job list (jobId, jobName, stage, status).
+-2. The expected per-job block format (\`jobReportFormat\`).
+-3. The full current contents of the report file.
++You will be given two user messages:
++- First message: The target job list (jobId, jobName, stage, status), the expected per-job block format (\`jobReportFormat\`), and the overall report skeleton.
++- Second message: The full current contents of the report file.
+ 
+ You MUST return a single JSON object that conforms to the following schema, and nothing else. JSON only. Do not call tools. Do not emit markdown, prose, or explanations outside the JSON value.
+ 
+@@ -85,54 +84,59 @@ function renderTargetJobsTable(jobs: TargetJobSummary[]): string {
  }
  
  /**
-@@ -119,6 +121,9 @@ export function parsePipelineReportArgs(
-       case '--tree-max-depth':
-         parsed['treeMaxDepth'] = args[++i]!;
-         break;
-+      case '--skip-completeness-check':
-+        parsed['skipCompletenessCheck'] = true;
-+        break;
-     }
+- * 完全性判定 Agent の user プロンプトを組み立てる
++ * 完全性判定 Agent の user メッセージ配列を組み立てる
+  *
+- * reportCompletenessJudgeAgent に渡すべき情報は以下の4点:
+- * 1. Target job list
+- * 2. Expected per-job block format (`jobReportFormat`)
+- * 3. Optional `additionalInstructions`
+- * 4. 現在のレポート本文
++ * 2つの user メッセージに分割して返す:
++ * 1つ目: 判定基準（Target job list, jobReportFormat, overallTemplate, stageOrder）
++ * 2つ目: 現在のレポート本文
+  *
+- * `overallTemplate` はスケルトン理解のための補助情報として添付する。
++ * レポートが長くなった場合でも LLM が最新の user メッセージとして
++ * レポート本文を正しく認識できるようにするための構造。
+  */
+ export function buildReportCompletenessJudgeUserPrompt(
+   inputs: BuildReportCompletenessJudgeUserPromptInputs,
+-): string {
+-  const parts: string[] = [];
+-
+-  parts.push('## Target Jobs');
+-  parts.push('');
+-  parts.push(renderTargetJobsTable(inputs.targetJobs));
+-  parts.push('');
+-
+-  parts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
+-  parts.push('');
+-  parts.push('```');
+-  parts.push(inputs.jobReportFormat);
+-  parts.push('```');
+-  parts.push('');
+-
+-  parts.push('## Overall Report Skeleton (`overallTemplate`)');
+-  parts.push('');
+-  parts.push('```');
+-  parts.push(inputs.overallTemplate);
+-  parts.push('```');
+-  parts.push('');
++): Array<{ role: 'user'; content: string }> {
++  // 1つ目: 判定基準コンテキスト
++  const contextParts: string[] = [];
++
++  contextParts.push('## Target Jobs');
++  contextParts.push('');
++  contextParts.push(renderTargetJobsTable(inputs.targetJobs));
++  contextParts.push('');
++
++  contextParts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
++  contextParts.push('');
++  contextParts.push('```');
++  contextParts.push(inputs.jobReportFormat);
++  contextParts.push('```');
++  contextParts.push('');
++
++  contextParts.push('## Overall Report Skeleton (`overallTemplate`)');
++  contextParts.push('');
++  contextParts.push('```');
++  contextParts.push(inputs.overallTemplate);
++  contextParts.push('```');
++  contextParts.push('');
+ 
+   if (inputs.stageOrder.length > 0) {
+-    parts.push('## Stage Execution Order');
+-    parts.push('');
+-    parts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
+-    parts.push('');
++    contextParts.push('## Stage Execution Order');
++    contextParts.push('');
++    contextParts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
++    contextParts.push('');
    }
  
-@@ -146,6 +151,14 @@ export function parsePipelineReportArgs(
-   const treeMaxDepth =
-     treeMaxDepthRaw !== undefined ? parsePositiveInt(treeMaxDepthRaw, 'tree-max-depth') : undefined;
- 
-+  // 完成判定スキップ（CLI > env > default(false)）
-+  const skipCompletenessCheck =
-+    parsed['skipCompletenessCheck'] !== undefined
-+      ? (parsed['skipCompletenessCheck'] as boolean)
-+      : env['PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK'] !== undefined
-+        ? env['PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK'] === 'true'
-+        : false;
+-  parts.push('## Current Report Contents');
+-  parts.push('');
+-  parts.push('```');
+-  parts.push(inputs.currentReportContent);
+-  parts.push('```');
+-
+-  return parts.join('\n');
++  // 2つ目: レポート本文
++  const reportParts: string[] = [];
++  reportParts.push('## Current Report Contents');
++  reportParts.push('');
++  reportParts.push('```');
++  reportParts.push(inputs.currentReportContent);
++  reportParts.push('```');
 +
-   return {
-     userId: (parsed['userId'] as string) ?? env['USER_ID'],
-     projectId: (parsed['projectId'] as string) ?? env['GITLAB_PROJECT_ID'],
-@@ -169,5 +182,6 @@ export function parsePipelineReportArgs(
-     resultFile,
-     maxCompletenessRetries,
-     treeMaxDepth,
-+    skipCompletenessCheck,
-   };
++  return [
++    { role: 'user' as const, content: contextParts.join('\n') },
++    { role: 'user' as const, content: reportParts.join('\n') },
++  ];
  }
-diff --git a/src/cli/server/__tests__/index.test.ts b/src/cli/server/__tests__/index.test.ts
-new file mode 100644
-index 0000000..0decfff
---- /dev/null
-+++ b/src/cli/server/__tests__/index.test.ts
-@@ -0,0 +1,16 @@
-+import { describe, it, expect } from 'vitest';
-+import { serverCliModule } from '../index.js';
-+
-+describe('serverCliModule', () => {
-+  it('name が server であること', () => {
-+    expect(serverCliModule.name).toBe('server');
-+  });
-+
-+  it('description が空でないこと', () => {
-+    expect(serverCliModule.description.length).toBeGreaterThan(0);
-+  });
-+
-+  it('run が関数であること', () => {
-+    expect(typeof serverCliModule.run).toBe('function');
-+  });
-+});
-diff --git a/src/cli/server/index.ts b/src/cli/server/index.ts
-new file mode 100644
-index 0000000..709e66a
---- /dev/null
-+++ b/src/cli/server/index.ts
-@@ -0,0 +1,13 @@
-+import type { CliFeatureModule } from '../dispatch.js';
-+
-+// serverサブコマンド: APIサーバーを起動する
-+export const serverCliModule: CliFeatureModule = {
-+  name: 'server',
-+  description: 'Start the API server',
-+  run: async (): Promise<void> => {
-+    // dist/server.js を動的importし、CLIバンドルの肥大化を防ぐ
-+    const serverPath = new URL('./server.js', import.meta.url).href;
-+    const { startServer } = await import(serverPath);
-+    await startServer();
-+  },
-+};
-diff --git a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
-index 75d8404..b1a2aed 100644
---- a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
-+++ b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
-@@ -10,7 +10,7 @@ const DEFAULT_JOB_REPORT_FORMAT = `### ジョブ #<jobId> — \`<jobName>\` (<st
- 
- - **実行時間:** <duration>
- - **Web URL:** <webUrl>
--- **AI 総合評価:** <以下の3つから1つだけ選ぶ: 「問題なし」「要注意」「問題あり」。「問題なし」= ログ・アーティファクトの観察範囲で特筆すべき懸念がない場合 / 「要注意」= GitLab 上は成功だが警告・スキップ・無視されたエラー等の疑わしい徴候がある、または失敗だが影響範囲が軽微な場合（要注意を出し過ぎてもユーザの認知負担が増えるので、真にユーザが確認すべきジョブに限定すること。警告がでているが、そこまで重要度・緊急度が高くない場合は問題なしとし、検出された問題に要注意な内容を記載すること） / 「問題あり」= ジョブが失敗している、または成功していても明確な問題（テストスキップ、エラー握り潰し、重要なリグレッション等）が検出されている場合>
-+- **AI 総合評価:** <以下の3つから1つだけ選ぶ: 「問題なし」「要注意」「問題あり」。「問題なし」= ログ・アーティファクトの観察範囲で特筆すべき懸念がない場合 / 「要注意」= GitLab 上は成功だが警告・スキップ・無視されたエラー等の疑わしい徴候がある、または失敗だが影響範囲が軽微な場合（要注意を出し過ぎてもユーザの認知負担が増えるので、真にユーザが確認すべきジョブに限定すること。つまり、ユーザがプロジェクトのコードベースを確認し必要によっては修正パッチをリリースしなければならない可能性がある場合は「要注意」とすること。警告がでているがユーザのコードベースに対してそこまで重要度・緊急度が高くない場合は問題なしとし、検出された問題に警告内容を記載すること） / 「問題あり」= ジョブが失敗している、または成功していても明確な問題（テストスキップ、エラー握り潰し、重要なリグレッション等）が検出されている場合>
- 
- **概要**
- <1〜3文でこのジョブの顛末を要約>
-@@ -18,8 +18,8 @@ const DEFAULT_JOB_REPORT_FORMAT = `### ジョブ #<jobId> — \`<jobName>\` (<st
- **検出された問題**
- <箇条書きで具体的な問題を列挙。GitLab 上は成功していても、ログから疑わしい徴候が見つかれば必ず記載する。何も検出されなかった場合は「検出なし」と書く>
- 
--**根拠（ログ・アーティファクト）**
--- \`<ログ行またはアーティファクト抜粋>\` — <なぜこれが根拠になるのか>
-+**根拠（ログ・アーティファクト・コードベース）**
-+- \`<ログ行またはアーティファクト抜粋>\` — <なぜこれが根拠になるのか。アーティファクトについては中身を見て何かしらの判断をしたのか、それとも存在を確認して根拠としたのかわかる様に記載>
- 
- **推奨される次のアクション**
- <具体的なアクション、または「特になし」>
-diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
-index b871a43..ce3a618 100644
---- a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
-+++ b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
-@@ -23,6 +23,7 @@ export interface PipelineReportApiRequest {
-   };
-   commentLanguage: string;
-   maxCompletenessRetries: number;
-+  skipCompletenessCheck: boolean;
-   skillsRelPaths: string[];
-   /** フォルダツリー走査の最大深度。undefined なら無制限 */
-   treeMaxDepth: number | undefined;
-diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts b/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
-index c7c18f1..900c1ee 100644
---- a/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
-+++ b/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
-@@ -62,6 +62,7 @@ describe('PipelineReportApiClient', () => {
-     },
-     commentLanguage: 'Japanese',
-     maxCompletenessRetries: 3,
-+    skipCompletenessCheck: false,
-     skillsRelPaths: [],
-     treeMaxDepth: undefined,
-   };
-diff --git a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
-index fecbccf..4f014cc 100644
---- a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
-+++ b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
-@@ -117,6 +117,7 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
-         resultFilePath: params.resultFilePath,
-         commentLanguage: params.commentLanguage,
-         maxCompletenessRetries: params.maxCompletenessRetries,
-+        skipCompletenessCheck: params.skipCompletenessCheck,
-       };
- 
-       // RequestContext: workflow の requestContextSchema に合致するフィールドを詰める
-diff --git a/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts b/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
-index 43cb47e..2e36fc9 100644
---- a/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
-+++ b/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
-@@ -96,6 +96,7 @@ function createParams(
-     artifactCacheStatuses,
-     mergedYaml: 'stages:\n  - build\n  - test\n',
-     maxCompletenessRetries: 2,
-+    skipCompletenessCheck: false,
-     aiConfig: {
-       apiKey: 'test-api-key',
-       endpointUrl: 'https://api.example.com/v1',
-@@ -162,6 +163,7 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
-     expect(startArg.inputData.resultFilePath).toBe(params.resultFilePath);
-     expect(startArg.inputData.commentLanguage).toBe(params.commentLanguage);
-     expect(startArg.inputData.maxCompletenessRetries).toBe(params.maxCompletenessRetries);
-+    expect(startArg.inputData.skipCompletenessCheck).toBe(false);
- 
-     // requestContext: PipelineAnalysisAgentRequestContext の主要フィールド
-     const ctx = startArg.requestContext;
-diff --git a/src/mastra/pipeline-report/workflows/__tests__/pipelineAnalysisWorkflow.test.ts b/src/mastra/pipeline-report/workflows/__tests__/pipelineAnalysisWorkflow.test.ts
-index 65c25e1..da85b41 100644
---- a/src/mastra/pipeline-report/workflows/__tests__/pipelineAnalysisWorkflow.test.ts
-+++ b/src/mastra/pipeline-report/workflows/__tests__/pipelineAnalysisWorkflow.test.ts
-@@ -30,6 +30,7 @@ describe('pipelineAnalysisWorkflow', () => {
-       resultFilePath: '/tmp/report.md',
-       commentLanguage: 'Japanese',
-       maxCompletenessRetries: 3,
-+      skipCompletenessCheck: false,
-     };
- 
-     const result = workflowInputSchema.safeParse(validInput);
-@@ -37,6 +38,27 @@ describe('pipelineAnalysisWorkflow', () => {
-     expect(result.success).toBe(true);
-   });
- 
-+  it('入力スキーマは skipCompletenessCheck=true を受け付ける', () => {
-+    const input = {
-+      initialUserPrompt: 'Analyze',
-+      targetJobs: [],
-+      overallTemplate: '# Report',
-+      jobReportFormat: '### Job',
-+      additionalInstructions: null,
-+      resultFilePath: '/tmp/report.md',
-+      commentLanguage: 'Japanese',
-+      maxCompletenessRetries: 0,
-+      skipCompletenessCheck: true,
-+    };
-+
-+    const result = workflowInputSchema.safeParse(input);
-+
-+    expect(result.success).toBe(true);
-+    if (result.success) {
-+      expect(result.data.skipCompletenessCheck).toBe(true);
-+    }
-+  });
-+
-   it('入力スキーマは不正な入力（必須フィールド欠落）を拒否する', () => {
-     const invalidInput = {
-       initialUserPrompt: 'Analyze',
-@@ -58,6 +80,7 @@ describe('pipelineAnalysisWorkflow', () => {
-       resultFilePath: '/tmp/report.md',
-       commentLanguage: 'Japanese',
-       maxCompletenessRetries: 0,
-+      skipCompletenessCheck: false,
-     };
- 
-     const result = workflowInputSchema.safeParse(input);
-diff --git a/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts b/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
-index 0286e0c..2e241d5 100644
---- a/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
-+++ b/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
-@@ -60,6 +60,8 @@ export const workflowInputSchema = z.object({
-   commentLanguage: z.string(),
-   /** completeness verify の再実行上限 */
-   maxCompletenessRetries: z.number().int().nonnegative(),
-+  /** completeness verify をスキップするか */
-+  skipCompletenessCheck: z.boolean(),
- });
  
  /**
-@@ -182,14 +184,28 @@ const analyzeAndVerifyStep = createStep({
-       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
-     });
- 
--    // 2. judge agent で完成判定
-+    // 2. skipCompletenessCheck が有効な場合は判定をスキップ
-+    if (initData.skipCompletenessCheck) {
-+      logger.info('Completeness check skipped by skipCompletenessCheck flag');
-+      return {
-+        prompt: inputData.prompt,
-+        threadId: analysis.finalThreadId,
-+        isComplete: true,
-+        feedbackPrompt: null,
-+        contextLengthRecoveries:
-+          inputData.contextLengthRecoveries + analysis.contextLengthRecoveries,
-+        completenessRetries: 0,
-+      };
-+    }
-+
-+    // 3. judge agent で完成判定
-     const verify = await verifyCompletenessStep({
-       judgeAgent,
-       requestContext: typedContext,
-       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
-     });
- 
--    // 3. 次イテレーションの状態を構築
-+    // 4. 次イテレーションの状態を構築
-     let nextPrompt = inputData.prompt;
-     let nextFeedbackPrompt: string | null = null;
- 
-diff --git a/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts b/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
-index 70182f0..64efcb8 100644
---- a/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
-+++ b/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
-@@ -113,6 +113,24 @@ describe('pipelineReportRequestSchema', () => {
-     const result = pipelineReportRequestSchema.safeParse(input);
-     expect(result.success).toBe(true);
+diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
+index 5c22d1a..fb89308 100644
+--- a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
++++ b/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
+@@ -87,7 +87,6 @@ describe('buildCompletenessFeedbackPrompt', () => {
+     expect(result).toContain('Issues');
+     expect(result).toContain("Job #1 'build'");
+     expect(result).toContain("Job #2 'test'");
+-    expect(result).toContain('patch-report');
    });
-+
-+  it('skipCompletenessCheck=true のリクエストが通ること', () => {
-+    const input = { ...createValidRequestBody(), skipCompletenessCheck: true };
-+    const result = pipelineReportRequestSchema.safeParse(input);
-+    expect(result.success).toBe(true);
-+    if (result.success) {
-+      expect(result.data.skipCompletenessCheck).toBe(true);
-+    }
-+  });
-+
-+  it('skipCompletenessCheck が省略された場合にデフォルト false となること', () => {
-+    const input = createValidRequestBody();
-+    const result = pipelineReportRequestSchema.safeParse(input);
-+    expect(result.success).toBe(true);
-+    if (result.success) {
-+      expect(result.data.skipCompletenessCheck).toBe(false);
-+    }
-+  });
  });
  
- describe('buildPipelineReportSettings', () => {
-diff --git a/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts b/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
-index b2c35a2..87510e8 100644
---- a/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
-+++ b/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
-@@ -377,6 +377,7 @@ describe('pipelineReportRoute', () => {
-       expect(command.aiConfig.modelName).toBe('test-server-model');
-       expect(command.maxContextLength).toBeNull();
-       expect(command.options.maxCompletenessRetries).toBe(3);
-+      expect(command.options.skipCompletenessCheck).toBe(false);
-       expect(command.settings.includeJobPatterns.length).toBe(1);
-       expect(command.settings.includeJobPatterns[0].source).toBe('^test:');
-     });
-diff --git a/src/presentation/api/pipeline-report/pipelineReportHandler.ts b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-index 6ec9a7f..1ba6fb4 100644
---- a/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-+++ b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-@@ -43,6 +43,7 @@ export const pipelineReportRequestSchema = z.object({
-     .optional(),
-   commentLanguage: z.string().min(1),
-   maxCompletenessRetries: z.number().int().min(0),
-+  skipCompletenessCheck: z.boolean().optional().default(false),
-   skillsRelPaths: z.array(z.string()),
-   /** フォルダツリー走査の最大深度。省略時は無制限 */
-   treeMaxDepth: z.number().int().positive().optional(),
-@@ -342,6 +343,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
-           treeMaxDepth: request.treeMaxDepth,
-           options: {
-             maxCompletenessRetries: request.maxCompletenessRetries,
-+            skipCompletenessCheck: request.skipCompletenessCheck ?? false,
-           },
-           onProgress,
-         });
-diff --git a/src/server.ts b/src/server.ts
-index bdf4507..c097818 100644
---- a/src/server.ts
-+++ b/src/server.ts
-@@ -260,13 +260,3 @@ export async function startServer(): Promise<void> {
-   process.on('SIGTERM', shutdown);
-   process.on('SIGINT', shutdown);
- }
--
--// エントリーポイント（直接実行時のみ起動、テストやimport時には起動しない）
--const isMainModule =
--  process.argv[1]?.endsWith('server.js') || process.argv[1]?.endsWith('server.ts');
--if (isMainModule) {
--  startServer().catch((error) => {
--    console.error('Failed to start API server:', error);
--    process.exit(1);
--  });
--}
+@@ -135,6 +134,33 @@ describe('verifyCompletenessStep', () => {
+     resetRateLimiter();
+   });
+ 
++  it('judge agentに2つのuserメッセージが渡される', async () => {
++    const judgeGenerate = vi.fn().mockResolvedValue({
++      object: { isComplete: true, reasons: [] },
++    });
++
++    const config: VerifyCompletenessStepConfig = {
++      judgeAgent: createMockAgent(judgeGenerate),
++      requestContext: createTestRequestContext({ resultFilePath }),
++      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
++    };
++
++    await verifyCompletenessStep(config);
++
++    const prompt = judgeGenerate.mock.calls[0][0] as Array<{ role: string; content: string }>;
++    expect(Array.isArray(prompt)).toBe(true);
++    expect(prompt).toHaveLength(2);
++    expect(prompt[0].role).toBe('user');
++    expect(prompt[1].role).toBe('user');
++    // 1つ目: 判定基準コンテキスト
++    expect(prompt[0].content).toContain('Target Jobs');
++    expect(prompt[0].content).toContain('jobReportFormat');
++    expect(prompt[0].content).not.toContain('Current Report Contents');
++    // 2つ目: レポート本文
++    expect(prompt[1].content).toContain('Current Report Contents');
++    expect(prompt[1].content).toContain('# Report\n(initial)');
++  });
++
+   it('isComplete=true の場合、完了で feedbackPrompt=null を返す', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+diff --git a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
+index 68f91f9..7cbfb82 100644
+--- a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
++++ b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
+@@ -53,7 +53,7 @@ export function buildCompletenessFeedbackPrompt(judgement: ReportCompletenessJud
+   parts.push('## Completeness Review Feedback');
+   parts.push('');
+   parts.push(
+-    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn. Use get-report to re-read the current file, then use patch-report for precise edits.',
++    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn.',
+   );
+   parts.push('');
+ 
+@@ -106,7 +106,7 @@ async function callJudgeAgent(params: {
+   const { judgeAgent, requestContext, currentReportContent, rateLimitRetryConfig } = params;
+   const ctx = requestContext.all;
+ 
+-  const userPrompt = buildReportCompletenessJudgeUserPrompt({
++  const userMessages = buildReportCompletenessJudgeUserPrompt({
+     currentReportContent,
+     targetJobs: ctx.targetJobs,
+     jobReportFormat: ctx.jobReportFormat,
+@@ -140,7 +140,7 @@ async function callJudgeAgent(params: {
+   );
+ 
+   const result = await withRateLimitRetry(
+-    () => judgeAgent.generate(userPrompt, generateOptions),
++    () => judgeAgent.generate(userMessages, generateOptions),
+     rateLimitRetryConfig,
+     { projectId: ctx.projectId },
+   );
