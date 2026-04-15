@@ -225,9 +225,16 @@ export function createWorkspaceFromContext(ctx: ReviewAgentRequestContext): Work
     filesystem: new LocalFilesystem({
       basePath: ctx.projectDir,
       readOnly: true,
+      // Mastraデフォルトの "File access is restricted to this directory." は
+      // エージェントにフォルダツリー探索不可と誤解させる恐れがあるため、
+      // コードベースの所在と相対パス利用を明示したinstructionsに置き換える
+      instructions: `The project codebase is located at "${ctx.projectDir}". The folder tree provided in the user message reflects the contents of this directory. Use relative paths (e.g. "src/index.ts") to access files.`,
     }),
     sandbox: new LocalSandbox({
       workingDirectory: ctx.projectDir,
+      // Mastraデフォルトと同等だが、明示的に指定することで
+      // 将来のMastraバージョン変更による意図しない変更を防ぐ
+      instructions: `Local command execution. Working directory: "${ctx.projectDir}".`,
     }),
     skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
     tools: WORKSPACE_TOOLS_CONFIG,
