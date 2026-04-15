@@ -17,6 +17,8 @@ export interface BuildPipelineUserPromptParams {
   artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>;
   folderTree: string;
   folderTreeStripped: boolean;
+  /** CI/CD ジョブ定義（merged YAML）。取得できなかった場合は null */
+  mergedYaml: string | null;
 }
 
 /**
@@ -146,6 +148,23 @@ function renderArtifactPaths(
 }
 
 /**
+ * CI/CD Job Definitions セクションを組み立てる。
+ * mergedYaml が null の場合は空文字列を返し、非 null の場合はコードブロックで提示する。
+ */
+function renderJobDefinitionsSection(mergedYaml: string | null): string {
+  if (mergedYaml === null) {
+    return '';
+  }
+  return `## CI/CD Job Definitions (merged YAML)
+
+The following is the fully resolved CI/CD configuration. Use it to understand what each job is configured to do.
+
+\`\`\`yaml
+${mergedYaml}
+\`\`\``;
+}
+
+/**
  * Source Code Paths セクションを組み立てる。
  */
 function renderSourceCodePaths(folderTree: string, folderTreeStripped: boolean): string {
@@ -175,6 +194,7 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams): 
     artifactCacheStatuses,
     folderTree,
     folderTreeStripped,
+    mergedYaml,
   } = params;
 
   // Pipeline セクション
@@ -196,6 +216,9 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams): 
     renderJobsTable(targetJobs),
   ].join('\n');
 
+  // CI/CD Job Definitions セクション（条件付き）
+  const jobDefinitionsSection = renderJobDefinitionsSection(mergedYaml);
+
   // Job Logs セクション
   const jobLogsSection = ['## Job Logs', '', renderJobLogs(targetJobs, jobLogs)].join('\n');
 
@@ -213,11 +236,13 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams): 
     renderSourceCodePaths(folderTree, folderTreeStripped),
   ].join('\n');
 
-  return [
+  const sections = [
     pipelineSection,
     jobsSection,
+    ...(jobDefinitionsSection ? [jobDefinitionsSection] : []),
     jobLogsSection,
     artifactPathsSection,
     sourceCodeSection,
-  ].join('\n\n');
+  ];
+  return sections.join('\n\n');
 }

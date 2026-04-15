@@ -440,36 +440,22 @@ describe('buildInstructions', () => {
     expect(result).not.toContain('CI/CD Job Definitions');
   });
 
-  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションが YAML コードブロック付きで含まれる', () => {
+  it('mergedYaml が指定されても、system プロンプトには CI/CD Job Definitions セクションが含まれない（user プロンプト側で提供）', () => {
     const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
     const ctx = createTestRequestContext({ mergedYaml: yaml });
 
     const result = buildInstructions(ctx);
 
-    expect(result).toContain('CI/CD Job Definitions');
-    expect(result).toContain(yaml);
-    expect(result).toContain('```yaml');
+    expect(result).not.toContain('CI/CD Job Definitions');
+    expect(result).not.toContain('```yaml');
   });
 
-  it('mergedYaml が指定された場合、Role Definition に job definitions が含まれる', () => {
+  it('mergedYaml が指定された場合でも、Role Definition に job definitions への言及が含まれる', () => {
     const ctx = createTestRequestContext({ mergedYaml: 'stages:\n  - build\n' });
 
     const result = buildInstructions(ctx);
 
     expect(result).toMatch(/CI\/CD job definitions/i);
-  });
-
-  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションは Target Jobs の後、Reasoning Framework の前に配置される', () => {
-    const ctx = createTestRequestContext({ mergedYaml: 'stages:\n  - build\n' });
-
-    const result = buildInstructions(ctx);
-
-    const targetJobsIdx = result.indexOf('Target Jobs');
-    const jobDefsIdx = result.indexOf('CI/CD Job Definitions');
-    const reactIdx = result.indexOf('Reasoning Framework');
-    expect(targetJobsIdx).toBeGreaterThanOrEqual(0);
-    expect(jobDefsIdx).toBeGreaterThan(targetJobsIdx);
-    expect(jobDefsIdx).toBeLessThan(reactIdx);
   });
 
   it('folderTreeStripped=true かつ workspaceAvailable=false の場合、workspace tools への言及は含まれない', () => {
@@ -536,6 +522,59 @@ describe('buildUserPrompt', () => {
     expect(result).toContain('SRC_TREE_MARKER');
     // folderTreeStripped=true の注記
     expect(result).toMatch(/stripped|strip/i);
+  });
+});
+
+describe('buildUserPrompt - mergedYaml', () => {
+  it('mergedYaml が指定された場合、user プロンプトに CI/CD Job Definitions セクションが含まれる', () => {
+    const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
+    const ctx = createTestRequestContext({ mergedYaml: yaml });
+    const pipeline = Pipeline.of({
+      projectId: 1,
+      pipelineId: 2,
+      ref: 'main',
+      sha: 'abc123',
+      status: 'success',
+      webUrl: 'https://example.com/p/1/pipelines/2',
+      createdAt: new Date('2026-04-11T09:00:00Z'),
+      updatedAt: new Date('2026-04-11T09:05:00Z'),
+    });
+
+    const result = buildUserPrompt(ctx, {
+      pipeline,
+      targetJobs: [],
+      jobLogs: new Map(),
+      artifactTrees: [],
+      artifactCacheStatuses: new Map(),
+    });
+
+    expect(result).toContain('CI/CD Job Definitions');
+    expect(result).toContain(yaml);
+    expect(result).toContain('```yaml');
+  });
+
+  it('mergedYaml=null の場合、user プロンプトに CI/CD Job Definitions セクションが含まれない', () => {
+    const ctx = createTestRequestContext({ mergedYaml: null });
+    const pipeline = Pipeline.of({
+      projectId: 1,
+      pipelineId: 2,
+      ref: 'main',
+      sha: 'abc123',
+      status: 'success',
+      webUrl: 'https://example.com/p/1/pipelines/2',
+      createdAt: new Date('2026-04-11T09:00:00Z'),
+      updatedAt: new Date('2026-04-11T09:05:00Z'),
+    });
+
+    const result = buildUserPrompt(ctx, {
+      pipeline,
+      targetJobs: [],
+      jobLogs: new Map(),
+      artifactTrees: [],
+      artifactCacheStatuses: new Map(),
+    });
+
+    expect(result).not.toContain('CI/CD Job Definitions');
   });
 });
 

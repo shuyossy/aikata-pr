@@ -84,25 +84,6 @@ ${additional}
 }
 
 /**
- * CI/CD Job Definitions セクションを組み立てる。
- * mergedYaml が null の場合は空文字列を返し、非 null の場合はコードブロックで提示する。
- */
-function renderJobDefinitionsSection(mergedYaml: string | null): string {
-  if (mergedYaml === null) {
-    return '';
-  }
-  return `## CI/CD Job Definitions (merged YAML)
-
-The following is the fully resolved CI/CD configuration. Use it to understand what each job is configured to do.
-
-\`\`\`yaml
-${mergedYaml}
-\`\`\`
-
-`;
-}
-
-/**
  * Tool Catalog セクションを組み立てる
  * 常時登録ツールに加え、omittedJobLogs / hasImages の状況に応じて説明を追加する
  */
@@ -239,7 +220,6 @@ export function buildInstructions(
   const targetJobsTable = renderTargetJobsTable(ctx.targetJobs);
   const stageOrder = deriveStageOrder(ctx.targetJobs);
   const additionalSection = renderAdditionalInstructionsSection(ctx.additionalInstructions);
-  const jobDefinitionsSection = renderJobDefinitionsSection(ctx.mergedYaml);
   const toolCatalog = renderToolCatalog(ctx);
   const compressionNotes = renderCompressionNotes(ctx);
 
@@ -285,7 +265,7 @@ You must produce a block for every job in the following table:
 
 ${targetJobsTable}
 
-${jobDefinitionsSection}## Reasoning Framework (ReAct)
+## Reasoning Framework (ReAct)
 
 For each target job, apply the Reason-Act-Observe cycle until you can confidently write its block:
 
@@ -356,6 +336,7 @@ export function buildUserPrompt(
     artifactCacheStatuses: inputs.artifactCacheStatuses,
     folderTree: ctx.folderTree,
     folderTreeStripped: ctx.folderTreeStripped,
+    mergedYaml: ctx.mergedYaml,
   };
   return buildPipelineUserPrompt(params);
 }

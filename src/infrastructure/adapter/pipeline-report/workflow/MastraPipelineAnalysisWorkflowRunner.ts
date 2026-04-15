@@ -106,6 +106,7 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
         artifactCacheStatuses,
         folderTree: params.folderTree,
         folderTreeStripped: params.folderTreeStripped,
+        mergedYaml: params.mergedYaml,
       });
 
       // workflow inputSchema に対応する inputData

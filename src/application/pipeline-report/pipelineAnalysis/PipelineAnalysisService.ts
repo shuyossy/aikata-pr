@@ -188,6 +188,7 @@ export class PipelineAnalysisService {
         artifactTrees,
         artifactCacheStatuses,
         folderTree,
+        mergedYaml,
       );
 
       // Step 10: 一時ファイルにレポートテンプレートを書き込み（review機能と同パターン）
@@ -307,6 +308,7 @@ export class PipelineAnalysisService {
     artifactTrees: ArtifactTree[],
     artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>,
     folderTree: string,
+    mergedYaml: string | null,
   ): {
     compressed: boolean;
     compressedJobLogs: Map<number, string>;
@@ -325,6 +327,7 @@ export class PipelineAnalysisService {
         artifactCacheStatuses,
         folderTree: ft,
         folderTreeStripped: false,
+        mergedYaml,
       });
 
     if (command.maxContextLength === null) {

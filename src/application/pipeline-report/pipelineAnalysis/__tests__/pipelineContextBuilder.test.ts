@@ -81,6 +81,7 @@ describe('buildPipelineUserPrompt', () => {
       artifactCacheStatuses,
       folderTree,
       folderTreeStripped: false,
+      mergedYaml: null,
     });
 
     // Pipeline セクション
@@ -126,6 +127,7 @@ describe('buildPipelineUserPrompt', () => {
       artifactCacheStatuses: new Map([[5001, { kind: 'no-artifacts' }]]),
       folderTree: 'src/\n  (files omitted)',
       folderTreeStripped: true,
+      mergedYaml: null,
     });
 
     expect(prompt).toContain('file entries were stripped');
@@ -144,6 +146,7 @@ describe('buildPipelineUserPrompt', () => {
       ]),
       folderTree: 'src/',
       folderTreeStripped: false,
+      mergedYaml: null,
     });
 
     expect(prompt).toContain('artifact zip too large');
@@ -162,6 +165,7 @@ describe('buildPipelineUserPrompt', () => {
       artifactCacheStatuses: new Map([[5004, { kind: 'no-artifacts' }]]),
       folderTree: 'src/',
       folderTreeStripped: false,
+      mergedYaml: null,
     });
 
     expect(prompt).toContain('no artifacts');
@@ -180,6 +184,7 @@ describe('buildPipelineUserPrompt', () => {
       ]),
       folderTree: 'src/',
       folderTreeStripped: false,
+      mergedYaml: null,
     });
 
     expect(prompt).toContain('disk quota exceeded');
@@ -196,6 +201,7 @@ describe('buildPipelineUserPrompt', () => {
       artifactCacheStatuses: new Map([[5006, { kind: 'error', reason: 'network timeout' }]]),
       folderTree: 'src/',
       folderTreeStripped: false,
+      mergedYaml: null,
     });
 
     expect(prompt).toContain('artifact fetch error');
@@ -212,6 +218,7 @@ describe('buildPipelineUserPrompt', () => {
       artifactCacheStatuses: new Map(),
       folderTree: 'src/',
       folderTreeStripped: false,
+      mergedYaml: null,
     });
 
     // Jobs ヘッダは存在する
@@ -230,6 +237,7 @@ describe('buildPipelineUserPrompt', () => {
       artifactCacheStatuses: new Map([[5007, { kind: 'no-artifacts' }]]),
       folderTree: 'src/',
       folderTreeStripped: false,
+      mergedYaml: null,
     });
 
     expect(prompt).toContain('Job #5007');
@@ -247,8 +255,66 @@ describe('buildPipelineUserPrompt', () => {
       artifactCacheStatuses: new Map(),
       folderTree: '',
       folderTreeStripped: false,
+      mergedYaml: null,
     });
 
     expect(prompt).toContain('777');
+  });
+
+  it('mergedYaml=null の場合、CI/CD Job Definitions セクションが含まれない', () => {
+    const pipeline = createPipeline();
+    const prompt = buildPipelineUserPrompt({
+      pipeline,
+      targetJobs: [],
+      jobLogs: new Map(),
+      artifactTrees: [],
+      artifactCacheStatuses: new Map(),
+      folderTree: 'src/',
+      folderTreeStripped: false,
+      mergedYaml: null,
+    });
+
+    expect(prompt).not.toContain('CI/CD Job Definitions');
+  });
+
+  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションが YAML コードブロック付きで含まれる', () => {
+    const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
+    const pipeline = createPipeline();
+    const prompt = buildPipelineUserPrompt({
+      pipeline,
+      targetJobs: [],
+      jobLogs: new Map(),
+      artifactTrees: [],
+      artifactCacheStatuses: new Map(),
+      folderTree: 'src/',
+      folderTreeStripped: false,
+      mergedYaml: yaml,
+    });
+
+    expect(prompt).toContain('CI/CD Job Definitions');
+    expect(prompt).toContain(yaml);
+    expect(prompt).toContain('```yaml');
+  });
+
+  it('mergedYaml が指定された場合、Jobs セクションの後、Job Logs セクションの前に配置される', () => {
+    const pipeline = createPipeline();
+    const job = createJob();
+    const prompt = buildPipelineUserPrompt({
+      pipeline,
+      targetJobs: [job],
+      jobLogs: new Map([[5001, 'log']]),
+      artifactTrees: [],
+      artifactCacheStatuses: new Map([[5001, { kind: 'no-artifacts' }]]),
+      folderTree: 'src/',
+      folderTreeStripped: false,
+      mergedYaml: 'stages:\n  - build\n',
+    });
+
+    const jobsSectionIdx = prompt.indexOf('## Jobs');
+    const jobDefsIdx = prompt.indexOf('## CI/CD Job Definitions');
+    const jobLogsIdx = prompt.indexOf('## Job Logs');
+    expect(jobsSectionIdx).toBeGreaterThanOrEqual(0);
+    expect(jobDefsIdx).toBeGreaterThan(jobsSectionIdx);
+    expect(jobDefsIdx).toBeLessThan(jobLogsIdx);
   });
 });
