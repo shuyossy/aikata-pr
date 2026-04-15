@@ -26,7 +26,7 @@
     - AI APIキーとエンドポイントが有効（ローカルモード時。APIモード時はAPIサーバー側で保持）
     - 対象の `$CI_PIPELINE_ID` が存在すること
     - 本ジョブ自身は `.post` ステージで `when: always` により起動され、先行ジョブが終了している想定
-  - 入力: PipelineAnalysisCommand（userId, projectId, pipelineId, selfJobId, gitlabToken, settings (PipelineReportSettings), skillsPaths, projectDir, aiApiKey, aiApiEndpointUrl, aiModelName, treeMaxDepth, commentLanguage, openaiReasoningEffort, maxContextLength, maxCompletenessRetries, resultFilePath）
+  - 入力: PipelineAnalysisCommand（userId, projectId, pipelineId, selfJobId, gitlabToken, settings (PipelineReportSettings: analysisInstructions, reportRefinementInstructions 等), skillsPaths, projectDir, aiApiKey, aiApiEndpointUrl, aiModelName, treeMaxDepth, commentLanguage, openaiReasoningEffort, maxContextLength, maxCompletenessRetries, resultFilePath）
   - 出力: PipelineAnalysisDto（reportContent, completenessVerified, completenessRetries）
   - メインフロー
     1. `pipelineGateway.getPipeline(projectId, pipelineId)` でパイプラインメタ情報を取得
@@ -40,7 +40,8 @@
     9. 閾値超過判定の上、`JobLogCompressor.compress(...)` で段階的圧縮（best-effort）
     10. `resultFilePath` に `OVERALL_REPORT_TEMPLATE` を書き込み（レポートファイル初期化）
     11. `workflowRunner.run(...)` で Mastra workflow を実行
-        - 内部で `executeAnalysisStep` → `verifyCompletenessStep` を反復し、`maxCompletenessRetries` まで完成判定ループを回す
+        - 内部で `executeAnalysisStep` → `reportFinalizationStep` を反復し、`maxCompletenessRetries` まで完成判定ループを回す
+        - `reportFinalizationStep` では `reportFinalizationJudgeAgent` が判定を行い、ジョブ欠落時は `pipelineAnalysisAgent` にフィードバック、仕上げのみ必要な場合は `reportRewriteAgent` が書き換えを実行する
     12. 完了後 `resultFilePath` の内容を読み出し、`AnalysisReport.of(content)` を生成して DTO で返却
     13. `finally` で `ArtifactCacheManager.cleanup()` により temp ディレクトリを削除
   - 例外

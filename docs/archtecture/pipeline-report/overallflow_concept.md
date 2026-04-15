@@ -1,7 +1,7 @@
 pipeline-report 機能（CI パイプライン結果の AI 分析レポート生成）の処理フロー概要を以下に示す。
 
 # 業務フロー（本プロジェクトを利用するユーザ目線）
-1. 任意で `pipeline-report-settings.json`（`jobReportFormat`, `additionalInstructions`, `includeJobPatterns`, `excludeJobPatterns`）を準備する
+1. 任意で `pipeline-report-settings.json`（`jobReportFormat`, `analysisInstructions`, `reportRefinementInstructions`, `includeJobPatterns`, `excludeJobPatterns`）を準備する
 2. `.gitlab-ci.yml` で `.ci-template/pipelines/pipeline-report/template.yml`（または `template-npx.yml`）を `include` する
    - 本ジョブは `.post` ステージで `when: always` のため、成功ジョブ・失敗ジョブを問わず同一パイプライン内の全ジョブが終了した後に実行される
 3. ジョブ実行後、生成された `aikata-pipeline-report.md` が artifacts として残る
@@ -53,7 +53,7 @@ analyze(command)
 11. workflowRunner.run({ targetJobs, jobLogsCompressed, omittedJobLogs,
                          artifactTrees, folderTree, folderTreeStripped,
                          pipelineMeta, overallTemplate, jobReportFormat,
-                         additionalInstructions, commentLanguage,
+                         analysisInstructions, reportRefinementInstructions, commentLanguage,
                          skillsPaths, resultFilePath, maxCompletenessRetries })
 12. fs.readFile(resultFilePath) → AnalysisReport.of(content)
 13. finally: artifactCacheManager.cleanup()
@@ -84,22 +84,25 @@ pipelineAnalysisWorkflow
  │    │    └─ contextLengthRecovery (最大 3 回)
  │    │         ├─ pipelineReportSummarizationAgent で履歴要約
  │    │         └─ 新スレッドで継続プロンプトを投入
- │    └─ ステップ完了 → verifyCompletenessStep へ
+ │    └─ ステップ完了 → reportFinalizationStep へ
  │
- └─ verifyCompletenessStep
+ └─ reportFinalizationStep
       ├─ fs.readFile(resultFilePath)
-      ├─ reportCompletenessJudgeAgent.generate(...)
-      │    └─ JSON 出力: { isComplete, missingItems[], formatDeviations[] }
-      ├─ isComplete === true
+      ├─ reportFinalizationJudgeAgent.generate(...)
+      │    └─ JSON 出力: { hasMissingJobs, missingJobReasons[], finalizationNeeded, finalizationActions[] }
+      ├─ hasMissingJobs === false かつ finalizationNeeded === false
       │    └─ workflow 完了 → { reportContent, completenessVerified: true, completenessRetries: N }
-      └─ isComplete === false
-           ├─ completenessRetries < maxCompletenessRetries
-           │    ├─ missingItems / formatDeviations をフィードバックプロンプトにまとめる
-           │    ├─ 同一スレッドで pipelineAnalysisAgent.stream(feedback, ...) 再実行
-           │    └─ 再度 verifyCompletenessStep へ
-           └─ completenessRetries >= maxCompletenessRetries
-                └─ warning ログを出して workflow 完了
-                   → { reportContent, completenessVerified: false, completenessRetries: max }
+      ├─ hasMissingJobs === true
+      │    ├─ completenessRetries < maxCompletenessRetries
+      │    │    ├─ missingJobReasons をフィードバックプロンプトにまとめる
+      │    │    ├─ 同一スレッドで pipelineAnalysisAgent.stream(feedback, ...) 再実行
+      │    │    └─ 再度 reportFinalizationStep へ
+      │    └─ completenessRetries >= maxCompletenessRetries
+      │         └─ warning ログを出して workflow 完了
+      │            → { reportContent, completenessVerified: false, completenessRetries: max }
+      └─ hasMissingJobs === false かつ finalizationNeeded === true
+           ├─ reportRewriteAgent に現レポートと finalizationActions を渡して書き換え
+           └─ workflow 完了 → { reportContent, completenessVerified: true, completenessRetries: N }
 ```
 
 ## データフロー概略
@@ -120,7 +123,7 @@ UserPrompt (圧縮済みコンテキスト)
 pipelineAnalysisAgent  ── writeReport/patchReport ──▶ resultFilePath (Markdown)
       │
       ▼
-reportCompletenessJudgeAgent (JSON)
+reportFinalizationJudgeAgent (JSON) → reportRewriteAgent (書き換え、必要時のみ)
       │
       ▼
 AnalysisReport (content)

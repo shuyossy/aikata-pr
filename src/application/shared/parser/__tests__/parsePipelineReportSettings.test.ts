@@ -7,7 +7,7 @@ describe('parsePipelineReportSettings', () => {
   it('全フィールドを指定した JSON を正常にパースできる', () => {
     const json = JSON.stringify({
       jobReportFormat: '## {{jobName}} custom format',
-      additionalInstructions: '失敗しているテストに特に注目すること',
+      analysisInstructions: '失敗しているテストに特に注目すること',
       includeJobPatterns: ['^build:', '^test:'],
       excludeJobPatterns: ['^deploy:'],
     });
@@ -15,7 +15,7 @@ describe('parsePipelineReportSettings', () => {
     const settings = parsePipelineReportSettings(json);
 
     expect(settings.jobReportFormat).toBe('## {{jobName}} custom format');
-    expect(settings.additionalInstructions).toBe('失敗しているテストに特に注目すること');
+    expect(settings.analysisInstructions).toBe('失敗しているテストに特に注目すること');
     expect(settings.includeJobPatterns).toHaveLength(2);
     expect(settings.includeJobPatterns[0]).toBeInstanceOf(RegExp);
     expect(settings.includeJobPatterns[0].test('build:web')).toBe(true);
@@ -24,11 +24,22 @@ describe('parsePipelineReportSettings', () => {
     expect(settings.excludeJobPatterns[0].test('deploy:prod')).toBe(true);
   });
 
+  it('reportRefinementInstructions を指定した場合に正しくパースされる', () => {
+    const json = JSON.stringify({
+      reportRefinementInstructions: '問題なしのジョブは非表示にする',
+    });
+
+    const settings = parsePipelineReportSettings(json);
+
+    expect(settings.reportRefinementInstructions).toBe('問題なしのジョブは非表示にする');
+  });
+
   it('空 JSON の場合は全フィールドにデフォルト値が適用される', () => {
     const settings = parsePipelineReportSettings('{}');
 
     expect(settings.jobReportFormat).toBe(PipelineReportSettings.default().jobReportFormat);
-    expect(settings.additionalInstructions).toBeNull();
+    expect(settings.analysisInstructions).toBeNull();
+    expect(settings.reportRefinementInstructions).toBeNull();
     expect(settings.includeJobPatterns).toEqual([]);
     expect(settings.excludeJobPatterns).toEqual([]);
   });

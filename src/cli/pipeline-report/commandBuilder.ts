@@ -167,7 +167,8 @@ export function buildPipelineReportApiRequest(
     selfJobId: validated.selfJobId,
     settings: {
       jobReportFormat: settings.jobReportFormat,
-      additionalInstructions: settings.additionalInstructions,
+      analysisInstructions: settings.analysisInstructions,
+      reportRefinementInstructions: settings.reportRefinementInstructions,
       includeJobPatterns: settings.includeJobPatterns.map((re) => re.source),
       excludeJobPatterns: settings.excludeJobPatterns.map((re) => re.source),
     },

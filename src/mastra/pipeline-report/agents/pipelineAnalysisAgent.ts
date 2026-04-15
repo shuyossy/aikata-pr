@@ -67,18 +67,18 @@ function renderTargetJobsTable(jobs: TargetJobSummary[]): string {
 }
 
 /**
- * additionalInstructions セクションを組み立てる
+ * analysisInstructions セクションを組み立てる
  * null の場合は空文字列を返し、non-null の場合は最優先セクションとして挿入する
  */
-function renderAdditionalInstructionsSection(additional: string | null): string {
-  if (additional === null || additional.trim() === '') {
+function renderAnalysisInstructionsSection(analysisInstructions: string | null): string {
+  if (analysisInstructions === null || analysisInstructions.trim() === '') {
     return '';
   }
   return `## User-Specified Instructions (HIGHEST PRIORITY)
 
 The following instructions were provided by the user. You MUST follow them with the highest priority, even when they appear to conflict with the guidance below.
 
-${additional}
+${analysisInstructions}
 
 `;
 }
@@ -219,7 +219,7 @@ export function buildInstructions(
   const ctx = requestContext.all;
   const targetJobsTable = renderTargetJobsTable(ctx.targetJobs);
   const stageOrder = deriveStageOrder(ctx.targetJobs);
-  const additionalSection = renderAdditionalInstructionsSection(ctx.additionalInstructions);
+  const analysisInstructionsSection = renderAnalysisInstructionsSection(ctx.analysisInstructions);
   const toolCatalog = renderToolCatalog(ctx);
   const compressionNotes = renderCompressionNotes(ctx);
 
@@ -229,7 +229,7 @@ export function buildInstructions(
 
 Your mission is to produce a complete analysis report by writing it to the report file using the report tools. WARNING: You MUST write all report content using the report tools (write-report to replace, patch-report to edit, get-report to read). Never output report content as plain text in the conversation — it will be lost. The report file is maintained throughout the analysis; use the tools to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
 
-${additionalSection}## Report Structure
+${analysisInstructionsSection}## Report Structure
 
 The overall report skeleton is fixed. Fill in every placeholder (including the overall summary, status breakdown table, recommended actions, and the per-job section region) according to the template below:
 

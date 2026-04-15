@@ -11,7 +11,8 @@ import { PipelineReportSettingsParseError } from './PipelineReportSettingsParseE
 const schema = z
   .object({
     jobReportFormat: z.string().optional(),
-    additionalInstructions: z.string().nullable().optional(),
+    analysisInstructions: z.string().nullable().optional(),
+    reportRefinementInstructions: z.string().nullable().optional(),
     includeJobPatterns: z.array(z.string()).optional(),
     excludeJobPatterns: z.array(z.string()).optional(),
   })
@@ -65,7 +66,9 @@ export function parsePipelineReportSettings(jsonText: string): PipelineReportSet
 
   return PipelineReportSettings.of({
     jobReportFormat: parsed.data.jobReportFormat ?? defaults.jobReportFormat,
-    additionalInstructions: parsed.data.additionalInstructions ?? defaults.additionalInstructions,
+    analysisInstructions: parsed.data.analysisInstructions ?? defaults.analysisInstructions,
+    reportRefinementInstructions:
+      parsed.data.reportRefinementInstructions ?? defaults.reportRefinementInstructions,
     includeJobPatterns: compile(parsed.data.includeJobPatterns),
     excludeJobPatterns: compile(parsed.data.excludeJobPatterns),
   });

@@ -24,7 +24,10 @@ export interface PipelineAnalysisWorkflowParams {
   folderTreeStripped: boolean;
   overallTemplate: string;
   jobReportFormat: string;
-  additionalInstructions: string | null;
+  /** ユーザ指定の分析時追加指示（未指定は null） */
+  analysisInstructions: string | null;
+  /** ユーザ指定のレポート推敲時指示（未指定は null） */
+  reportRefinementInstructions: string | null;
   commentLanguage: string;
   skillsPaths: string[];
   resultFilePath: string;

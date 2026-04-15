@@ -36,7 +36,8 @@ function createTestContextObject(
     overallTemplate: '# パイプライン分析レポート\n{{job-sections}}',
     jobReportFormat:
       '### ジョブ #<jobId> — `<jobName>` (<stage> / <status>)\n**AI 総合評価:** <以下の3つから1つだけ選ぶ: 「問題なし」「要注意」「問題あり」>',
-    additionalInstructions: null,
+    analysisInstructions: null,
+    reportRefinementInstructions: null,
     commentLanguage: 'Japanese',
     resultFilePath: '/tmp/pipeline-report.md',
     skillsPaths: [],
@@ -268,8 +269,8 @@ describe('buildInstructions', () => {
     expect(result).toMatch(/strip/i);
   });
 
-  it('additionalInstructionsがnullの場合、User-Specified Instructionsセクションは含まれない', () => {
-    const ctx = createTestRequestContext({ additionalInstructions: null });
+  it('analysisInstructionsがnullの場合、User-Specified Instructionsセクションは含まれない', () => {
+    const ctx = createTestRequestContext({ analysisInstructions: null });
 
     const result = buildInstructions(ctx);
 
@@ -277,9 +278,9 @@ describe('buildInstructions', () => {
     expect(result).not.toContain('HIGHEST PRIORITY');
   });
 
-  it('additionalInstructionsが指定された場合、該当セクションがmission直後に挿入される', () => {
+  it('analysisInstructionsが指定された場合、該当セクションがmission直後に挿入される', () => {
     const ctx = createTestRequestContext({
-      additionalInstructions: 'FOCUS_ON_SECURITY_TESTS_XYZ',
+      analysisInstructions: 'FOCUS_ON_SECURITY_TESTS_XYZ',
     });
 
     const result = buildInstructions(ctx);
@@ -369,7 +370,7 @@ describe('buildInstructions', () => {
       omittedJobLogs: new Map(),
       hasImages: false,
       folderTreeStripped: false,
-      additionalInstructions: null,
+      analysisInstructions: null,
     });
 
     const result = buildInstructions(ctx);

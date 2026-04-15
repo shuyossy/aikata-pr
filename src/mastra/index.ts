@@ -6,7 +6,8 @@ import { reviewAgent } from './review/agents/reviewAgent.js';
 import { checklistSplitAgent } from './review/agents/checklistSplitAgent.js';
 import { summarizationAgent } from './review/agents/summarizationAgent.js';
 import { pipelineAnalysisAgent } from './pipeline-report/agents/pipelineAnalysisAgent.js';
-import { reportCompletenessJudgeAgent } from './pipeline-report/agents/reportCompletenessJudgeAgent.js';
+import { reportFinalizationJudgeAgent } from './pipeline-report/agents/reportFinalizationJudgeAgent.js';
+import { reportRewriteAgent } from './pipeline-report/agents/reportRewriteAgent.js';
 import { pipelineReportSummarizationAgent } from './pipeline-report/agents/pipelineReportSummarizationAgent.js';
 import { pipelineAnalysisWorkflow } from './pipeline-report/workflows/pipelineAnalysisWorkflow.js';
 
@@ -17,7 +18,8 @@ export const mastra = new Mastra({
     checklistSplitAgent,
     summarizationAgent,
     pipelineAnalysisAgent,
-    reportCompletenessJudgeAgent,
+    reportFinalizationJudgeAgent,
+    reportRewriteAgent,
     pipelineReportSummarizationAgent,
   },
   workflows: { reviewWorkflow, pipelineAnalysisWorkflow },

@@ -22,14 +22,14 @@ import { resetLogger } from '../../../lib/logger.js';
  * のパラメータ伝播を E2E で検証するテスト群。
  *
  * 既存の `index.test.ts` は「各モードで service/client が呼ばれること」までしか
- * 検証しておらず、jobReportFormat・additionalInstructions・includeJobPatterns・
+ * 検証しておらず、jobReportFormat・analysisInstructions・reportRefinementInstructions・includeJobPatterns・
  * commentLanguage・maxContextLength 等の非自明なフィールドが伝播しているかが
  * 検証されていない。Phase 16 では各フィールドがカスタム値として最終 DTO まで
  * 到達することを黒箱テストで保証する。
  *
  * 実装方針:
  * - 設定 JSON ファイルを一時ディレクトリに作成し、カスタム値で
- *   jobReportFormat / additionalInstructions / includeJobPatterns / excludeJobPatterns
+ *   jobReportFormat / analysisInstructions / reportRefinementInstructions / includeJobPatterns / excludeJobPatterns
  *   を指定する。
  * - CLI 引数と process.env を立て、`run()` を実行する。
  * - ローカルモードでは `localDepsFactory` に fake service を注入し、
@@ -44,7 +44,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
   let originalEnv: NodeJS.ProcessEnv;
 
   const CUSTOM_JOB_REPORT_FORMAT = '## ジョブ <jobName> (<status>)\nカスタムフォーマットです\n';
-  const CUSTOM_ADDITIONAL_INSTRUCTIONS = 'カスタム追加指示: 必ず日本語で要約すること';
+  const CUSTOM_ANALYSIS_INSTRUCTIONS = 'カスタム追加指示: 必ず日本語で要約すること';
+  const CUSTOM_REPORT_REFINEMENT_INSTRUCTIONS = '問題なしのジョブはレポートに表示しない';
   const CUSTOM_INCLUDE_PATTERNS = ['^build:.*$', '^test:.*$'];
   const CUSTOM_EXCLUDE_PATTERNS = ['^skip:.*$'];
 
@@ -104,7 +105,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       settingsPath,
       JSON.stringify({
         jobReportFormat: CUSTOM_JOB_REPORT_FORMAT,
-        additionalInstructions: CUSTOM_ADDITIONAL_INSTRUCTIONS,
+        analysisInstructions: CUSTOM_ANALYSIS_INSTRUCTIONS,
+        reportRefinementInstructions: CUSTOM_REPORT_REFINEMENT_INSTRUCTIONS,
         includeJobPatterns: CUSTOM_INCLUDE_PATTERNS,
         excludeJobPatterns: CUSTOM_EXCLUDE_PATTERNS,
       }),
@@ -208,7 +210,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
 
       // 設定ファイル由来のフィールドが伝播している
       expect(cmd.settings.jobReportFormat).toBe(CUSTOM_JOB_REPORT_FORMAT);
-      expect(cmd.settings.additionalInstructions).toBe(CUSTOM_ADDITIONAL_INSTRUCTIONS);
+      expect(cmd.settings.analysisInstructions).toBe(CUSTOM_ANALYSIS_INSTRUCTIONS);
+      expect(cmd.settings.reportRefinementInstructions).toBe(CUSTOM_REPORT_REFINEMENT_INSTRUCTIONS);
       expect(cmd.settings.includeJobPatterns.map((re) => re.source)).toEqual(
         CUSTOM_INCLUDE_PATTERNS,
       );
@@ -559,7 +562,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
 
       // 設定ファイル由来: RegExp は source 文字列として送信される
       expect(req.settings.jobReportFormat).toBe(CUSTOM_JOB_REPORT_FORMAT);
-      expect(req.settings.additionalInstructions).toBe(CUSTOM_ADDITIONAL_INSTRUCTIONS);
+      expect(req.settings.analysisInstructions).toBe(CUSTOM_ANALYSIS_INSTRUCTIONS);
+      expect(req.settings.reportRefinementInstructions).toBe(CUSTOM_REPORT_REFINEMENT_INSTRUCTIONS);
       expect(req.settings.includeJobPatterns).toEqual(CUSTOM_INCLUDE_PATTERNS);
       expect(req.settings.excludeJobPatterns).toEqual(CUSTOM_EXCLUDE_PATTERNS);
 
@@ -626,7 +630,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
       // デフォルト値: default() の jobReportFormat は「ジョブ #<jobId>」を含むマークダウン
       expect(req.settings.jobReportFormat).toContain('<jobId>');
       expect(req.settings.jobReportFormat).toContain('<jobName>');
-      expect(req.settings.additionalInstructions).toBeNull();
+      expect(req.settings.analysisInstructions).toBeNull();
+      expect(req.settings.reportRefinementInstructions).toBeNull();
       expect(req.settings.includeJobPatterns).toEqual([]);
       expect(req.settings.excludeJobPatterns).toEqual([]);
       // デフォルト言語は Japanese

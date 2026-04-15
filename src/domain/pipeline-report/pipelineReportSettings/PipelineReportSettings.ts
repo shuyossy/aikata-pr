@@ -31,8 +31,10 @@ const DEFAULT_JOB_REPORT_FORMAT = `### ジョブ #<jobId> — \`<jobName>\` (<st
 export interface PipelineReportSettingsParams {
   /** ジョブ 1 件分のレポートブロックのフォーマット（review の commentFormat と同じ粒度） */
   jobReportFormat: string;
-  /** Agent に渡す追加指示（任意） */
-  additionalInstructions: string | null;
+  /** 分析 Agent に渡す追加指示（任意） */
+  analysisInstructions: string | null;
+  /** レポート最終仕上げ時の推敲指示（任意） */
+  reportRefinementInstructions: string | null;
   /** 分析対象に含めるジョブ名のパターン（空なら全て対象） */
   includeJobPatterns: readonly RegExp[];
   /** 分析対象から除外するジョブ名のパターン */
@@ -46,7 +48,8 @@ export interface PipelineReportSettingsParams {
 export class PipelineReportSettings {
   private constructor(
     readonly jobReportFormat: string,
-    readonly additionalInstructions: string | null,
+    readonly analysisInstructions: string | null,
+    readonly reportRefinementInstructions: string | null,
     readonly includeJobPatterns: readonly RegExp[],
     readonly excludeJobPatterns: readonly RegExp[],
   ) {}
@@ -57,7 +60,8 @@ export class PipelineReportSettings {
   static of(params: PipelineReportSettingsParams): PipelineReportSettings {
     return new PipelineReportSettings(
       params.jobReportFormat,
-      params.additionalInstructions,
+      params.analysisInstructions,
+      params.reportRefinementInstructions,
       params.includeJobPatterns,
       params.excludeJobPatterns,
     );
@@ -67,7 +71,8 @@ export class PipelineReportSettings {
   static default(): PipelineReportSettings {
     return PipelineReportSettings.of({
       jobReportFormat: DEFAULT_JOB_REPORT_FORMAT,
-      additionalInstructions: null,
+      analysisInstructions: null,
+      reportRefinementInstructions: null,
       includeJobPatterns: [],
       excludeJobPatterns: [],
     });

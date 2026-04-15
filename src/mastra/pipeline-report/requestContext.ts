@@ -17,7 +17,8 @@ export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestCont
   targetJobs: TargetJobSummary[];
   overallTemplate: string;
   jobReportFormat: string;
-  additionalInstructions: string | null;
+  analysisInstructions: string | null;
+  reportRefinementInstructions: string | null;
   commentLanguage: string;
   resultFilePath: string;
   skillsPaths: string[];
@@ -49,10 +50,15 @@ export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestCont
 }
 
 /**
- * ReportCompletenessJudgeAgent用のRequestContext型
+ * ReportFinalizationJudgeAgent用のRequestContext型
  * 判定ロジックに必要なのはAI設定のみ（WorkflowRequestContextで充足）
  */
-export type ReportCompletenessJudgeRequestContext = WorkflowRequestContext;
+export type ReportFinalizationJudgeRequestContext = WorkflowRequestContext;
+
+/**
+ * ReportRewriteAgent用のRequestContext型
+ */
+export type ReportRewriteAgentRequestContext = WorkflowRequestContext;
 
 /**
  * PipelineReportSummarizationAgent用のRequestContext型

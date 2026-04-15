@@ -22,14 +22,16 @@ function makeJob(id: number, name: string): Job {
 function makeSettings(
   overrides: Partial<{
     jobReportFormat: string;
-    additionalInstructions: string | null;
+    analysisInstructions: string | null;
+    reportRefinementInstructions: string | null;
     includeJobPatterns: RegExp[];
     excludeJobPatterns: RegExp[];
   }> = {},
 ): PipelineReportSettings {
   return PipelineReportSettings.of({
     jobReportFormat: overrides.jobReportFormat ?? '## {{jobName}}',
-    additionalInstructions: overrides.additionalInstructions ?? null,
+    analysisInstructions: overrides.analysisInstructions ?? null,
+    reportRefinementInstructions: overrides.reportRefinementInstructions ?? null,
     includeJobPatterns: overrides.includeJobPatterns ?? [],
     excludeJobPatterns: overrides.excludeJobPatterns ?? [],
   });
@@ -85,5 +87,29 @@ describe('PipelineReportSettings.filterJobs', () => {
     const result = settings.filterJobs(allJobs, null);
 
     expect(result).toEqual([]);
+  });
+});
+
+describe('PipelineReportSettings.default', () => {
+  it('analysisInstructionsがnullであること', () => {
+    const settings = PipelineReportSettings.default();
+    expect(settings.analysisInstructions).toBeNull();
+  });
+
+  it('reportRefinementInstructionsがnullであること', () => {
+    const settings = PipelineReportSettings.default();
+    expect(settings.reportRefinementInstructions).toBeNull();
+  });
+});
+
+describe('PipelineReportSettings.of', () => {
+  it('analysisInstructionsを正しく保持する', () => {
+    const settings = makeSettings({ analysisInstructions: 'テスト失敗に注目' });
+    expect(settings.analysisInstructions).toBe('テスト失敗に注目');
+  });
+
+  it('reportRefinementInstructionsを正しく保持する', () => {
+    const settings = makeSettings({ reportRefinementInstructions: '問題なしのジョブは非表示' });
+    expect(settings.reportRefinementInstructions).toBe('問題なしのジョブは非表示');
   });
 });

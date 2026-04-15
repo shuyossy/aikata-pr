@@ -104,9 +104,9 @@ src/
       requestContext.ts     # review固有のAgent Request Context型（shared/requestContext.tsのWorkflowRequestContextを拡張）
       types.ts
     pipeline-report/
-      agents/               # pipelineAnalysisAgent / reportCompletenessJudgeAgent / pipelineReportSummarizationAgent
+      agents/               # pipelineAnalysisAgent / reportFinalizationJudgeAgent / reportRewriteAgent / pipelineReportSummarizationAgent
       tools/                # writeReport / patchReport / getReport / getJobLogDetail / getArtifactContent
-      workflows/            # pipelineAnalysisWorkflow + steps (executeAnalysisStep / verifyCompletenessStep / contextLengthRecovery)
+      workflows/            # pipelineAnalysisWorkflow + steps (executeAnalysisStep / reportFinalizationStep / contextLengthRecovery)
       requestContext.ts     # pipeline-report固有のAgent Request Context型
       types.ts
   infrastructure/

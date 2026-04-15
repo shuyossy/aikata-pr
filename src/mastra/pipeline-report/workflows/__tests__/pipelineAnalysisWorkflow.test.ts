@@ -26,7 +26,8 @@ describe('pipelineAnalysisWorkflow', () => {
       ],
       overallTemplate: '# Report',
       jobReportFormat: '### Job <jobId>',
-      additionalInstructions: null,
+      analysisInstructions: null,
+      reportRefinementInstructions: null,
       resultFilePath: '/tmp/report.md',
       commentLanguage: 'Japanese',
       maxCompletenessRetries: 3,
@@ -44,7 +45,8 @@ describe('pipelineAnalysisWorkflow', () => {
       targetJobs: [],
       overallTemplate: '# Report',
       jobReportFormat: '### Job',
-      additionalInstructions: null,
+      analysisInstructions: null,
+      reportRefinementInstructions: null,
       resultFilePath: '/tmp/report.md',
       commentLanguage: 'Japanese',
       maxCompletenessRetries: 0,
@@ -70,13 +72,14 @@ describe('pipelineAnalysisWorkflow', () => {
     expect(result.success).toBe(false);
   });
 
-  it('入力スキーマは additionalInstructions の null を許容する', () => {
+  it('入力スキーマは analysisInstructions の null を許容する', () => {
     const input = {
       initialUserPrompt: 'Analyze',
       targetJobs: [],
       overallTemplate: '# Report',
       jobReportFormat: '### Job',
-      additionalInstructions: null,
+      analysisInstructions: null,
+      reportRefinementInstructions: null,
       resultFilePath: '/tmp/report.md',
       commentLanguage: 'Japanese',
       maxCompletenessRetries: 0,

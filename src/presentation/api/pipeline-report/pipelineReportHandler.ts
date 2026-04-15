@@ -36,7 +36,8 @@ export const pipelineReportRequestSchema = z.object({
   settings: z
     .object({
       jobReportFormat: z.string().optional(),
-      additionalInstructions: z.string().nullable().optional(),
+      analysisInstructions: z.string().nullable().optional(),
+      reportRefinementInstructions: z.string().nullable().optional(),
       includeJobPatterns: z.array(z.string()).optional(),
       excludeJobPatterns: z.array(z.string()).optional(),
     })
@@ -209,7 +210,9 @@ export function buildPipelineReportSettings(
 
   return PipelineReportSettings.of({
     jobReportFormat: settings.jobReportFormat ?? defaults.jobReportFormat,
-    additionalInstructions: settings.additionalInstructions ?? defaults.additionalInstructions,
+    analysisInstructions: settings.analysisInstructions ?? defaults.analysisInstructions,
+    reportRefinementInstructions:
+      settings.reportRefinementInstructions ?? defaults.reportRefinementInstructions,
     includeJobPatterns: compile(settings.includeJobPatterns, 'includeJobPatterns'),
     excludeJobPatterns: compile(settings.excludeJobPatterns, 'excludeJobPatterns'),
   });

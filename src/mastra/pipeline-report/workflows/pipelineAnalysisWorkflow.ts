@@ -7,9 +7,9 @@ import type { PipelineAnalysisAgentRequestContext } from '../requestContext.js';
 import type { TargetJobSummary } from '../types.js';
 import { executeAnalysisStep } from './steps/executeAnalysisStep.js';
 import {
-  verifyCompletenessStep,
+  reportFinalizationStep,
   buildFeedbackWithReportPrompt,
-} from './steps/verifyCompletenessStep.js';
+} from './steps/reportFinalizationStep.js';
 import { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
 import { getLogger } from '../../../lib/logger.js';
@@ -52,8 +52,10 @@ export const workflowInputSchema = z.object({
   overallTemplate: z.string(),
   /** ジョブ1件分のレポートブロックフォーマット */
   jobReportFormat: z.string(),
-  /** ユーザ指定の追加指示（未指定は null） */
-  additionalInstructions: z.string().nullable(),
+  /** ユーザ指定の分析時追加指示（未指定は null） */
+  analysisInstructions: z.string().nullable(),
+  /** ユーザ指定のレポート推敲時指示（未指定は null） */
+  reportRefinementInstructions: z.string().nullable(),
   /** レポート出力ファイルパス */
   resultFilePath: z.string(),
   /** コメント言語 */
@@ -88,7 +90,8 @@ const requestContextSchema = z.object({
   targetJobs: z.array(targetJobSummarySchema),
   overallTemplate: z.string(),
   jobReportFormat: z.string(),
-  additionalInstructions: z.string().nullable(),
+  analysisInstructions: z.string().nullable(),
+  reportRefinementInstructions: z.string().nullable(),
   commentLanguage: z.string(),
   resultFilePath: z.string(),
   skillsPaths: z.array(z.string()),
@@ -150,8 +153,8 @@ const prepareStep = createStep({
  *
  * 1回のイテレーションで:
  * 1. executeAnalysisStep で analysis agent を呼び出し
- * 2. verifyCompletenessStep で judge agent が判定
- * 3. 不完全なら feedbackPrompt + レポート現物を次イテレーションの prompt にセット
+ * 2. reportFinalizationStep で judge agent が判定 → 必要なら rewrite agent が書き換え
+ * 3. ジョブ欠落時のみ feedbackPrompt + レポート現物を次イテレーションの prompt にセット
  */
 const analyzeAndVerifyStep = createStep({
   id: 'pipeline-report-analyze-and-verify',
@@ -162,7 +165,8 @@ const analyzeAndVerifyStep = createStep({
     const logger = getLogger();
     const initData = getInitData<typeof pipelineAnalysisWorkflow>();
     const analysisAgent = mastra.getAgent('pipelineAnalysisAgent');
-    const judgeAgent = mastra.getAgent('reportCompletenessJudgeAgent');
+    const judgeAgent = mastra.getAgent('reportFinalizationJudgeAgent');
+    const rewriteAgent = mastra.getAgent('reportRewriteAgent');
     const summarizationAgent = mastra.getAgent('pipelineReportSummarizationAgent');
     const typedContext = requestContext as RequestContext<PipelineAnalysisAgentRequestContext>;
 
@@ -198,9 +202,10 @@ const analyzeAndVerifyStep = createStep({
       };
     }
 
-    // 3. judge agent で完成判定
-    const verify = await verifyCompletenessStep({
+    // 3. judge agent で判定 → 必要に応じて rewrite agent で書き換え
+    const verify = await reportFinalizationStep({
       judgeAgent,
+      rewriteAgent,
       requestContext: typedContext,
       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     });
@@ -209,16 +214,16 @@ const analyzeAndVerifyStep = createStep({
     let nextPrompt = inputData.prompt;
     let nextFeedbackPrompt: string | null = null;
 
-    if (!verify.isComplete && verify.feedbackPrompt) {
-      // レポート現状 + フィードバックを結合
+    if (verify.hasMissingJobs && verify.feedbackPrompt) {
+      // ジョブ欠落時のみ analysis agent に再実行を要求
       nextFeedbackPrompt = verify.feedbackPrompt;
       nextPrompt = buildFeedbackWithReportPrompt(verify.reportContent, verify.feedbackPrompt);
       logger.info(
         {
           attempt: inputData.completenessRetries + 1,
-          reasons: verify.lastJudgement?.reasons?.length ?? 0,
+          missingJobReasons: verify.lastJudgement?.missingJobReasons?.length ?? 0,
         },
-        'Pipeline-report not complete; will rerun analysis with feedback',
+        'Pipeline-report has missing jobs; will rerun analysis with feedback',
       );
     }
 

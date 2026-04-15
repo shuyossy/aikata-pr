@@ -218,7 +218,8 @@ describe('buildPipelineReportApiRequest', () => {
     // includeJobPatterns/excludeJobPatternsを持つ設定
     const settings = PipelineReportSettings.of({
       jobReportFormat: 'custom-format',
-      additionalInstructions: 'extra',
+      analysisInstructions: 'extra',
+      reportRefinementInstructions: 'sort by severity',
       includeJobPatterns: [/^build-.*/, /^test-.*/],
       excludeJobPatterns: [/^skip-.*/],
     });
@@ -231,7 +232,8 @@ describe('buildPipelineReportApiRequest', () => {
     expect(request.pipelineId).toBe(456);
     expect(request.selfJobId).toBeNull();
     expect(request.settings.jobReportFormat).toBe('custom-format');
-    expect(request.settings.additionalInstructions).toBe('extra');
+    expect(request.settings.analysisInstructions).toBe('extra');
+    expect(request.settings.reportRefinementInstructions).toBe('sort by severity');
     expect(request.settings.includeJobPatterns).toEqual(['^build-.*', '^test-.*']);
     expect(request.settings.excludeJobPatterns).toEqual(['^skip-.*']);
     expect(request.commentLanguage).toBe('Japanese');

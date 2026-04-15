@@ -40,7 +40,8 @@ describe('pipelineReportRequestSchema', () => {
       ...createValidRequestBody(),
       settings: {
         jobReportFormat: '### <jobName>',
-        additionalInstructions: 'focus on security jobs',
+        analysisInstructions: 'focus on security jobs',
+        reportRefinementInstructions: 'hide passing jobs',
         includeJobPatterns: ['^test:', '^build'],
         excludeJobPatterns: ['\\.dev$'],
       },
@@ -138,7 +139,8 @@ describe('buildPipelineReportSettings', () => {
     const settings = buildPipelineReportSettings(undefined);
     const defaults = PipelineReportSettings.default();
     expect(settings.jobReportFormat).toBe(defaults.jobReportFormat);
-    expect(settings.additionalInstructions).toBe(defaults.additionalInstructions);
+    expect(settings.analysisInstructions).toBe(defaults.analysisInstructions);
+    expect(settings.reportRefinementInstructions).toBe(defaults.reportRefinementInstructions);
     expect(settings.includeJobPatterns).toEqual([]);
     expect(settings.excludeJobPatterns).toEqual([]);
   });
@@ -150,11 +152,18 @@ describe('buildPipelineReportSettings', () => {
     expect(settings.jobReportFormat).toBe('### custom <jobName>');
   });
 
-  it('additionalInstructions を保持すること', () => {
+  it('analysisInstructions を保持すること', () => {
     const settings = buildPipelineReportSettings({
-      additionalInstructions: 'be strict',
+      analysisInstructions: 'be strict',
     });
-    expect(settings.additionalInstructions).toBe('be strict');
+    expect(settings.analysisInstructions).toBe('be strict');
+  });
+
+  it('reportRefinementInstructions を保持すること', () => {
+    const settings = buildPipelineReportSettings({
+      reportRefinementInstructions: 'hide passing jobs',
+    });
+    expect(settings.reportRefinementInstructions).toBe('hide passing jobs');
   });
 
   it('includeJobPatterns / excludeJobPatterns が RegExp にコンパイルされること', () => {

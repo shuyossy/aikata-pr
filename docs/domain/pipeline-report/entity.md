@@ -121,11 +121,12 @@
     - includeJobPatterns/excludeJobPatterns が `RegExp[]` であること
   - 属性
     - jobReportFormat (string)
-    - additionalInstructions (string | null)
+    - analysisInstructions (string | null) — 分析Agent向けの追加指示
+    - reportRefinementInstructions (string | null) — 最終レポート推敲時の指示（reportRewriteAgent向け）
     - includeJobPatterns (readonly RegExp[])
     - excludeJobPatterns (readonly RegExp[])
   - 振る舞い
-    - default(静的ファクトリ): デフォルト設定（デフォルト jobReportFormat / additionalInstructions=null / include/exclude空）を生成
+    - default(静的ファクトリ): デフォルト設定（デフォルト jobReportFormat / analysisInstructions=null / reportRefinementInstructions=null / include/exclude空）を生成
     - of(params)(静的ファクトリ): 任意の値から生成
     - filterJobs(jobs, selfJobId): 分析対象ジョブ選定ビジネスルール
       1. selfJobId と一致するジョブを除外

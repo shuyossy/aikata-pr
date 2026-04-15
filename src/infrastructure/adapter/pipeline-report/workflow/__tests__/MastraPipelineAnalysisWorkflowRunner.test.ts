@@ -93,7 +93,8 @@ function createParams(
     folderTreeStripped: false,
     overallTemplate: '# Pipeline Report\n\n## Overview\n\n## Jobs\n',
     jobReportFormat: '### {jobName}\n\n{content}\n',
-    additionalInstructions: null,
+    analysisInstructions: null,
+    reportRefinementInstructions: null,
     commentLanguage: 'Japanese',
     skillsPaths: [],
     resultFilePath: '/tmp/result.md',
@@ -165,7 +166,8 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
     ]);
     expect(startArg.inputData.overallTemplate).toBe(params.overallTemplate);
     expect(startArg.inputData.jobReportFormat).toBe(params.jobReportFormat);
-    expect(startArg.inputData.additionalInstructions).toBeNull();
+    expect(startArg.inputData.analysisInstructions).toBeNull();
+    expect(startArg.inputData.reportRefinementInstructions).toBeNull();
     expect(startArg.inputData.resultFilePath).toBe(params.resultFilePath);
     expect(startArg.inputData.commentLanguage).toBe(params.commentLanguage);
     expect(startArg.inputData.maxCompletenessRetries).toBe(params.maxCompletenessRetries);
@@ -183,7 +185,8 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
     expect(ctx.get('openaiReasoningEffort')).toBeUndefined();
     expect(ctx.get('overallTemplate')).toBe(params.overallTemplate);
     expect(ctx.get('jobReportFormat')).toBe(params.jobReportFormat);
-    expect(ctx.get('additionalInstructions')).toBeNull();
+    expect(ctx.get('analysisInstructions')).toBeNull();
+    expect(ctx.get('reportRefinementInstructions')).toBeNull();
     expect(ctx.get('commentLanguage')).toBe('Japanese');
     expect(ctx.get('resultFilePath')).toBe(params.resultFilePath);
     expect(ctx.get('skillsPaths')).toEqual([]);

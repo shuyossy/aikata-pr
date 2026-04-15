@@ -15,7 +15,8 @@ export interface PipelineReportApiRequest {
   selfJobId: number | null;
   settings: {
     jobReportFormat: string;
-    additionalInstructions: string | null;
+    analysisInstructions: string | null;
+    reportRefinementInstructions: string | null;
     /** RegExp の source 文字列配列 */
     includeJobPatterns: string[];
     /** RegExp の source 文字列配列 */

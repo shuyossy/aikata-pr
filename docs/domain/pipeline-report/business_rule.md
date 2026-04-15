@@ -70,21 +70,25 @@
     - AI 総合評価ラベル（`問題なし` / `要注意` / `問題あり`）はデフォルト `jobReportFormat` のプレースホルダ hint 内に定義される。ユーザが `jobReportFormat` を差し替えればラベル自体を変更できる
   - 結果(アクション)
     - Agent は全体骨組みをそのまま採用し、ジョブブロックだけを `jobReportFormat` に従って生成する
-    - `reportCompletenessJudgeAgent` は全対象ジョブのブロックが存在するか・レポートが全て埋まっているか・ジョブセクションの並び順が妥当かを判定する
-  - 関連するユースケースorエンティティ: OVERALL_REPORT_TEMPLATE, PipelineReportSettings, pipelineAnalysisAgent, reportCompletenessJudgeAgent
+    - `reportFinalizationJudgeAgent` は全対象ジョブのブロックが存在するか・レポートが全て埋まっているか・ジョブセクションの並び順が妥当かを判定する
+    - 仕上げが必要な場合は `reportRewriteAgent` が書き換えを実行する
+  - 関連するユースケースorエンティティ: OVERALL_REPORT_TEMPLATE, PipelineReportSettings, pipelineAnalysisAgent, reportFinalizationJudgeAgent, reportRewriteAgent
 
-- レポート完成判定ルール
+- レポート最終仕上げルール
   - 目的/背景
     - AI が途中で離脱したり、フォーマットを一部無視したまま完了を報告する事故を防ぎ、レポート品質を強制する
+    - ジョブ欠落以外の仕上げ（ソート順修正・ユーザ指示に基づく書き換え等）は分析Agentにフィードバックせず、専用の書き換えAgentが直接対応することで効率化する
   - 条件
-    - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportCompletenessJudgeAgent` に (a) 全体骨組み / (b) `jobReportFormat` / (c) 対象ジョブ一覧 / (d) 現レポート内容 を渡して JSON 判定
-    - Judge 出力スキーマ: `{ isComplete: boolean, reasons: string[] }`
-    - `isComplete=false` なら `missingItems` と `formatDeviations` をフィードバックとして同一スレッドの `pipelineAnalysisAgent` に投げ直して再実行し、再度 verify
+    - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportFinalizationJudgeAgent` に (a) 全体骨組み / (b) `jobReportFormat` / (c) 対象ジョブ一覧 / (d) 現レポート内容 / (e) `reportRefinementInstructions` を渡して JSON 判定
+    - Judge 出力スキーマ: `{ hasMissingJobs: boolean, missingJobReasons: string[], finalizationNeeded: boolean, finalizationActions: string[] }`
+    - `hasMissingJobs=true` の場合: `missingJobReasons` をフィードバックとして同一スレッドの `pipelineAnalysisAgent` に投げ直して再実行し、再度 verify
+    - `hasMissingJobs=false` かつ `finalizationNeeded=true` の場合: `reportRewriteAgent` に現レポート内容と `finalizationActions` を渡して書き換えを実行する。書き換え時は元の文言を正確にそのまま利用することを強調する
     - 再試行回数は `maxCompletenessRetries`（デフォルト 3）まで
   - 結果(アクション)
-    - `isComplete=true`: そのままレポート採用
+    - `hasMissingJobs=false` かつ `finalizationNeeded=false`: そのままレポート採用
+    - `hasMissingJobs=false` かつ `finalizationNeeded=true`: `reportRewriteAgent` による書き換え後にレポート採用
     - 上限到達: warning ログを出力し、現状のレポートをそのまま返却（ジョブ自体は成功扱い）
-  - 関連するユースケースorエンティティ: verifyCompletenessStep, reportCompletenessJudgeAgent, pipelineAnalysisAgent
+  - 関連するユースケースorエンティティ: reportFinalizationStep, reportFinalizationJudgeAgent, reportRewriteAgent, pipelineAnalysisAgent
 
 - コンテキスト長リカバリールール
   - 目的/背景
@@ -124,12 +128,12 @@
     - 圧縮 best-effort や完成判定リトライ上限到達は「ジョブ失敗」ではなく「助言の品質低下」として扱い、CI を壊さない
   - 条件
     - `JobLogCompressor` が閾値に収まらないまま終了
-    - `verifyCompletenessStep` が `maxCompletenessRetries` に到達
+    - `reportFinalizationStep` が `maxCompletenessRetries` に到達
   - 結果(アクション)
     - いずれも warning ログを出力して処理を続行
     - CLI の終了コードは `0`（通常完了扱い）
     - ただし GitLab API 失敗 / zip 失敗 / AI API 呼び出しエラーなど実行不能なエラーは `exit(1)` とする
-  - 関連するユースケースorエンティティ: JobLogCompressor, verifyCompletenessStep, pipelineReportCliModule
+  - 関連するユースケースorエンティティ: JobLogCompressor, reportFinalizationStep, pipelineReportCliModule
 
 - ジョブセクション出力順序ルール
   - 目的/背景
@@ -141,5 +145,5 @@
       1. ジョブ結果に対する AI 評価が悪い順（デフォルトテンプレートでは 問題あり → 要注意 → 問題なし）
       2. ステージの実行順（パイプライン定義上のステージ順）
     - ステージ実行順は対象ジョブのジョブ ID 昇順から導出し、AI に明示的に提示する
-    - `reportCompletenessJudgeAgent` でも順序の妥当性をソフトに検証する（formatDeviations として検出）
-  - 関連するユースケースorエンティティ: pipelineAnalysisAgent (buildInstructions), reportCompletenessJudgeAgent
+    - `reportFinalizationJudgeAgent` でも順序の妥当性をソフトに検証する（finalizationActions として検出）
+  - 関連するユースケースorエンティティ: pipelineAnalysisAgent (buildInstructions), reportFinalizationJudgeAgent

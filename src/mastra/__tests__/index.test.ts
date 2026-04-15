@@ -24,11 +24,18 @@ describe('mastra instance registration', () => {
       expect(agent.name).toBe('Pipeline Analysis Agent');
     });
 
-    it('reportCompletenessJudgeAgent が登録されている', () => {
-      const agent = mastra.getAgent('reportCompletenessJudgeAgent');
+    it('reportFinalizationJudgeAgent が登録されている', () => {
+      const agent = mastra.getAgent('reportFinalizationJudgeAgent');
       expect(agent).toBeDefined();
-      expect(agent.id).toBe('report-completeness-judge-agent');
-      expect(agent.name).toBe('Report Completeness Judge Agent');
+      expect(agent.id).toBe('report-finalization-judge-agent');
+      expect(agent.name).toBe('Report Finalization Judge Agent');
+    });
+
+    it('reportRewriteAgent が登録されている', () => {
+      const agent = mastra.getAgent('reportRewriteAgent');
+      expect(agent).toBeDefined();
+      expect(agent.id).toBe('report-rewrite-agent');
+      expect(agent.name).toBe('Report Rewrite Agent');
     });
 
     it('pipelineReportSummarizationAgent が登録されている', () => {

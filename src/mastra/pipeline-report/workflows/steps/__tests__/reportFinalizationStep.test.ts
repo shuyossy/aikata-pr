@@ -10,12 +10,12 @@ import { initializeLogger, resetLogger } from '../../../../../lib/logger.js';
 import { RateLimiter } from '../../../../../infrastructure/adapter/rateLimiter/RateLimiter.js';
 import { initializeRateLimiter, resetRateLimiter } from '../../../../../lib/rateLimiterGlobal.js';
 import {
-  verifyCompletenessStep,
-  buildCompletenessFeedbackPrompt,
+  reportFinalizationStep,
+  buildMissingJobsFeedbackPrompt,
   buildFeedbackWithReportPrompt,
-  type VerifyCompletenessStepConfig,
-  type ReportCompletenessJudgement,
-} from '../verifyCompletenessStep.js';
+  type ReportFinalizationStepConfig,
+  type ReportFinalizationJudgement,
+} from '../reportFinalizationStep.js';
 
 function createTestRequestContext(
   overrides: Partial<PipelineAnalysisAgentRequestContext> = {},
@@ -36,7 +36,8 @@ function createTestRequestContext(
     targetJobs,
     overallTemplate: '# Report\n{{job-sections}}',
     jobReportFormat: '### Job <jobId>',
-    additionalInstructions: null,
+    analysisInstructions: null,
+    reportRefinementInstructions: null,
     commentLanguage: 'Japanese',
     resultFilePath: '',
     skillsPaths: [],
@@ -75,20 +76,22 @@ function createMockAgent(generateFn: (...args: unknown[]) => Promise<unknown>): 
   } as unknown as Agent;
 }
 
-describe('buildCompletenessFeedbackPrompt', () => {
-  it('reasons が含まれる場合、各理由がリスト化される', () => {
-    const judgement: ReportCompletenessJudgement = {
-      isComplete: false,
-      reasons: [
+describe('buildMissingJobsFeedbackPrompt', () => {
+  it('missingJobReasons が含まれる場合、各理由がリスト化される', () => {
+    const judgement: ReportFinalizationJudgement = {
+      hasMissingJobs: true,
+      missingJobReasons: [
         "Job #1 'build' has no block in the report",
         "Job #2 'test' has no block in the report",
       ],
+      finalizationNeeded: false,
+      finalizationActions: [],
     };
 
-    const result = buildCompletenessFeedbackPrompt(judgement);
+    const result = buildMissingJobsFeedbackPrompt(judgement);
 
     expect(result).toContain('Completeness Review Feedback');
-    expect(result).toContain('Issues');
+    expect(result).toContain('Missing Jobs');
     expect(result).toContain("Job #1 'build'");
     expect(result).toContain("Job #2 'test'");
   });
@@ -116,12 +119,12 @@ describe('buildFeedbackWithReportPrompt', () => {
   });
 });
 
-describe('verifyCompletenessStep', () => {
+describe('reportFinalizationStep', () => {
   let tmpDir: string;
   let resultFilePath: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-complete-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'report-finalization-test-'));
     resultFilePath = path.join(tmpDir, 'pipeline-report.md');
     fs.writeFileSync(resultFilePath, '# Report\n(initial)', 'utf8');
     vi.clearAllMocks();
@@ -140,109 +143,220 @@ describe('verifyCompletenessStep', () => {
 
   it('judge agentに2つのuserメッセージが渡される', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
-      object: { isComplete: true, reasons: [] },
+      object: {
+        hasMissingJobs: false,
+        missingJobReasons: [],
+        finalizationNeeded: false,
+        finalizationActions: [],
+      },
     });
+    const rewriteGenerate = vi.fn();
 
-    const config: VerifyCompletenessStepConfig = {
+    const config: ReportFinalizationStepConfig = {
       judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
       requestContext: createTestRequestContext({ resultFilePath }),
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
-    await verifyCompletenessStep(config);
+    await reportFinalizationStep(config);
 
     const prompt = judgeGenerate.mock.calls[0][0] as Array<{ role: string; content: string }>;
     expect(Array.isArray(prompt)).toBe(true);
     expect(prompt).toHaveLength(2);
     expect(prompt[0].role).toBe('user');
     expect(prompt[1].role).toBe('user');
-    // 1つ目: 判定基準コンテキスト
     expect(prompt[0].content).toContain('Target Jobs');
-    expect(prompt[0].content).toContain('jobReportFormat');
-    expect(prompt[0].content).not.toContain('Current Report Contents');
-    // 2つ目: レポート本文
     expect(prompt[1].content).toContain('Current Report Contents');
-    expect(prompt[1].content).toContain('# Report\n(initial)');
   });
 
-  it('isComplete=true の場合、完了で feedbackPrompt=null を返す', async () => {
+  it('hasMissingJobs=false, finalizationNeeded=false → isComplete=true, finalizationApplied=false', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       object: {
-        isComplete: true,
-        reasons: [],
+        hasMissingJobs: false,
+        missingJobReasons: [],
+        finalizationNeeded: false,
+        finalizationActions: [],
       },
     });
+    const rewriteGenerate = vi.fn();
 
-    const config: VerifyCompletenessStepConfig = {
+    const config: ReportFinalizationStepConfig = {
       judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
       requestContext: createTestRequestContext({ resultFilePath }),
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
-    const result = await verifyCompletenessStep(config);
+    const result = await reportFinalizationStep(config);
 
     expect(result.isComplete).toBe(true);
+    expect(result.hasMissingJobs).toBe(false);
     expect(result.feedbackPrompt).toBeNull();
+    expect(result.finalizationApplied).toBe(false);
     expect(result.reportContent).toBe('# Report\n(initial)');
-    expect(result.lastJudgement?.isComplete).toBe(true);
-    expect(judgeGenerate).toHaveBeenCalledTimes(1);
+    expect(rewriteGenerate).not.toHaveBeenCalled();
   });
 
-  it('isComplete=false の場合、feedbackPrompt を構築して返す', async () => {
+  it('hasMissingJobs=true → isComplete=false, feedbackPrompt を返す', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       object: {
-        isComplete: false,
-        reasons: ["Job #102 'test' has no block in the report"],
+        hasMissingJobs: true,
+        missingJobReasons: ["Job #102 'test' has no block in the report"],
+        finalizationNeeded: false,
+        finalizationActions: [],
       },
     });
+    const rewriteGenerate = vi.fn();
 
-    const config: VerifyCompletenessStepConfig = {
+    const config: ReportFinalizationStepConfig = {
       judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
       requestContext: createTestRequestContext({ resultFilePath }),
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
-    const result = await verifyCompletenessStep(config);
+    const result = await reportFinalizationStep(config);
 
     expect(result.isComplete).toBe(false);
+    expect(result.hasMissingJobs).toBe(true);
     expect(result.feedbackPrompt).toContain('Completeness Review Feedback');
     expect(result.feedbackPrompt).toContain("Job #102 'test'");
-    expect(result.lastJudgement?.reasons).toHaveLength(1);
-    expect(judgeGenerate).toHaveBeenCalledTimes(1);
+    expect(result.finalizationApplied).toBe(false);
+    expect(rewriteGenerate).not.toHaveBeenCalled();
   });
 
-  it('judge agent が JSON エラーになった場合は warning で isComplete=false, feedbackPrompt=null を返す', async () => {
-    const judgeGenerate = vi.fn().mockRejectedValue(new Error('invalid json'));
+  it('finalizationNeeded=true, hasMissingJobs=false → rewrite agent 呼び出し、ファイル書き込み、isComplete=true', async () => {
+    const judgeGenerate = vi.fn().mockResolvedValue({
+      object: {
+        hasMissingJobs: false,
+        missingJobReasons: [],
+        finalizationNeeded: true,
+        finalizationActions: ['Job sections are not ordered by assessment severity'],
+      },
+    });
+    const rewrittenContent = '# Report\n(rewritten by rewrite agent)';
+    const rewriteGenerate = vi.fn().mockResolvedValue({
+      text: rewrittenContent,
+    });
 
-    const config: VerifyCompletenessStepConfig = {
+    const config: ReportFinalizationStepConfig = {
       judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
       requestContext: createTestRequestContext({ resultFilePath }),
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
-    const result = await verifyCompletenessStep(config);
+    const result = await reportFinalizationStep(config);
+
+    expect(result.isComplete).toBe(true);
+    expect(result.hasMissingJobs).toBe(false);
+    expect(result.feedbackPrompt).toBeNull();
+    expect(result.finalizationApplied).toBe(true);
+    expect(result.reportContent).toBe(rewrittenContent);
+    // ファイルにも書き込まれていること
+    expect(fs.readFileSync(resultFilePath, 'utf8')).toBe(rewrittenContent);
+    expect(rewriteGenerate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rewrite agent のプロンプトに finalizationActions と現レポートが含まれる', async () => {
+    const judgeGenerate = vi.fn().mockResolvedValue({
+      object: {
+        hasMissingJobs: false,
+        missingJobReasons: [],
+        finalizationNeeded: true,
+        finalizationActions: ['Fix sort order'],
+      },
+    });
+    const rewriteGenerate = vi.fn().mockResolvedValue({ text: '# Rewritten' });
+
+    const config: ReportFinalizationStepConfig = {
+      judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
+      requestContext: createTestRequestContext({
+        resultFilePath,
+        reportRefinementInstructions: '問題なしジョブを非表示',
+      }),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    await reportFinalizationStep(config);
+
+    const prompt = rewriteGenerate.mock.calls[0][0] as Array<{ role: string; content: string }>;
+    expect(prompt[0].content).toContain('Fix sort order');
+    expect(prompt[0].content).toContain('# Report\n(initial)');
+    expect(prompt[0].content).toContain('問題なしジョブを非表示');
+  });
+
+  it('judge agent がエラーになった場合は isComplete=false, feedbackPrompt=null を返す', async () => {
+    const judgeGenerate = vi.fn().mockRejectedValue(new Error('invalid json'));
+    const rewriteGenerate = vi.fn();
+
+    const config: ReportFinalizationStepConfig = {
+      judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
+      requestContext: createTestRequestContext({ resultFilePath }),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    const result = await reportFinalizationStep(config);
 
     expect(result.isComplete).toBe(false);
+    expect(result.hasMissingJobs).toBe(false);
     expect(result.feedbackPrompt).toBeNull();
+    expect(result.finalizationApplied).toBe(false);
     expect(result.lastJudgement).toBeNull();
-    expect(result.reportContent).toBe('# Report\n(initial)');
+    expect(rewriteGenerate).not.toHaveBeenCalled();
+  });
+
+  it('rewrite agent がエラーになった場合は isComplete=false, finalizationApplied=false を返す', async () => {
+    const judgeGenerate = vi.fn().mockResolvedValue({
+      object: {
+        hasMissingJobs: false,
+        missingJobReasons: [],
+        finalizationNeeded: true,
+        finalizationActions: ['Fix sort order'],
+      },
+    });
+    const rewriteGenerate = vi.fn().mockRejectedValue(new Error('rewrite failed'));
+
+    const config: ReportFinalizationStepConfig = {
+      judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
+      requestContext: createTestRequestContext({ resultFilePath }),
+      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+    };
+
+    const result = await reportFinalizationStep(config);
+
+    expect(result.isComplete).toBe(false);
+    expect(result.hasMissingJobs).toBe(false);
+    expect(result.feedbackPrompt).toBeNull();
+    expect(result.finalizationApplied).toBe(false);
+    expect(result.lastJudgement?.finalizationNeeded).toBe(true);
+    // ファイルは元のまま
+    expect(fs.readFileSync(resultFilePath, 'utf8')).toBe('# Report\n(initial)');
   });
 
   it('structuredOutput が object を返さず text で返す場合も JSON パースで判定できる', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
       text: JSON.stringify({
-        isComplete: true,
-        reasons: [],
+        hasMissingJobs: false,
+        missingJobReasons: [],
+        finalizationNeeded: false,
+        finalizationActions: [],
       }),
     });
+    const rewriteGenerate = vi.fn();
 
-    const config: VerifyCompletenessStepConfig = {
+    const config: ReportFinalizationStepConfig = {
       judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
       requestContext: createTestRequestContext({ resultFilePath }),
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
-    const result = await verifyCompletenessStep(config);
+    const result = await reportFinalizationStep(config);
 
     expect(result.isComplete).toBe(true);
     expect(result.feedbackPrompt).toBeNull();
@@ -250,11 +364,18 @@ describe('verifyCompletenessStep', () => {
 
   it('buildGenerateOptions 経由で reasoningEffort が judge agent に渡される', async () => {
     const judgeGenerate = vi.fn().mockResolvedValue({
-      object: { isComplete: true, missingItems: [], formatDeviations: [] },
+      object: {
+        hasMissingJobs: false,
+        missingJobReasons: [],
+        finalizationNeeded: false,
+        finalizationActions: [],
+      },
     });
+    const rewriteGenerate = vi.fn();
 
-    const config: VerifyCompletenessStepConfig = {
+    const config: ReportFinalizationStepConfig = {
       judgeAgent: createMockAgent(judgeGenerate),
+      rewriteAgent: createMockAgent(rewriteGenerate),
       requestContext: createTestRequestContext({
         resultFilePath,
         openaiReasoningEffort: 'medium',
@@ -262,7 +383,7 @@ describe('verifyCompletenessStep', () => {
       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
     };
 
-    await verifyCompletenessStep(config);
+    await reportFinalizationStep(config);
 
     const opts = judgeGenerate.mock.calls[0][1] as Record<string, unknown>;
     expect(opts.modelSettings).toEqual({ temperature: 1 });
