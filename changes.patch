@@ -1,473 +1,3014 @@
 diff --git a/PBI.md b/PBI.md
-index b6d296c..b40f5e0 100644
+index b40f5e0..09e7d43 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -8,3 +8,22 @@
- - 注意事項
- - 指摘事項（in progressの場合のみ）
+@@ -10,20 +10,23 @@
  ```
-+
-+# ID: 1
-+- PBI名: mastra workspaceの仕様に合わせた最適化
-+- ステータス: done
-+- 背景
-+  - mastra workspaceを有効化すると次のようなsystemプロンプトが差し込まれる様に見えている（実際にGitLabのCI/CDパイプラインにてジョブを実行した際のログから取得している。`org/div_99408/sak/sak_sample`はプロジェクトのパス）
-+  ```
-+  {
-+    "role": "system",
-+    "content": "Local command execution. Working directory: \"/builds/org/div_99408/sak/sak_sample\".\n\nLocal filesystem at \"/builds/org/div_99408/sak/sak_sample\". Relative paths resolve from this directory. File access is restricted to this directory."
-+  }
-+  ```
-+  - レビュー用Agentやパイプライン分析用Agentはプロジェクトのフォルダツリーが連携されているが、上記のメッセージが同時に与えられることでフォルダツリーが探索できないと錯覚してしまうのではないか
-+- 受け入れ基準
-+  - mastra workspaceの使用をよく確認し、どの様なsystemプロンプトが差し込まれるのか、実際にworkspace提供toolを利用する際は相対パス記法でなければならないのか（例えば、/src/~としていするとエラーになるのか）十分に理解した上で、以下の対応が完了している
-+    - mastra workspaceのクセを正しく把握した上で、Agentに送信するプロンプトが最適化できている
-+- 注意事項
-+  - プロンプトの追加は最小限にとどめること
-+- 指摘事項（in progressの場合のみ）
+ 
+ # ID: 1
+-- PBI名: mastra workspaceの仕様に合わせた最適化
++- PBI名: パイプライン分析レポート完成判定Agentの改良
+ - ステータス: done
+ - 背景
+-  - mastra workspaceを有効化すると次のようなsystemプロンプトが差し込まれる様に見えている（実際にGitLabのCI/CDパイプラインにてジョブを実行した際のログから取得している。`org/div_99408/sak/sak_sample`はプロジェクトのパス）
+-  ```
+-  {
+-    "role": "system",
+-    "content": "Local command execution. Working directory: \"/builds/org/div_99408/sak/sak_sample\".\n\nLocal filesystem at \"/builds/org/div_99408/sak/sak_sample\". Relative paths resolve from this directory. File access is restricted to this directory."
+-  }
+-  ```
+-  - レビュー用Agentやパイプライン分析用Agentはプロジェクトのフォルダツリーが連携されているが、上記のメッセージが同時に与えられることでフォルダツリーが探索できないと錯覚してしまうのではないか
++  - 現状は完成判定Agentは完成したかどうかを判定して、不合格の場合は分析Agentにフィードバックするのみである
++    - ジョブの分析結果が全て記載されている場合は、完成判定Agent自身が書き直すのが一番早いし効率的
++  - 完成判定というよりかは最終的にレポートを完成させるAgentとしての役割を与えたい
++    - このAgentは以下の役割を担う
++      - 全てのjobが分析レポートに含まれているかチェック
++       - この判定が不合格の場合のみ、分析Agentにフィードバックする
++      - ソート順が不正な場合は書き換え
++      - ユーザの指示に従って書き換え
++        - 例えば、ユーザごとに「問題なし」のジョブはレポートに表示しないなど、カスタマイズしたい場合がある想定
+ - 受け入れ基準
+-  - mastra workspaceの使用をよく確認し、どの様なsystemプロンプトが差し込まれるのか、実際にworkspace提供toolを利用する際は相対パス記法でなければならないのか（例えば、/src/~としていするとエラーになるのか）十分に理解した上で、以下の対応が完了している
+-    - mastra workspaceのクセを正しく把握した上で、Agentに送信するプロンプトが最適化できている
++  - 背景通り、完成判定Agentをアップデートできていること
++    - systemプロンプトには、レポートを書き換える際は元の文言を正確にそのまま利用することという指示を強調して欲しい
++  - ユーザはパイプライン分析設定で、最終的なレポート推敲時の指示を指定することができる
++    - 変数名もわかりやすくなる様に工夫する必要がある
++    - 必要あれば従来の「追加指示」項目の変数名も変更する必要があるか
+ - 注意事項
+-  - プロンプトの追加は最小限にとどめること
+ - 指摘事項（in progressの場合のみ）
+diff --git a/docs/archtecture/folder_structure.md b/docs/archtecture/folder_structure.md
+index 05e112a..b49f8bc 100644
+--- a/docs/archtecture/folder_structure.md
++++ b/docs/archtecture/folder_structure.md
+@@ -104,9 +104,9 @@ src/
+       requestContext.ts     # review固有のAgent Request Context型（shared/requestContext.tsのWorkflowRequestContextを拡張）
+       types.ts
+     pipeline-report/
+-      agents/               # pipelineAnalysisAgent / reportCompletenessJudgeAgent / pipelineReportSummarizationAgent
++      agents/               # pipelineAnalysisAgent / reportFinalizationJudgeAgent / reportRewriteAgent / pipelineReportSummarizationAgent
+       tools/                # writeReport / patchReport / getReport / getJobLogDetail / getArtifactContent
+-      workflows/            # pipelineAnalysisWorkflow + steps (executeAnalysisStep / verifyCompletenessStep / contextLengthRecovery)
++      workflows/            # pipelineAnalysisWorkflow + steps (executeAnalysisStep / reportFinalizationStep / contextLengthRecovery)
+       requestContext.ts     # pipeline-report固有のAgent Request Context型
+       types.ts
+   infrastructure/
+diff --git a/docs/archtecture/pipeline-report/overallflow_concept.md b/docs/archtecture/pipeline-report/overallflow_concept.md
+index 1091bc6..f405836 100644
+--- a/docs/archtecture/pipeline-report/overallflow_concept.md
++++ b/docs/archtecture/pipeline-report/overallflow_concept.md
+@@ -1,7 +1,7 @@
+ pipeline-report 機能（CI パイプライン結果の AI 分析レポート生成）の処理フロー概要を以下に示す。
+ 
+ # 業務フロー（本プロジェクトを利用するユーザ目線）
+-1. 任意で `pipeline-report-settings.json`（`jobReportFormat`, `additionalInstructions`, `includeJobPatterns`, `excludeJobPatterns`）を準備する
++1. 任意で `pipeline-report-settings.json`（`jobReportFormat`, `analysisInstructions`, `reportRefinementInstructions`, `includeJobPatterns`, `excludeJobPatterns`）を準備する
+ 2. `.gitlab-ci.yml` で `.ci-template/pipelines/pipeline-report/template.yml`（または `template-npx.yml`）を `include` する
+    - 本ジョブは `.post` ステージで `when: always` のため、成功ジョブ・失敗ジョブを問わず同一パイプライン内の全ジョブが終了した後に実行される
+ 3. ジョブ実行後、生成された `aikata-pipeline-report.md` が artifacts として残る
+@@ -53,7 +53,7 @@ analyze(command)
+ 11. workflowRunner.run({ targetJobs, jobLogsCompressed, omittedJobLogs,
+                          artifactTrees, folderTree, folderTreeStripped,
+                          pipelineMeta, overallTemplate, jobReportFormat,
+-                         additionalInstructions, commentLanguage,
++                         analysisInstructions, reportRefinementInstructions, commentLanguage,
+                          skillsPaths, resultFilePath, maxCompletenessRetries })
+ 12. fs.readFile(resultFilePath) → AnalysisReport.of(content)
+ 13. finally: artifactCacheManager.cleanup()
+@@ -84,22 +84,25 @@ pipelineAnalysisWorkflow
+  │    │    └─ contextLengthRecovery (最大 3 回)
+  │    │         ├─ pipelineReportSummarizationAgent で履歴要約
+  │    │         └─ 新スレッドで継続プロンプトを投入
+- │    └─ ステップ完了 → verifyCompletenessStep へ
++ │    └─ ステップ完了 → reportFinalizationStep へ
+  │
+- └─ verifyCompletenessStep
++ └─ reportFinalizationStep
+       ├─ fs.readFile(resultFilePath)
+-      ├─ reportCompletenessJudgeAgent.generate(...)
+-      │    └─ JSON 出力: { isComplete, missingItems[], formatDeviations[] }
+-      ├─ isComplete === true
++      ├─ reportFinalizationJudgeAgent.generate(...)
++      │    └─ JSON 出力: { hasMissingJobs, missingJobReasons[], finalizationNeeded, finalizationActions[] }
++      ├─ hasMissingJobs === false かつ finalizationNeeded === false
+       │    └─ workflow 完了 → { reportContent, completenessVerified: true, completenessRetries: N }
+-      └─ isComplete === false
+-           ├─ completenessRetries < maxCompletenessRetries
+-           │    ├─ missingItems / formatDeviations をフィードバックプロンプトにまとめる
+-           │    ├─ 同一スレッドで pipelineAnalysisAgent.stream(feedback, ...) 再実行
+-           │    └─ 再度 verifyCompletenessStep へ
+-           └─ completenessRetries >= maxCompletenessRetries
+-                └─ warning ログを出して workflow 完了
+-                   → { reportContent, completenessVerified: false, completenessRetries: max }
++      ├─ hasMissingJobs === true
++      │    ├─ completenessRetries < maxCompletenessRetries
++      │    │    ├─ missingJobReasons をフィードバックプロンプトにまとめる
++      │    │    ├─ 同一スレッドで pipelineAnalysisAgent.stream(feedback, ...) 再実行
++      │    │    └─ 再度 reportFinalizationStep へ
++      │    └─ completenessRetries >= maxCompletenessRetries
++      │         └─ warning ログを出して workflow 完了
++      │            → { reportContent, completenessVerified: false, completenessRetries: max }
++      └─ hasMissingJobs === false かつ finalizationNeeded === true
++           ├─ reportRewriteAgent に現レポートと finalizationActions を渡して書き換え
++           └─ workflow 完了 → { reportContent, completenessVerified: true, completenessRetries: N }
+ ```
+ 
+ ## データフロー概略
+@@ -120,7 +123,7 @@ UserPrompt (圧縮済みコンテキスト)
+ pipelineAnalysisAgent  ── writeReport/patchReport ──▶ resultFilePath (Markdown)
+       │
+       ▼
+-reportCompletenessJudgeAgent (JSON)
++reportFinalizationJudgeAgent (JSON) → reportRewriteAgent (書き換え、必要時のみ)
+       │
+       ▼
+ AnalysisReport (content)
+diff --git a/docs/config/env_val.md b/docs/config/env_val.md
+index 3949507..93986e8 100644
+--- a/docs/config/env_val.md
++++ b/docs/config/env_val.md
+@@ -18,7 +18,7 @@
+ | 入力 | CHECKLIST_COLUMNS | No | - | チェックリストCSVの抽出列番号（カンマ区切り、1始まり）。未指定時は全列を抽出 | --checklist-columns | - |
+ | 入力 | CHECKLIST_NO_HEADER | No | false | 抽出列が1列の場合にヘッダを除外するか | --checklist-no-header | - |
+ | 入力 | REVIEW_SETTINGS_PATH | No | - | レビュー設定ファイルパス | --review-settings | - |
+-| 入力 | PIPELINE_REPORT_SETTINGS_PATH | No | - | pipeline-report 分析設定ファイルパス（JSON）。`jobReportFormat` / `additionalInstructions` / `includeJobPatterns` / `excludeJobPatterns` | --pipeline-report-settings | - |
++| 入力 | PIPELINE_REPORT_SETTINGS_PATH | No | - | pipeline-report 分析設定ファイルパス（JSON）。`jobReportFormat` / `analysisInstructions` / `reportRefinementInstructions` / `includeJobPatterns` / `excludeJobPatterns` | --pipeline-report-settings | - |
+ | 入力 | SKILLS_PATH | No | - | skillsパス | --skills | - |
+ | 動作設定 | USER_ID | Yes | - | 実行ユーザID | --user-id | - |
+ | 動作設定 | AIKATA_LOG_LEVEL | No | info | ログレベル | --log-level | - |
+diff --git a/docs/domain/pipeline-report/business_rule.md b/docs/domain/pipeline-report/business_rule.md
+index 5ca32c6..95d5b44 100644
+--- a/docs/domain/pipeline-report/business_rule.md
++++ b/docs/domain/pipeline-report/business_rule.md
+@@ -70,21 +70,25 @@
+     - AI 総合評価ラベル（`問題なし` / `要注意` / `問題あり`）はデフォルト `jobReportFormat` のプレースホルダ hint 内に定義される。ユーザが `jobReportFormat` を差し替えればラベル自体を変更できる
+   - 結果(アクション)
+     - Agent は全体骨組みをそのまま採用し、ジョブブロックだけを `jobReportFormat` に従って生成する
+-    - `reportCompletenessJudgeAgent` は全対象ジョブのブロックが存在するか・レポートが全て埋まっているか・ジョブセクションの並び順が妥当かを判定する
+-  - 関連するユースケースorエンティティ: OVERALL_REPORT_TEMPLATE, PipelineReportSettings, pipelineAnalysisAgent, reportCompletenessJudgeAgent
++    - `reportFinalizationJudgeAgent` は全対象ジョブのブロックが存在するか・レポートが全て埋まっているか・ジョブセクションの並び順が妥当かを判定する
++    - 仕上げが必要な場合は `reportRewriteAgent` が書き換えを実行する
++  - 関連するユースケースorエンティティ: OVERALL_REPORT_TEMPLATE, PipelineReportSettings, pipelineAnalysisAgent, reportFinalizationJudgeAgent, reportRewriteAgent
+ 
+-- レポート完成判定ルール
++- レポート最終仕上げルール
+   - 目的/背景
+     - AI が途中で離脱したり、フォーマットを一部無視したまま完了を報告する事故を防ぎ、レポート品質を強制する
++    - ジョブ欠落以外の仕上げ（ソート順修正・ユーザ指示に基づく書き換え等）は分析Agentにフィードバックせず、専用の書き換えAgentが直接対応することで効率化する
+   - 条件
+-    - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportCompletenessJudgeAgent` に (a) 全体骨組み / (b) `jobReportFormat` / (c) 対象ジョブ一覧 / (d) 現レポート内容 を渡して JSON 判定
+-    - Judge 出力スキーマ: `{ isComplete: boolean, reasons: string[] }`
+-    - `isComplete=false` なら `missingItems` と `formatDeviations` をフィードバックとして同一スレッドの `pipelineAnalysisAgent` に投げ直して再実行し、再度 verify
++    - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportFinalizationJudgeAgent` に (a) 全体骨組み / (b) `jobReportFormat` / (c) 対象ジョブ一覧 / (d) 現レポート内容 / (e) `reportRefinementInstructions` を渡して JSON 判定
++    - Judge 出力スキーマ: `{ hasMissingJobs: boolean, missingJobReasons: string[], finalizationNeeded: boolean, finalizationActions: string[] }`
++    - `hasMissingJobs=true` の場合: `missingJobReasons` をフィードバックとして同一スレッドの `pipelineAnalysisAgent` に投げ直して再実行し、再度 verify
++    - `hasMissingJobs=false` かつ `finalizationNeeded=true` の場合: `reportRewriteAgent` に現レポート内容と `finalizationActions` を渡して書き換えを実行する。書き換え時は元の文言を正確にそのまま利用することを強調する
+     - 再試行回数は `maxCompletenessRetries`（デフォルト 3）まで
+   - 結果(アクション)
+-    - `isComplete=true`: そのままレポート採用
++    - `hasMissingJobs=false` かつ `finalizationNeeded=false`: そのままレポート採用
++    - `hasMissingJobs=false` かつ `finalizationNeeded=true`: `reportRewriteAgent` による書き換え後にレポート採用
+     - 上限到達: warning ログを出力し、現状のレポートをそのまま返却（ジョブ自体は成功扱い）
+-  - 関連するユースケースorエンティティ: verifyCompletenessStep, reportCompletenessJudgeAgent, pipelineAnalysisAgent
++  - 関連するユースケースorエンティティ: reportFinalizationStep, reportFinalizationJudgeAgent, reportRewriteAgent, pipelineAnalysisAgent
+ 
+ - コンテキスト長リカバリールール
+   - 目的/背景
+@@ -124,12 +128,12 @@
+     - 圧縮 best-effort や完成判定リトライ上限到達は「ジョブ失敗」ではなく「助言の品質低下」として扱い、CI を壊さない
+   - 条件
+     - `JobLogCompressor` が閾値に収まらないまま終了
+-    - `verifyCompletenessStep` が `maxCompletenessRetries` に到達
++    - `reportFinalizationStep` が `maxCompletenessRetries` に到達
+   - 結果(アクション)
+     - いずれも warning ログを出力して処理を続行
+     - CLI の終了コードは `0`（通常完了扱い）
+     - ただし GitLab API 失敗 / zip 失敗 / AI API 呼び出しエラーなど実行不能なエラーは `exit(1)` とする
+-  - 関連するユースケースorエンティティ: JobLogCompressor, verifyCompletenessStep, pipelineReportCliModule
++  - 関連するユースケースorエンティティ: JobLogCompressor, reportFinalizationStep, pipelineReportCliModule
+ 
+ - ジョブセクション出力順序ルール
+   - 目的/背景
+@@ -141,5 +145,5 @@
+       1. ジョブ結果に対する AI 評価が悪い順（デフォルトテンプレートでは 問題あり → 要注意 → 問題なし）
+       2. ステージの実行順（パイプライン定義上のステージ順）
+     - ステージ実行順は対象ジョブのジョブ ID 昇順から導出し、AI に明示的に提示する
+-    - `reportCompletenessJudgeAgent` でも順序の妥当性をソフトに検証する（formatDeviations として検出）
+-  - 関連するユースケースorエンティティ: pipelineAnalysisAgent (buildInstructions), reportCompletenessJudgeAgent
++    - `reportFinalizationJudgeAgent` でも順序の妥当性をソフトに検証する（finalizationActions として検出）
++  - 関連するユースケースorエンティティ: pipelineAnalysisAgent (buildInstructions), reportFinalizationJudgeAgent
+diff --git a/docs/domain/pipeline-report/entity.md b/docs/domain/pipeline-report/entity.md
+index 4e41015..debafea 100644
+--- a/docs/domain/pipeline-report/entity.md
++++ b/docs/domain/pipeline-report/entity.md
+@@ -121,11 +121,12 @@
+     - includeJobPatterns/excludeJobPatterns が `RegExp[]` であること
+   - 属性
+     - jobReportFormat (string)
+-    - additionalInstructions (string | null)
++    - analysisInstructions (string | null) — 分析Agent向けの追加指示
++    - reportRefinementInstructions (string | null) — 最終レポート推敲時の指示（reportRewriteAgent向け）
+     - includeJobPatterns (readonly RegExp[])
+     - excludeJobPatterns (readonly RegExp[])
+   - 振る舞い
+-    - default(静的ファクトリ): デフォルト設定（デフォルト jobReportFormat / additionalInstructions=null / include/exclude空）を生成
++    - default(静的ファクトリ): デフォルト設定（デフォルト jobReportFormat / analysisInstructions=null / reportRefinementInstructions=null / include/exclude空）を生成
+     - of(params)(静的ファクトリ): 任意の値から生成
+     - filterJobs(jobs, selfJobId): 分析対象ジョブ選定ビジネスルール
+       1. selfJobId と一致するジョブを除外
+diff --git a/docs/domain/pipeline-report/glossary.md b/docs/domain/pipeline-report/glossary.md
+index 747fa7d..6a3b745 100644
+--- a/docs/domain/pipeline-report/glossary.md
++++ b/docs/domain/pipeline-report/glossary.md
+@@ -18,10 +18,12 @@
+   - プロンプトサイズが閾値を超えた場合に、ジョブログの中央部分を省略して先頭/末尾を残す段階的アルゴリズム。review 機能の diff 圧縮と同一方式
+ - 省略マーカー (omission marker)
+   - 圧縮されたジョブログの中央に埋め込まれる `[aikata: N chars omitted from middle of job log. ...]` 形式の文字列。AI が `getJobLogDetail` ツールで省略部分を取り戻せることを示す
+-- 完成判定 (report completeness judgement)
+-  - `reportCompletenessJudgeAgent` による、AI が生成したレポートが全対象ジョブを網羅しているか / フォーマット仕様に従っているかの JSON 判定
+-- 完成判定ループ (completeness retry loop)
+-  - `isComplete=false` の場合に `pipelineAnalysisAgent` へフィードバックを返して再実行するループ。上限は `PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES`（デフォルト 3）
++- レポート最終仕上げ判定 (report finalization judgement)
++  - `reportFinalizationJudgeAgent` による、AI が生成したレポートが全対象ジョブを網羅しているか / フォーマット仕様に従っているか / ユーザの推敲指示に沿っているかの JSON 判定。出力は `{ hasMissingJobs, missingJobReasons, finalizationNeeded, finalizationActions }`
++- レポート書き換え (report rewrite)
++  - `reportRewriteAgent` による、ジョブ欠落以外の仕上げ（ソート順修正・ユーザの推敲指示に基づく書き換え等）の実行。元の文言を正確にそのまま利用して書き換える
++- 最終仕上げループ (finalization retry loop)
++  - ジョブ欠落（`hasMissingJobs=true`）の場合に `pipelineAnalysisAgent` へフィードバックを返して再実行するループ。仕上げのみ必要（`finalizationNeeded=true`）の場合は `reportRewriteAgent` が直接書き換える。上限は `PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES`（デフォルト 3）
+ - 全体骨組み (overall template)
+   - 固定レポート構造。`OVERALL_REPORT_TEMPLATE` 定数としてハードコードされており、ユーザはカスタマイズ不可
+ - ジョブレポートフォーマット (job report format)
+diff --git a/docs/domain/pipeline-report/usecase.md b/docs/domain/pipeline-report/usecase.md
+index d22f187..c1bfb3f 100644
+--- a/docs/domain/pipeline-report/usecase.md
++++ b/docs/domain/pipeline-report/usecase.md
+@@ -26,7 +26,7 @@
+     - AI APIキーとエンドポイントが有効（ローカルモード時。APIモード時はAPIサーバー側で保持）
+     - 対象の `$CI_PIPELINE_ID` が存在すること
+     - 本ジョブ自身は `.post` ステージで `when: always` により起動され、先行ジョブが終了している想定
+-  - 入力: PipelineAnalysisCommand（userId, projectId, pipelineId, selfJobId, gitlabToken, settings (PipelineReportSettings), skillsPaths, projectDir, aiApiKey, aiApiEndpointUrl, aiModelName, treeMaxDepth, commentLanguage, openaiReasoningEffort, maxContextLength, maxCompletenessRetries, resultFilePath）
++  - 入力: PipelineAnalysisCommand（userId, projectId, pipelineId, selfJobId, gitlabToken, settings (PipelineReportSettings: analysisInstructions, reportRefinementInstructions 等), skillsPaths, projectDir, aiApiKey, aiApiEndpointUrl, aiModelName, treeMaxDepth, commentLanguage, openaiReasoningEffort, maxContextLength, maxCompletenessRetries, resultFilePath）
+   - 出力: PipelineAnalysisDto（reportContent, completenessVerified, completenessRetries）
+   - メインフロー
+     1. `pipelineGateway.getPipeline(projectId, pipelineId)` でパイプラインメタ情報を取得
+@@ -40,7 +40,8 @@
+     9. 閾値超過判定の上、`JobLogCompressor.compress(...)` で段階的圧縮（best-effort）
+     10. `resultFilePath` に `OVERALL_REPORT_TEMPLATE` を書き込み（レポートファイル初期化）
+     11. `workflowRunner.run(...)` で Mastra workflow を実行
+-        - 内部で `executeAnalysisStep` → `verifyCompletenessStep` を反復し、`maxCompletenessRetries` まで完成判定ループを回す
++        - 内部で `executeAnalysisStep` → `reportFinalizationStep` を反復し、`maxCompletenessRetries` まで完成判定ループを回す
++        - `reportFinalizationStep` では `reportFinalizationJudgeAgent` が判定を行い、ジョブ欠落時は `pipelineAnalysisAgent` にフィードバック、仕上げのみ必要な場合は `reportRewriteAgent` が書き換えを実行する
+     12. 完了後 `resultFilePath` の内容を読み出し、`AnalysisReport.of(content)` を生成して DTO で返却
+     13. `finally` で `ArtifactCacheManager.cleanup()` により temp ディレクトリを削除
+   - 例外
 diff --git a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-index b7b81a0..6b698fa 100644
+index 6b698fa..ca7c097 100644
 --- a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
 +++ b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-@@ -188,6 +188,7 @@ export class PipelineAnalysisService {
-         artifactTrees,
-         artifactCacheStatuses,
-         folderTree,
-+        mergedYaml,
-       );
- 
-       // Step 10: 一時ファイルにレポートテンプレートを書き込み（review機能と同パターン）
-@@ -307,6 +308,7 @@ export class PipelineAnalysisService {
-     artifactTrees: ArtifactTree[],
-     artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>,
-     folderTree: string,
-+    mergedYaml: string | null,
-   ): {
-     compressed: boolean;
-     compressedJobLogs: Map<number, string>;
-@@ -325,6 +327,7 @@ export class PipelineAnalysisService {
-         artifactCacheStatuses,
-         folderTree: ft,
-         folderTreeStripped: false,
-+        mergedYaml,
-       });
- 
-     if (command.maxContextLength === null) {
-diff --git a/src/application/pipeline-report/pipelineAnalysis/__tests__/pipelineContextBuilder.test.ts b/src/application/pipeline-report/pipelineAnalysis/__tests__/pipelineContextBuilder.test.ts
-index 73d681e..3879c86 100644
---- a/src/application/pipeline-report/pipelineAnalysis/__tests__/pipelineContextBuilder.test.ts
-+++ b/src/application/pipeline-report/pipelineAnalysis/__tests__/pipelineContextBuilder.test.ts
-@@ -81,6 +81,7 @@ describe('buildPipelineUserPrompt', () => {
-       artifactCacheStatuses,
-       folderTree,
-       folderTreeStripped: false,
-+      mergedYaml: null,
+@@ -212,7 +212,8 @@ export class PipelineAnalysisService {
+           folderTreeStripped: compression.folderTreeStripped,
+           overallTemplate: OVERALL_REPORT_TEMPLATE,
+           jobReportFormat: command.settings.jobReportFormat,
+-          additionalInstructions: command.settings.additionalInstructions,
++          analysisInstructions: command.settings.analysisInstructions,
++          reportRefinementInstructions: command.settings.reportRefinementInstructions,
+           commentLanguage: command.commentLanguage,
+           skillsPaths: command.skillsPaths,
+           resultFilePath,
+diff --git a/src/application/shared/parser/__tests__/parsePipelineReportSettings.test.ts b/src/application/shared/parser/__tests__/parsePipelineReportSettings.test.ts
+index 86a2a46..6dd1de0 100644
+--- a/src/application/shared/parser/__tests__/parsePipelineReportSettings.test.ts
++++ b/src/application/shared/parser/__tests__/parsePipelineReportSettings.test.ts
+@@ -7,7 +7,7 @@ describe('parsePipelineReportSettings', () => {
+   it('全フィールドを指定した JSON を正常にパースできる', () => {
+     const json = JSON.stringify({
+       jobReportFormat: '## {{jobName}} custom format',
+-      additionalInstructions: '失敗しているテストに特に注目すること',
++      analysisInstructions: '失敗しているテストに特に注目すること',
+       includeJobPatterns: ['^build:', '^test:'],
+       excludeJobPatterns: ['^deploy:'],
      });
+@@ -15,7 +15,7 @@ describe('parsePipelineReportSettings', () => {
+     const settings = parsePipelineReportSettings(json);
  
-     // Pipeline セクション
-@@ -126,6 +127,7 @@ describe('buildPipelineUserPrompt', () => {
-       artifactCacheStatuses: new Map([[5001, { kind: 'no-artifacts' }]]),
-       folderTree: 'src/\n  (files omitted)',
-       folderTreeStripped: true,
-+      mergedYaml: null,
-     });
- 
-     expect(prompt).toContain('file entries were stripped');
-@@ -144,6 +146,7 @@ describe('buildPipelineUserPrompt', () => {
-       ]),
-       folderTree: 'src/',
-       folderTreeStripped: false,
-+      mergedYaml: null,
-     });
- 
-     expect(prompt).toContain('artifact zip too large');
-@@ -162,6 +165,7 @@ describe('buildPipelineUserPrompt', () => {
-       artifactCacheStatuses: new Map([[5004, { kind: 'no-artifacts' }]]),
-       folderTree: 'src/',
-       folderTreeStripped: false,
-+      mergedYaml: null,
-     });
- 
-     expect(prompt).toContain('no artifacts');
-@@ -180,6 +184,7 @@ describe('buildPipelineUserPrompt', () => {
-       ]),
-       folderTree: 'src/',
-       folderTreeStripped: false,
-+      mergedYaml: null,
-     });
- 
-     expect(prompt).toContain('disk quota exceeded');
-@@ -196,6 +201,7 @@ describe('buildPipelineUserPrompt', () => {
-       artifactCacheStatuses: new Map([[5006, { kind: 'error', reason: 'network timeout' }]]),
-       folderTree: 'src/',
-       folderTreeStripped: false,
-+      mergedYaml: null,
-     });
- 
-     expect(prompt).toContain('artifact fetch error');
-@@ -212,6 +218,7 @@ describe('buildPipelineUserPrompt', () => {
-       artifactCacheStatuses: new Map(),
-       folderTree: 'src/',
-       folderTreeStripped: false,
-+      mergedYaml: null,
-     });
- 
-     // Jobs ヘッダは存在する
-@@ -230,6 +237,7 @@ describe('buildPipelineUserPrompt', () => {
-       artifactCacheStatuses: new Map([[5007, { kind: 'no-artifacts' }]]),
-       folderTree: 'src/',
-       folderTreeStripped: false,
-+      mergedYaml: null,
-     });
- 
-     expect(prompt).toContain('Job #5007');
-@@ -247,8 +255,66 @@ describe('buildPipelineUserPrompt', () => {
-       artifactCacheStatuses: new Map(),
-       folderTree: '',
-       folderTreeStripped: false,
-+      mergedYaml: null,
-     });
- 
-     expect(prompt).toContain('777');
+     expect(settings.jobReportFormat).toBe('## {{jobName}} custom format');
+-    expect(settings.additionalInstructions).toBe('失敗しているテストに特に注目すること');
++    expect(settings.analysisInstructions).toBe('失敗しているテストに特に注目すること');
+     expect(settings.includeJobPatterns).toHaveLength(2);
+     expect(settings.includeJobPatterns[0]).toBeInstanceOf(RegExp);
+     expect(settings.includeJobPatterns[0].test('build:web')).toBe(true);
+@@ -24,11 +24,22 @@ describe('parsePipelineReportSettings', () => {
+     expect(settings.excludeJobPatterns[0].test('deploy:prod')).toBe(true);
    });
-+
-+  it('mergedYaml=null の場合、CI/CD Job Definitions セクションが含まれない', () => {
-+    const pipeline = createPipeline();
-+    const prompt = buildPipelineUserPrompt({
-+      pipeline,
-+      targetJobs: [],
-+      jobLogs: new Map(),
-+      artifactTrees: [],
-+      artifactCacheStatuses: new Map(),
-+      folderTree: 'src/',
-+      folderTreeStripped: false,
-+      mergedYaml: null,
+ 
++  it('reportRefinementInstructions を指定した場合に正しくパースされる', () => {
++    const json = JSON.stringify({
++      reportRefinementInstructions: '問題なしのジョブは非表示にする',
 +    });
 +
-+    expect(prompt).not.toContain('CI/CD Job Definitions');
++    const settings = parsePipelineReportSettings(json);
++
++    expect(settings.reportRefinementInstructions).toBe('問題なしのジョブは非表示にする');
 +  });
 +
-+  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションが YAML コードブロック付きで含まれる', () => {
-+    const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
-+    const pipeline = createPipeline();
-+    const prompt = buildPipelineUserPrompt({
-+      pipeline,
-+      targetJobs: [],
-+      jobLogs: new Map(),
-+      artifactTrees: [],
-+      artifactCacheStatuses: new Map(),
-+      folderTree: 'src/',
-+      folderTreeStripped: false,
-+      mergedYaml: yaml,
-+    });
-+
-+    expect(prompt).toContain('CI/CD Job Definitions');
-+    expect(prompt).toContain(yaml);
-+    expect(prompt).toContain('```yaml');
-+  });
-+
-+  it('mergedYaml が指定された場合、Jobs セクションの後、Job Logs セクションの前に配置される', () => {
-+    const pipeline = createPipeline();
-+    const job = createJob();
-+    const prompt = buildPipelineUserPrompt({
-+      pipeline,
-+      targetJobs: [job],
-+      jobLogs: new Map([[5001, 'log']]),
-+      artifactTrees: [],
-+      artifactCacheStatuses: new Map([[5001, { kind: 'no-artifacts' }]]),
-+      folderTree: 'src/',
-+      folderTreeStripped: false,
-+      mergedYaml: 'stages:\n  - build\n',
-+    });
-+
-+    const jobsSectionIdx = prompt.indexOf('## Jobs');
-+    const jobDefsIdx = prompt.indexOf('## CI/CD Job Definitions');
-+    const jobLogsIdx = prompt.indexOf('## Job Logs');
-+    expect(jobsSectionIdx).toBeGreaterThanOrEqual(0);
-+    expect(jobDefsIdx).toBeGreaterThan(jobsSectionIdx);
-+    expect(jobDefsIdx).toBeLessThan(jobLogsIdx);
-+  });
- });
-diff --git a/src/application/pipeline-report/pipelineAnalysis/pipelineContextBuilder.ts b/src/application/pipeline-report/pipelineAnalysis/pipelineContextBuilder.ts
-index 74993c5..8efcd10 100644
---- a/src/application/pipeline-report/pipelineAnalysis/pipelineContextBuilder.ts
-+++ b/src/application/pipeline-report/pipelineAnalysis/pipelineContextBuilder.ts
-@@ -17,6 +17,8 @@ export interface BuildPipelineUserPromptParams {
-   artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>;
-   folderTree: string;
+   it('空 JSON の場合は全フィールドにデフォルト値が適用される', () => {
+     const settings = parsePipelineReportSettings('{}');
+ 
+     expect(settings.jobReportFormat).toBe(PipelineReportSettings.default().jobReportFormat);
+-    expect(settings.additionalInstructions).toBeNull();
++    expect(settings.analysisInstructions).toBeNull();
++    expect(settings.reportRefinementInstructions).toBeNull();
+     expect(settings.includeJobPatterns).toEqual([]);
+     expect(settings.excludeJobPatterns).toEqual([]);
+   });
+diff --git a/src/application/shared/parser/parsePipelineReportSettings.ts b/src/application/shared/parser/parsePipelineReportSettings.ts
+index 6dab4bb..a0ab1cc 100644
+--- a/src/application/shared/parser/parsePipelineReportSettings.ts
++++ b/src/application/shared/parser/parsePipelineReportSettings.ts
+@@ -11,7 +11,8 @@ import { PipelineReportSettingsParseError } from './PipelineReportSettingsParseE
+ const schema = z
+   .object({
+     jobReportFormat: z.string().optional(),
+-    additionalInstructions: z.string().nullable().optional(),
++    analysisInstructions: z.string().nullable().optional(),
++    reportRefinementInstructions: z.string().nullable().optional(),
+     includeJobPatterns: z.array(z.string()).optional(),
+     excludeJobPatterns: z.array(z.string()).optional(),
+   })
+@@ -65,7 +66,9 @@ export function parsePipelineReportSettings(jsonText: string): PipelineReportSet
+ 
+   return PipelineReportSettings.of({
+     jobReportFormat: parsed.data.jobReportFormat ?? defaults.jobReportFormat,
+-    additionalInstructions: parsed.data.additionalInstructions ?? defaults.additionalInstructions,
++    analysisInstructions: parsed.data.analysisInstructions ?? defaults.analysisInstructions,
++    reportRefinementInstructions:
++      parsed.data.reportRefinementInstructions ?? defaults.reportRefinementInstructions,
+     includeJobPatterns: compile(parsed.data.includeJobPatterns),
+     excludeJobPatterns: compile(parsed.data.excludeJobPatterns),
+   });
+diff --git a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
+index 09cf646..affa670 100644
+--- a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
++++ b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
+@@ -24,7 +24,10 @@ export interface PipelineAnalysisWorkflowParams {
    folderTreeStripped: boolean;
-+  /** CI/CD ジョブ定義（merged YAML）。取得できなかった場合は null */
-+  mergedYaml: string | null;
- }
+   overallTemplate: string;
+   jobReportFormat: string;
+-  additionalInstructions: string | null;
++  /** ユーザ指定の分析時追加指示（未指定は null） */
++  analysisInstructions: string | null;
++  /** ユーザ指定のレポート推敲時指示（未指定は null） */
++  reportRefinementInstructions: string | null;
+   commentLanguage: string;
+   skillsPaths: string[];
+   resultFilePath: string;
+diff --git a/src/cli/pipeline-report/__tests__/commandBuilder.test.ts b/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
+index 23660a6..1011ec0 100644
+--- a/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
++++ b/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
+@@ -218,7 +218,8 @@ describe('buildPipelineReportApiRequest', () => {
+     // includeJobPatterns/excludeJobPatternsを持つ設定
+     const settings = PipelineReportSettings.of({
+       jobReportFormat: 'custom-format',
+-      additionalInstructions: 'extra',
++      analysisInstructions: 'extra',
++      reportRefinementInstructions: 'sort by severity',
+       includeJobPatterns: [/^build-.*/, /^test-.*/],
+       excludeJobPatterns: [/^skip-.*/],
+     });
+@@ -231,7 +232,8 @@ describe('buildPipelineReportApiRequest', () => {
+     expect(request.pipelineId).toBe(456);
+     expect(request.selfJobId).toBeNull();
+     expect(request.settings.jobReportFormat).toBe('custom-format');
+-    expect(request.settings.additionalInstructions).toBe('extra');
++    expect(request.settings.analysisInstructions).toBe('extra');
++    expect(request.settings.reportRefinementInstructions).toBe('sort by severity');
+     expect(request.settings.includeJobPatterns).toEqual(['^build-.*', '^test-.*']);
+     expect(request.settings.excludeJobPatterns).toEqual(['^skip-.*']);
+     expect(request.commentLanguage).toBe('Japanese');
+diff --git a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
+index 5f61ec0..a32c5c6 100644
+--- a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
++++ b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
+@@ -22,14 +22,14 @@ import { resetLogger } from '../../../lib/logger.js';
+  * のパラメータ伝播を E2E で検証するテスト群。
+  *
+  * 既存の `index.test.ts` は「各モードで service/client が呼ばれること」までしか
+- * 検証しておらず、jobReportFormat・additionalInstructions・includeJobPatterns・
++ * 検証しておらず、jobReportFormat・analysisInstructions・reportRefinementInstructions・includeJobPatterns・
+  * commentLanguage・maxContextLength 等の非自明なフィールドが伝播しているかが
+  * 検証されていない。Phase 16 では各フィールドがカスタム値として最終 DTO まで
+  * 到達することを黒箱テストで保証する。
+  *
+  * 実装方針:
+  * - 設定 JSON ファイルを一時ディレクトリに作成し、カスタム値で
+- *   jobReportFormat / additionalInstructions / includeJobPatterns / excludeJobPatterns
++ *   jobReportFormat / analysisInstructions / reportRefinementInstructions / includeJobPatterns / excludeJobPatterns
+  *   を指定する。
+  * - CLI 引数と process.env を立て、`run()` を実行する。
+  * - ローカルモードでは `localDepsFactory` に fake service を注入し、
+@@ -44,7 +44,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
+   let originalEnv: NodeJS.ProcessEnv;
  
- /**
-@@ -145,6 +147,23 @@ function renderArtifactPaths(
-   return sections.join('\n\n');
- }
+   const CUSTOM_JOB_REPORT_FORMAT = '## ジョブ <jobName> (<status>)\nカスタムフォーマットです\n';
+-  const CUSTOM_ADDITIONAL_INSTRUCTIONS = 'カスタム追加指示: 必ず日本語で要約すること';
++  const CUSTOM_ANALYSIS_INSTRUCTIONS = 'カスタム追加指示: 必ず日本語で要約すること';
++  const CUSTOM_REPORT_REFINEMENT_INSTRUCTIONS = '問題なしのジョブはレポートに表示しない';
+   const CUSTOM_INCLUDE_PATTERNS = ['^build:.*$', '^test:.*$'];
+   const CUSTOM_EXCLUDE_PATTERNS = ['^skip:.*$'];
  
-+/**
-+ * CI/CD Job Definitions セクションを組み立てる。
-+ * mergedYaml が null の場合は空文字列を返し、非 null の場合はコードブロックで提示する。
-+ */
-+function renderJobDefinitionsSection(mergedYaml: string | null): string {
-+  if (mergedYaml === null) {
-+    return '';
-+  }
-+  return `## CI/CD Job Definitions (merged YAML)
-+
-+The following is the fully resolved CI/CD configuration. Use it to understand what each job is configured to do.
-+
-+\`\`\`yaml
-+${mergedYaml}
-+\`\`\``;
-+}
-+
- /**
-  * Source Code Paths セクションを組み立てる。
-  */
-@@ -175,6 +194,7 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams):
-     artifactCacheStatuses,
-     folderTree,
-     folderTreeStripped,
-+    mergedYaml,
-   } = params;
+@@ -104,7 +105,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
+       settingsPath,
+       JSON.stringify({
+         jobReportFormat: CUSTOM_JOB_REPORT_FORMAT,
+-        additionalInstructions: CUSTOM_ADDITIONAL_INSTRUCTIONS,
++        analysisInstructions: CUSTOM_ANALYSIS_INSTRUCTIONS,
++        reportRefinementInstructions: CUSTOM_REPORT_REFINEMENT_INSTRUCTIONS,
+         includeJobPatterns: CUSTOM_INCLUDE_PATTERNS,
+         excludeJobPatterns: CUSTOM_EXCLUDE_PATTERNS,
+       }),
+@@ -208,7 +210,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
  
-   // Pipeline セクション
-@@ -196,6 +216,9 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams):
-     renderJobsTable(targetJobs),
-   ].join('\n');
+       // 設定ファイル由来のフィールドが伝播している
+       expect(cmd.settings.jobReportFormat).toBe(CUSTOM_JOB_REPORT_FORMAT);
+-      expect(cmd.settings.additionalInstructions).toBe(CUSTOM_ADDITIONAL_INSTRUCTIONS);
++      expect(cmd.settings.analysisInstructions).toBe(CUSTOM_ANALYSIS_INSTRUCTIONS);
++      expect(cmd.settings.reportRefinementInstructions).toBe(CUSTOM_REPORT_REFINEMENT_INSTRUCTIONS);
+       expect(cmd.settings.includeJobPatterns.map((re) => re.source)).toEqual(
+         CUSTOM_INCLUDE_PATTERNS,
+       );
+@@ -559,7 +562,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
  
-+  // CI/CD Job Definitions セクション（条件付き）
-+  const jobDefinitionsSection = renderJobDefinitionsSection(mergedYaml);
-+
-   // Job Logs セクション
-   const jobLogsSection = ['## Job Logs', '', renderJobLogs(targetJobs, jobLogs)].join('\n');
+       // 設定ファイル由来: RegExp は source 文字列として送信される
+       expect(req.settings.jobReportFormat).toBe(CUSTOM_JOB_REPORT_FORMAT);
+-      expect(req.settings.additionalInstructions).toBe(CUSTOM_ADDITIONAL_INSTRUCTIONS);
++      expect(req.settings.analysisInstructions).toBe(CUSTOM_ANALYSIS_INSTRUCTIONS);
++      expect(req.settings.reportRefinementInstructions).toBe(CUSTOM_REPORT_REFINEMENT_INSTRUCTIONS);
+       expect(req.settings.includeJobPatterns).toEqual(CUSTOM_INCLUDE_PATTERNS);
+       expect(req.settings.excludeJobPatterns).toEqual(CUSTOM_EXCLUDE_PATTERNS);
  
-@@ -213,11 +236,13 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams):
-     renderSourceCodePaths(folderTree, folderTreeStripped),
-   ].join('\n');
- 
--  return [
-+  const sections = [
-     pipelineSection,
-     jobsSection,
-+    ...(jobDefinitionsSection ? [jobDefinitionsSection] : []),
-     jobLogsSection,
-     artifactPathsSection,
-     sourceCodeSection,
--  ].join('\n\n');
-+  ];
-+  return sections.join('\n\n');
- }
-diff --git a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
-index eb20d8a..38740a1 100644
---- a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
-+++ b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
-@@ -106,6 +106,7 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
-         artifactCacheStatuses,
-         folderTree: params.folderTree,
-         folderTreeStripped: params.folderTreeStripped,
-+        mergedYaml: params.mergedYaml,
-       });
- 
-       // workflow inputSchema に対応する inputData
-diff --git a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
-index d675247..8f79b61 100644
---- a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
-+++ b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
-@@ -440,18 +440,17 @@ describe('buildInstructions', () => {
-     expect(result).not.toContain('CI/CD Job Definitions');
+@@ -626,7 +630,8 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
+       // デフォルト値: default() の jobReportFormat は「ジョブ #<jobId>」を含むマークダウン
+       expect(req.settings.jobReportFormat).toContain('<jobId>');
+       expect(req.settings.jobReportFormat).toContain('<jobName>');
+-      expect(req.settings.additionalInstructions).toBeNull();
++      expect(req.settings.analysisInstructions).toBeNull();
++      expect(req.settings.reportRefinementInstructions).toBeNull();
+       expect(req.settings.includeJobPatterns).toEqual([]);
+       expect(req.settings.excludeJobPatterns).toEqual([]);
+       // デフォルト言語は Japanese
+diff --git a/src/cli/pipeline-report/commandBuilder.ts b/src/cli/pipeline-report/commandBuilder.ts
+index 16f8fdb..73bedd2 100644
+--- a/src/cli/pipeline-report/commandBuilder.ts
++++ b/src/cli/pipeline-report/commandBuilder.ts
+@@ -167,7 +167,8 @@ export function buildPipelineReportApiRequest(
+     selfJobId: validated.selfJobId,
+     settings: {
+       jobReportFormat: settings.jobReportFormat,
+-      additionalInstructions: settings.additionalInstructions,
++      analysisInstructions: settings.analysisInstructions,
++      reportRefinementInstructions: settings.reportRefinementInstructions,
+       includeJobPatterns: settings.includeJobPatterns.map((re) => re.source),
+       excludeJobPatterns: settings.excludeJobPatterns.map((re) => re.source),
+     },
+diff --git a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
+index e975e04..47baf1d 100644
+--- a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
++++ b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
+@@ -31,8 +31,10 @@ const DEFAULT_JOB_REPORT_FORMAT = `### ジョブ #<jobId> — \`<jobName>\` (<st
+ export interface PipelineReportSettingsParams {
+   /** ジョブ 1 件分のレポートブロックのフォーマット（review の commentFormat と同じ粒度） */
+   jobReportFormat: string;
+-  /** Agent に渡す追加指示（任意） */
+-  additionalInstructions: string | null;
++  /** 分析 Agent に渡す追加指示（任意） */
++  analysisInstructions: string | null;
++  /** レポート最終仕上げ時の推敲指示（任意） */
++  reportRefinementInstructions: string | null;
+   /** 分析対象に含めるジョブ名のパターン（空なら全て対象） */
+   includeJobPatterns: readonly RegExp[];
+   /** 分析対象から除外するジョブ名のパターン */
+@@ -46,7 +48,8 @@ export interface PipelineReportSettingsParams {
+ export class PipelineReportSettings {
+   private constructor(
+     readonly jobReportFormat: string,
+-    readonly additionalInstructions: string | null,
++    readonly analysisInstructions: string | null,
++    readonly reportRefinementInstructions: string | null,
+     readonly includeJobPatterns: readonly RegExp[],
+     readonly excludeJobPatterns: readonly RegExp[],
+   ) {}
+@@ -57,7 +60,8 @@ export class PipelineReportSettings {
+   static of(params: PipelineReportSettingsParams): PipelineReportSettings {
+     return new PipelineReportSettings(
+       params.jobReportFormat,
+-      params.additionalInstructions,
++      params.analysisInstructions,
++      params.reportRefinementInstructions,
+       params.includeJobPatterns,
+       params.excludeJobPatterns,
+     );
+@@ -67,7 +71,8 @@ export class PipelineReportSettings {
+   static default(): PipelineReportSettings {
+     return PipelineReportSettings.of({
+       jobReportFormat: DEFAULT_JOB_REPORT_FORMAT,
+-      additionalInstructions: null,
++      analysisInstructions: null,
++      reportRefinementInstructions: null,
+       includeJobPatterns: [],
+       excludeJobPatterns: [],
+     });
+diff --git a/src/domain/pipeline-report/pipelineReportSettings/__tests__/PipelineReportSettings.test.ts b/src/domain/pipeline-report/pipelineReportSettings/__tests__/PipelineReportSettings.test.ts
+index 4560f1b..1837d8e 100644
+--- a/src/domain/pipeline-report/pipelineReportSettings/__tests__/PipelineReportSettings.test.ts
++++ b/src/domain/pipeline-report/pipelineReportSettings/__tests__/PipelineReportSettings.test.ts
+@@ -22,14 +22,16 @@ function makeJob(id: number, name: string): Job {
+ function makeSettings(
+   overrides: Partial<{
+     jobReportFormat: string;
+-    additionalInstructions: string | null;
++    analysisInstructions: string | null;
++    reportRefinementInstructions: string | null;
+     includeJobPatterns: RegExp[];
+     excludeJobPatterns: RegExp[];
+   }> = {},
+ ): PipelineReportSettings {
+   return PipelineReportSettings.of({
+     jobReportFormat: overrides.jobReportFormat ?? '## {{jobName}}',
+-    additionalInstructions: overrides.additionalInstructions ?? null,
++    analysisInstructions: overrides.analysisInstructions ?? null,
++    reportRefinementInstructions: overrides.reportRefinementInstructions ?? null,
+     includeJobPatterns: overrides.includeJobPatterns ?? [],
+     excludeJobPatterns: overrides.excludeJobPatterns ?? [],
    });
- 
--  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションが YAML コードブロック付きで含まれる', () => {
-+  it('mergedYaml が指定されても、system プロンプトには CI/CD Job Definitions セクションが含まれない（user プロンプト側で提供）', () => {
-     const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
-     const ctx = createTestRequestContext({ mergedYaml: yaml });
- 
-     const result = buildInstructions(ctx);
- 
--    expect(result).toContain('CI/CD Job Definitions');
--    expect(result).toContain(yaml);
--    expect(result).toContain('```yaml');
-+    expect(result).not.toContain('CI/CD Job Definitions');
-+    expect(result).not.toContain('```yaml');
-   });
- 
--  it('mergedYaml が指定された場合、Role Definition に job definitions が含まれる', () => {
-+  it('mergedYaml が指定された場合でも、Role Definition に job definitions への言及が含まれる', () => {
-     const ctx = createTestRequestContext({ mergedYaml: 'stages:\n  - build\n' });
- 
-     const result = buildInstructions(ctx);
-@@ -459,19 +458,6 @@ describe('buildInstructions', () => {
-     expect(result).toMatch(/CI\/CD job definitions/i);
-   });
- 
--  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションは Target Jobs の後、Reasoning Framework の前に配置される', () => {
--    const ctx = createTestRequestContext({ mergedYaml: 'stages:\n  - build\n' });
--
--    const result = buildInstructions(ctx);
--
--    const targetJobsIdx = result.indexOf('Target Jobs');
--    const jobDefsIdx = result.indexOf('CI/CD Job Definitions');
--    const reactIdx = result.indexOf('Reasoning Framework');
--    expect(targetJobsIdx).toBeGreaterThanOrEqual(0);
--    expect(jobDefsIdx).toBeGreaterThan(targetJobsIdx);
--    expect(jobDefsIdx).toBeLessThan(reactIdx);
--  });
--
-   it('folderTreeStripped=true かつ workspaceAvailable=false の場合、workspace tools への言及は含まれない', () => {
-     const ctx = createTestRequestContext({
-       folderTreeStripped: true,
-@@ -539,6 +525,59 @@ describe('buildUserPrompt', () => {
+@@ -87,3 +89,27 @@ describe('PipelineReportSettings.filterJobs', () => {
+     expect(result).toEqual([]);
    });
  });
- 
-+describe('buildUserPrompt - mergedYaml', () => {
-+  it('mergedYaml が指定された場合、user プロンプトに CI/CD Job Definitions セクションが含まれる', () => {
-+    const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
-+    const ctx = createTestRequestContext({ mergedYaml: yaml });
-+    const pipeline = Pipeline.of({
-+      projectId: 1,
-+      pipelineId: 2,
-+      ref: 'main',
-+      sha: 'abc123',
-+      status: 'success',
-+      webUrl: 'https://example.com/p/1/pipelines/2',
-+      createdAt: new Date('2026-04-11T09:00:00Z'),
-+      updatedAt: new Date('2026-04-11T09:05:00Z'),
-+    });
 +
-+    const result = buildUserPrompt(ctx, {
-+      pipeline,
-+      targetJobs: [],
-+      jobLogs: new Map(),
-+      artifactTrees: [],
-+      artifactCacheStatuses: new Map(),
-+    });
-+
-+    expect(result).toContain('CI/CD Job Definitions');
-+    expect(result).toContain(yaml);
-+    expect(result).toContain('```yaml');
++describe('PipelineReportSettings.default', () => {
++  it('analysisInstructionsがnullであること', () => {
++    const settings = PipelineReportSettings.default();
++    expect(settings.analysisInstructions).toBeNull();
 +  });
 +
-+  it('mergedYaml=null の場合、user プロンプトに CI/CD Job Definitions セクションが含まれない', () => {
-+    const ctx = createTestRequestContext({ mergedYaml: null });
-+    const pipeline = Pipeline.of({
-+      projectId: 1,
-+      pipelineId: 2,
-+      ref: 'main',
-+      sha: 'abc123',
-+      status: 'success',
-+      webUrl: 'https://example.com/p/1/pipelines/2',
-+      createdAt: new Date('2026-04-11T09:00:00Z'),
-+      updatedAt: new Date('2026-04-11T09:05:00Z'),
-+    });
-+
-+    const result = buildUserPrompt(ctx, {
-+      pipeline,
-+      targetJobs: [],
-+      jobLogs: new Map(),
-+      artifactTrees: [],
-+      artifactCacheStatuses: new Map(),
-+    });
-+
-+    expect(result).not.toContain('CI/CD Job Definitions');
++  it('reportRefinementInstructionsがnullであること', () => {
++    const settings = PipelineReportSettings.default();
++    expect(settings.reportRefinementInstructions).toBeNull();
 +  });
 +});
 +
- describe('createToolset', () => {
-   it('最小構成では4つのベースツール（write/patch/get/getArtifact）を返す', () => {
-     const ctx = createTestContextObject({
++describe('PipelineReportSettings.of', () => {
++  it('analysisInstructionsを正しく保持する', () => {
++    const settings = makeSettings({ analysisInstructions: 'テスト失敗に注目' });
++    expect(settings.analysisInstructions).toBe('テスト失敗に注目');
++  });
++
++  it('reportRefinementInstructionsを正しく保持する', () => {
++    const settings = makeSettings({ reportRefinementInstructions: '問題なしのジョブは非表示' });
++    expect(settings.reportRefinementInstructions).toBe('問題なしのジョブは非表示');
++  });
++});
+diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
+index ce3a618..2ff3cef 100644
+--- a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
++++ b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
+@@ -15,7 +15,8 @@ export interface PipelineReportApiRequest {
+   selfJobId: number | null;
+   settings: {
+     jobReportFormat: string;
+-    additionalInstructions: string | null;
++    analysisInstructions: string | null;
++    reportRefinementInstructions: string | null;
+     /** RegExp の source 文字列配列 */
+     includeJobPatterns: string[];
+     /** RegExp の source 文字列配列 */
+diff --git a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
+index 38740a1..f1b76ee 100644
+--- a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
++++ b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
+@@ -59,7 +59,8 @@ function buildAgentRequestContext(
+     targetJobs: targetJobSummaries,
+     overallTemplate: params.overallTemplate,
+     jobReportFormat: params.jobReportFormat,
+-    additionalInstructions: params.additionalInstructions,
++    analysisInstructions: params.analysisInstructions,
++    reportRefinementInstructions: params.reportRefinementInstructions,
+     commentLanguage: params.commentLanguage,
+     resultFilePath: params.resultFilePath,
+     skillsPaths: params.skillsPaths,
+@@ -115,7 +116,8 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
+         targetJobs: targetJobSummaries,
+         overallTemplate: params.overallTemplate,
+         jobReportFormat: params.jobReportFormat,
+-        additionalInstructions: params.additionalInstructions,
++        analysisInstructions: params.analysisInstructions,
++        reportRefinementInstructions: params.reportRefinementInstructions,
+         resultFilePath: params.resultFilePath,
+         commentLanguage: params.commentLanguage,
+         maxCompletenessRetries: params.maxCompletenessRetries,
+@@ -137,7 +139,8 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
+         ['targetJobs', agentRequestContext.targetJobs],
+         ['overallTemplate', agentRequestContext.overallTemplate],
+         ['jobReportFormat', agentRequestContext.jobReportFormat],
+-        ['additionalInstructions', agentRequestContext.additionalInstructions],
++        ['analysisInstructions', agentRequestContext.analysisInstructions],
++        ['reportRefinementInstructions', agentRequestContext.reportRefinementInstructions],
+         ['commentLanguage', agentRequestContext.commentLanguage],
+         ['resultFilePath', agentRequestContext.resultFilePath],
+         ['skillsPaths', agentRequestContext.skillsPaths],
+diff --git a/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts b/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
+index 7b6a1e9..af13a39 100644
+--- a/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
++++ b/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
+@@ -93,7 +93,8 @@ function createParams(
+     folderTreeStripped: false,
+     overallTemplate: '# Pipeline Report\n\n## Overview\n\n## Jobs\n',
+     jobReportFormat: '### {jobName}\n\n{content}\n',
+-    additionalInstructions: null,
++    analysisInstructions: null,
++    reportRefinementInstructions: null,
+     commentLanguage: 'Japanese',
+     skillsPaths: [],
+     resultFilePath: '/tmp/result.md',
+@@ -165,7 +166,8 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
+     ]);
+     expect(startArg.inputData.overallTemplate).toBe(params.overallTemplate);
+     expect(startArg.inputData.jobReportFormat).toBe(params.jobReportFormat);
+-    expect(startArg.inputData.additionalInstructions).toBeNull();
++    expect(startArg.inputData.analysisInstructions).toBeNull();
++    expect(startArg.inputData.reportRefinementInstructions).toBeNull();
+     expect(startArg.inputData.resultFilePath).toBe(params.resultFilePath);
+     expect(startArg.inputData.commentLanguage).toBe(params.commentLanguage);
+     expect(startArg.inputData.maxCompletenessRetries).toBe(params.maxCompletenessRetries);
+@@ -183,7 +185,8 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
+     expect(ctx.get('openaiReasoningEffort')).toBeUndefined();
+     expect(ctx.get('overallTemplate')).toBe(params.overallTemplate);
+     expect(ctx.get('jobReportFormat')).toBe(params.jobReportFormat);
+-    expect(ctx.get('additionalInstructions')).toBeNull();
++    expect(ctx.get('analysisInstructions')).toBeNull();
++    expect(ctx.get('reportRefinementInstructions')).toBeNull();
+     expect(ctx.get('commentLanguage')).toBe('Japanese');
+     expect(ctx.get('resultFilePath')).toBe(params.resultFilePath);
+     expect(ctx.get('skillsPaths')).toEqual([]);
+diff --git a/src/mastra/__tests__/index.test.ts b/src/mastra/__tests__/index.test.ts
+index 88e81e6..79539cd 100644
+--- a/src/mastra/__tests__/index.test.ts
++++ b/src/mastra/__tests__/index.test.ts
+@@ -24,11 +24,18 @@ describe('mastra instance registration', () => {
+       expect(agent.name).toBe('Pipeline Analysis Agent');
+     });
+ 
+-    it('reportCompletenessJudgeAgent が登録されている', () => {
+-      const agent = mastra.getAgent('reportCompletenessJudgeAgent');
++    it('reportFinalizationJudgeAgent が登録されている', () => {
++      const agent = mastra.getAgent('reportFinalizationJudgeAgent');
+       expect(agent).toBeDefined();
+-      expect(agent.id).toBe('report-completeness-judge-agent');
+-      expect(agent.name).toBe('Report Completeness Judge Agent');
++      expect(agent.id).toBe('report-finalization-judge-agent');
++      expect(agent.name).toBe('Report Finalization Judge Agent');
++    });
++
++    it('reportRewriteAgent が登録されている', () => {
++      const agent = mastra.getAgent('reportRewriteAgent');
++      expect(agent).toBeDefined();
++      expect(agent.id).toBe('report-rewrite-agent');
++      expect(agent.name).toBe('Report Rewrite Agent');
+     });
+ 
+     it('pipelineReportSummarizationAgent が登録されている', () => {
+diff --git a/src/mastra/index.ts b/src/mastra/index.ts
+index 2e0a8c6..61086e5 100644
+--- a/src/mastra/index.ts
++++ b/src/mastra/index.ts
+@@ -6,7 +6,8 @@ import { reviewAgent } from './review/agents/reviewAgent.js';
+ import { checklistSplitAgent } from './review/agents/checklistSplitAgent.js';
+ import { summarizationAgent } from './review/agents/summarizationAgent.js';
+ import { pipelineAnalysisAgent } from './pipeline-report/agents/pipelineAnalysisAgent.js';
+-import { reportCompletenessJudgeAgent } from './pipeline-report/agents/reportCompletenessJudgeAgent.js';
++import { reportFinalizationJudgeAgent } from './pipeline-report/agents/reportFinalizationJudgeAgent.js';
++import { reportRewriteAgent } from './pipeline-report/agents/reportRewriteAgent.js';
+ import { pipelineReportSummarizationAgent } from './pipeline-report/agents/pipelineReportSummarizationAgent.js';
+ import { pipelineAnalysisWorkflow } from './pipeline-report/workflows/pipelineAnalysisWorkflow.js';
+ 
+@@ -17,7 +18,8 @@ export const mastra = new Mastra({
+     checklistSplitAgent,
+     summarizationAgent,
+     pipelineAnalysisAgent,
+-    reportCompletenessJudgeAgent,
++    reportFinalizationJudgeAgent,
++    reportRewriteAgent,
+     pipelineReportSummarizationAgent,
+   },
+   workflows: { reviewWorkflow, pipelineAnalysisWorkflow },
+diff --git a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
+index 8f79b61..9cf1f4a 100644
+--- a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
++++ b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
+@@ -36,7 +36,8 @@ function createTestContextObject(
+     overallTemplate: '# パイプライン分析レポート\n{{job-sections}}',
+     jobReportFormat:
+       '### ジョブ #<jobId> — `<jobName>` (<stage> / <status>)\n**AI 総合評価:** <以下の3つから1つだけ選ぶ: 「問題なし」「要注意」「問題あり」>',
+-    additionalInstructions: null,
++    analysisInstructions: null,
++    reportRefinementInstructions: null,
+     commentLanguage: 'Japanese',
+     resultFilePath: '/tmp/pipeline-report.md',
+     skillsPaths: [],
+@@ -268,8 +269,8 @@ describe('buildInstructions', () => {
+     expect(result).toMatch(/strip/i);
+   });
+ 
+-  it('additionalInstructionsがnullの場合、User-Specified Instructionsセクションは含まれない', () => {
+-    const ctx = createTestRequestContext({ additionalInstructions: null });
++  it('analysisInstructionsがnullの場合、User-Specified Instructionsセクションは含まれない', () => {
++    const ctx = createTestRequestContext({ analysisInstructions: null });
+ 
+     const result = buildInstructions(ctx);
+ 
+@@ -277,9 +278,9 @@ describe('buildInstructions', () => {
+     expect(result).not.toContain('HIGHEST PRIORITY');
+   });
+ 
+-  it('additionalInstructionsが指定された場合、該当セクションがmission直後に挿入される', () => {
++  it('analysisInstructionsが指定された場合、該当セクションがmission直後に挿入される', () => {
+     const ctx = createTestRequestContext({
+-      additionalInstructions: 'FOCUS_ON_SECURITY_TESTS_XYZ',
++      analysisInstructions: 'FOCUS_ON_SECURITY_TESTS_XYZ',
+     });
+ 
+     const result = buildInstructions(ctx);
+@@ -369,7 +370,7 @@ describe('buildInstructions', () => {
+       omittedJobLogs: new Map(),
+       hasImages: false,
+       folderTreeStripped: false,
+-      additionalInstructions: null,
++      analysisInstructions: null,
+     });
+ 
+     const result = buildInstructions(ctx);
+diff --git a/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
+deleted file mode 100644
+index c8dba89..0000000
+--- a/src/mastra/pipeline-report/agents/__tests__/reportCompletenessJudgeAgent.test.ts
++++ /dev/null
+@@ -1,185 +0,0 @@
+-import { describe, it, expect } from 'vitest';
+-import {
+-  reportCompletenessJudgeAgent,
+-  reportCompletenessJudgementSchema,
+-  REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS,
+-  buildReportCompletenessJudgeUserPrompt,
+-} from '../reportCompletenessJudgeAgent.js';
+-import type { TargetJobSummary } from '../../types.js';
+-
+-describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS', () => {
+-  it('QA監査役の役割が明示される', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('QA auditor');
+-  });
+-
+-  it('JSONのみ返す指示が含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/JSON only/i);
+-  });
+-
+-  it('reasons の出力フィールド説明が含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('reasons');
+-  });
+-
+-  it('2つのuserメッセージで入力を受け取ることが明示される', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/two user messages/i);
+-  });
+-
+-  it('対象ジョブ網羅の判定ルールが含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/target job/i);
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/missing/i);
+-  });
+-
+-  it('レポート完成度の判定ルールが含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/fully written/i);
+-  });
+-
+-  it('isCompleteの判定シグナルが含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toContain('isComplete');
+-  });
+-
+-  it('ツールを使用しない（JSONのみ）ことが明示される', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/do not call tools|no tools/i);
+-  });
+-});
+-
+-describe('reportCompletenessJudgementSchema', () => {
+-  it('isComplete=true かつ reasons が空の入力をパースできる', () => {
+-    const parsed = reportCompletenessJudgementSchema.parse({
+-      isComplete: true,
+-      reasons: [],
+-    });
+-    expect(parsed.isComplete).toBe(true);
+-    expect(parsed.reasons).toEqual([]);
+-  });
+-
+-  it('isComplete=false かつ reasons に理由が含まれる入力をパースできる', () => {
+-    const parsed = reportCompletenessJudgementSchema.parse({
+-      isComplete: false,
+-      reasons: [
+-        "Job #101 'build' has no block in the report",
+-        'Job sections are not ordered by assessment severity',
+-      ],
+-    });
+-    expect(parsed.isComplete).toBe(false);
+-    expect(parsed.reasons).toHaveLength(2);
+-    expect(parsed.reasons[0]).toContain('build');
+-  });
+-
+-  it('reasons が欠けている入力はパースに失敗する', () => {
+-    const result = reportCompletenessJudgementSchema.safeParse({
+-      isComplete: true,
+-    });
+-    expect(result.success).toBe(false);
+-  });
+-
+-  it('各フィールドにdescribeが設定されている', () => {
+-    const shape = reportCompletenessJudgementSchema.shape;
+-    expect(shape.isComplete.description).toBeDefined();
+-    expect(shape.reasons.description).toBeDefined();
+-  });
+-});
+-
+-describe('reportCompletenessJudgeAgent', () => {
+-  it('正しいIDと名前が設定されている', () => {
+-    expect(reportCompletenessJudgeAgent.id).toBe('report-completeness-judge-agent');
+-    expect(reportCompletenessJudgeAgent.name).toBe('Report Completeness Judge Agent');
+-  });
+-});
+-
+-describe('REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS - ordering rule', () => {
+-  it('ジョブセクション順序に関する判定ルールが含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/order/i);
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/stage/i);
+-  });
+-
+-  it('順序違反はreasonsとして検出する指示が含まれる', () => {
+-    expect(REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS).toMatch(/reason/i);
+-  });
+-});
+-
+-describe('buildReportCompletenessJudgeUserPrompt', () => {
+-  const baseInputs = {
+-    currentReportContent: '# テストレポート',
+-    targetJobs: [
+-      { id: 1, name: 'lint', stage: 'check', status: 'success' as const },
+-      { id: 2, name: 'test', stage: 'test', status: 'failed' as const },
+-    ] satisfies Omit<TargetJobSummary, 'duration'>[] as unknown as TargetJobSummary[],
+-    jobReportFormat: '### ジョブ #<jobId>',
+-    overallTemplate: '# レポート\n{{job-sections}}',
+-  };
+-
+-  it('2つのuserメッセージを返す', () => {
+-    const result = buildReportCompletenessJudgeUserPrompt({
+-      ...baseInputs,
+-      stageOrder: [],
+-    });
+-
+-    expect(result).toHaveLength(2);
+-    expect(result[0].role).toBe('user');
+-    expect(result[1].role).toBe('user');
+-  });
+-
+-  it('1つ目のメッセージにTarget Jobs・jobReportFormat・overallTemplateが含まれる', () => {
+-    const result = buildReportCompletenessJudgeUserPrompt({
+-      ...baseInputs,
+-      stageOrder: [],
+-    });
+-
+-    expect(result[0].content).toContain('Target Jobs');
+-    expect(result[0].content).toContain('jobReportFormat');
+-    expect(result[0].content).toContain('overallTemplate');
+-    expect(result[0].content).toContain('### ジョブ #<jobId>');
+-    expect(result[0].content).toContain('# レポート');
+-  });
+-
+-  it('1つ目のメッセージにレポート本文が含まれない', () => {
+-    const result = buildReportCompletenessJudgeUserPrompt({
+-      ...baseInputs,
+-      stageOrder: [],
+-    });
+-
+-    expect(result[0].content).not.toContain('Current Report Contents');
+-    expect(result[0].content).not.toContain('# テストレポート');
+-  });
+-
+-  it('2つ目のメッセージにレポート本文が含まれる', () => {
+-    const result = buildReportCompletenessJudgeUserPrompt({
+-      ...baseInputs,
+-      stageOrder: [],
+-    });
+-
+-    expect(result[1].content).toContain('Current Report Contents');
+-    expect(result[1].content).toContain('# テストレポート');
+-  });
+-
+-  it('2つ目のメッセージにTarget Jobsが含まれない', () => {
+-    const result = buildReportCompletenessJudgeUserPrompt({
+-      ...baseInputs,
+-      stageOrder: [],
+-    });
+-
+-    expect(result[1].content).not.toContain('Target Jobs');
+-    expect(result[1].content).not.toContain('jobReportFormat');
+-  });
+-
+-  it('stageOrderが指定された場合、1つ目のメッセージにStage Execution Orderセクションが含まれる', () => {
+-    const result = buildReportCompletenessJudgeUserPrompt({
+-      ...baseInputs,
+-      stageOrder: ['check', 'test', 'deploy'],
+-    });
+-
+-    expect(result[0].content).toContain('Stage Execution Order');
+-    expect(result[0].content).toContain('check');
+-    expect(result[0].content).toContain('test');
+-    expect(result[0].content).toContain('deploy');
+-  });
+-
+-  it('stageOrderが空配列の場合、Stage Execution Orderセクションが含まれない', () => {
+-    const result = buildReportCompletenessJudgeUserPrompt({
+-      ...baseInputs,
+-      stageOrder: [],
+-    });
+-
+-    expect(result[0].content).not.toContain('Stage Execution Order');
+-  });
+-});
+diff --git a/src/mastra/pipeline-report/agents/__tests__/reportFinalizationJudgeAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/reportFinalizationJudgeAgent.test.ts
+new file mode 100644
+index 0000000..c99803b
+--- /dev/null
++++ b/src/mastra/pipeline-report/agents/__tests__/reportFinalizationJudgeAgent.test.ts
+@@ -0,0 +1,251 @@
++import { describe, it, expect } from 'vitest';
++import {
++  reportFinalizationJudgeAgent,
++  reportFinalizationJudgementSchema,
++  REPORT_FINALIZATION_JUDGE_INSTRUCTIONS,
++  buildReportFinalizationJudgeUserPrompt,
++} from '../reportFinalizationJudgeAgent.js';
++import type { TargetJobSummary } from '../../types.js';
++
++describe('REPORT_FINALIZATION_JUDGE_INSTRUCTIONS', () => {
++  it('QA監査役の役割が明示される', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('QA auditor');
++  });
++
++  it('JSONのみ返す指示が含まれる', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/JSON only/i);
++  });
++
++  it('hasMissingJobs の出力フィールド説明が含まれる', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('hasMissingJobs');
++  });
++
++  it('finalizationNeeded の出力フィールド説明が含まれる', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('finalizationNeeded');
++  });
++
++  it('finalizationActions の出力フィールド説明が含まれる', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('finalizationActions');
++  });
++
++  it('missingJobReasons の出力フィールド説明が含まれる', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('missingJobReasons');
++  });
++
++  it('2つのuserメッセージで入力を受け取ることが明示される', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/two user messages/i);
++  });
++
++  it('対象ジョブ網羅の判定ルールが含まれる', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/target job/i);
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/missing/i);
++  });
++
++  it('ジョブセクション順序に関する判定ルールが含まれる', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/order/i);
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/stage/i);
++  });
++
++  it('ユーザ推敲指示に関する判定ルールが含まれる', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/refinement instructions/i);
++  });
++
++  it('ツールを使用しない（JSONのみ）ことが明示される', () => {
++    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/do not call tools|no tools/i);
++  });
++});
++
++describe('reportFinalizationJudgementSchema', () => {
++  it('hasMissingJobs=false, finalizationNeeded=false かつ配列が空の入力をパースできる', () => {
++    const parsed = reportFinalizationJudgementSchema.parse({
++      hasMissingJobs: false,
++      missingJobReasons: [],
++      finalizationNeeded: false,
++      finalizationActions: [],
++    });
++    expect(parsed.hasMissingJobs).toBe(false);
++    expect(parsed.missingJobReasons).toEqual([]);
++    expect(parsed.finalizationNeeded).toBe(false);
++    expect(parsed.finalizationActions).toEqual([]);
++  });
++
++  it('hasMissingJobs=true かつ missingJobReasons に理由が含まれる入力をパースできる', () => {
++    const parsed = reportFinalizationJudgementSchema.parse({
++      hasMissingJobs: true,
++      missingJobReasons: [
++        "Job #101 'build' has no block in the report",
++        "Job #102 'deploy' is missing from the report",
++      ],
++      finalizationNeeded: false,
++      finalizationActions: [],
++    });
++    expect(parsed.hasMissingJobs).toBe(true);
++    expect(parsed.missingJobReasons).toHaveLength(2);
++    expect(parsed.missingJobReasons[0]).toContain('build');
++  });
++
++  it('finalizationNeeded=true かつ finalizationActions に理由が含まれる入力をパースできる', () => {
++    const parsed = reportFinalizationJudgementSchema.parse({
++      hasMissingJobs: false,
++      missingJobReasons: [],
++      finalizationNeeded: true,
++      finalizationActions: [
++        'Job sections are not ordered by assessment severity',
++        'User refinement instructions have not been applied: hide successful jobs',
++      ],
++    });
++    expect(parsed.finalizationNeeded).toBe(true);
++    expect(parsed.finalizationActions).toHaveLength(2);
++  });
++
++  it('missingJobReasons が欠けている入力はパースに失敗する', () => {
++    const result = reportFinalizationJudgementSchema.safeParse({
++      hasMissingJobs: false,
++      finalizationNeeded: false,
++      finalizationActions: [],
++    });
++    expect(result.success).toBe(false);
++  });
++
++  it('finalizationActions が欠けている入力はパースに失敗する', () => {
++    const result = reportFinalizationJudgementSchema.safeParse({
++      hasMissingJobs: false,
++      missingJobReasons: [],
++      finalizationNeeded: false,
++    });
++    expect(result.success).toBe(false);
++  });
++
++  it('各フィールドにdescribeが設定されている', () => {
++    const shape = reportFinalizationJudgementSchema.shape;
++    expect(shape.hasMissingJobs.description).toBeDefined();
++    expect(shape.missingJobReasons.description).toBeDefined();
++    expect(shape.finalizationNeeded.description).toBeDefined();
++    expect(shape.finalizationActions.description).toBeDefined();
++  });
++});
++
++describe('reportFinalizationJudgeAgent', () => {
++  it('正しいIDと名前が設定されている', () => {
++    expect(reportFinalizationJudgeAgent.id).toBe('report-finalization-judge-agent');
++    expect(reportFinalizationJudgeAgent.name).toBe('Report Finalization Judge Agent');
++  });
++});
++
++describe('buildReportFinalizationJudgeUserPrompt', () => {
++  const baseInputs = {
++    currentReportContent: '# テストレポート',
++    targetJobs: [
++      { id: 1, name: 'lint', stage: 'check', status: 'success' as const },
++      { id: 2, name: 'test', stage: 'test', status: 'failed' as const },
++    ] satisfies Omit<TargetJobSummary, 'duration'>[] as unknown as TargetJobSummary[],
++    jobReportFormat: '### ジョブ #<jobId>',
++    overallTemplate: '# レポート\n{{job-sections}}',
++  };
++
++  it('2つのuserメッセージを返す', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++      reportRefinementInstructions: null,
++    });
++
++    expect(result).toHaveLength(2);
++    expect(result[0].role).toBe('user');
++    expect(result[1].role).toBe('user');
++  });
++
++  it('1つ目のメッセージにTarget Jobs・jobReportFormat・overallTemplateが含まれる', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++      reportRefinementInstructions: null,
++    });
++
++    expect(result[0].content).toContain('Target Jobs');
++    expect(result[0].content).toContain('jobReportFormat');
++    expect(result[0].content).toContain('overallTemplate');
++    expect(result[0].content).toContain('### ジョブ #<jobId>');
++    expect(result[0].content).toContain('# レポート');
++  });
++
++  it('1つ目のメッセージにレポート本文が含まれない', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++      reportRefinementInstructions: null,
++    });
++
++    expect(result[0].content).not.toContain('Current Report Contents');
++    expect(result[0].content).not.toContain('# テストレポート');
++  });
++
++  it('2つ目のメッセージにレポート本文が含まれる', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++      reportRefinementInstructions: null,
++    });
++
++    expect(result[1].content).toContain('Current Report Contents');
++    expect(result[1].content).toContain('# テストレポート');
++  });
++
++  it('2つ目のメッセージにTarget Jobsが含まれない', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++      reportRefinementInstructions: null,
++    });
++
++    expect(result[1].content).not.toContain('Target Jobs');
++    expect(result[1].content).not.toContain('jobReportFormat');
++  });
++
++  it('stageOrderが指定された場合、1つ目のメッセージにStage Execution Orderセクションが含まれる', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: ['check', 'test', 'deploy'],
++      reportRefinementInstructions: null,
++    });
++
++    expect(result[0].content).toContain('Stage Execution Order');
++    expect(result[0].content).toContain('check');
++    expect(result[0].content).toContain('test');
++    expect(result[0].content).toContain('deploy');
++  });
++
++  it('stageOrderが空配列の場合、Stage Execution Orderセクションが含まれない', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++      reportRefinementInstructions: null,
++    });
++
++    expect(result[0].content).not.toContain('Stage Execution Order');
++  });
++
++  it('reportRefinementInstructionsが指定された場合、1つ目のメッセージに推敲指示セクションが含まれる', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++      reportRefinementInstructions: 'Hide jobs that passed without issues.',
++    });
++
++    expect(result[0].content).toContain('User-Specified Report Refinement Instructions');
++    expect(result[0].content).toContain('Hide jobs that passed without issues.');
++    expect(result[0].content).toContain('finalizationNeeded');
++    expect(result[0].content).toContain('finalizationActions');
++  });
++
++  it('reportRefinementInstructionsがnullの場合、推敲指示セクションが含まれない', () => {
++    const result = buildReportFinalizationJudgeUserPrompt({
++      ...baseInputs,
++      stageOrder: [],
++      reportRefinementInstructions: null,
++    });
++
++    expect(result[0].content).not.toContain('User-Specified Report Refinement Instructions');
++    expect(result[0].content).not.toContain('refinements');
++  });
++});
+diff --git a/src/mastra/pipeline-report/agents/__tests__/reportRewriteAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/reportRewriteAgent.test.ts
+new file mode 100644
+index 0000000..fd4eddf
+--- /dev/null
++++ b/src/mastra/pipeline-report/agents/__tests__/reportRewriteAgent.test.ts
+@@ -0,0 +1,76 @@
++import { describe, it, expect } from 'vitest';
++import {
++  reportRewriteAgent,
++  REPORT_REWRITE_AGENT_INSTRUCTIONS,
++  buildReportRewriteUserPrompt,
++} from '../reportRewriteAgent.js';
++import type { BuildReportRewriteUserPromptInputs } from '../reportRewriteAgent.js';
++
++describe('REPORT_REWRITE_AGENT_INSTRUCTIONS', () => {
++  it('元の内容を保持する制約（preserve）が含まれる', () => {
++    expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain('preserve');
++  });
++
++  it('元の内容（original）への言及が含まれる', () => {
++    expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain('original');
++  });
++});
++
++describe('buildReportRewriteUserPrompt', () => {
++  const baseInputs: BuildReportRewriteUserPromptInputs = {
++    currentReportContent: '# Pipeline Analysis Report\n\n## Job #1\nSome analysis',
++    finalizationActions: ['Reorder job sections by severity', 'Fix stage ordering within groups'],
++    reportRefinementInstructions: null,
++    commentLanguage: 'Japanese',
++  };
++
++  it('reportRefinementInstructionsが指定されている場合、プロンプトに含まれる', () => {
++    const inputs: BuildReportRewriteUserPromptInputs = {
++      ...baseInputs,
++      reportRefinementInstructions: 'Hide jobs with no issues from the report.',
++    };
++
++    const result = buildReportRewriteUserPrompt(inputs);
++
++    expect(result).toContain('User-Specified Report Refinement Instructions');
++    expect(result).toContain('Hide jobs with no issues from the report.');
++  });
++
++  it('reportRefinementInstructionsがnullの場合、推敲指示セクションが含まれない', () => {
++    const result = buildReportRewriteUserPrompt(baseInputs);
++
++    expect(result).not.toContain('User-Specified Report Refinement Instructions');
++  });
++
++  it('finalizationActionsが箇条書きとしてリストされる', () => {
++    const result = buildReportRewriteUserPrompt(baseInputs);
++
++    expect(result).toContain('- Reorder job sections by severity');
++    expect(result).toContain('- Fix stage ordering within groups');
++  });
++
++  it('currentReportContentがコードブロック内に含まれる', () => {
++    const result = buildReportRewriteUserPrompt(baseInputs);
++
++    expect(result).toContain('```markdown');
++    expect(result).toContain('# Pipeline Analysis Report');
++    expect(result).toContain('## Job #1');
++    expect(result).toContain('```');
++  });
++
++  it('commentLanguageがプロンプトに含まれる', () => {
++    const result = buildReportRewriteUserPrompt(baseInputs);
++
++    expect(result).toContain('Japanese');
++  });
++});
++
++describe('reportRewriteAgent', () => {
++  it('正しいIDが設定されている', () => {
++    expect(reportRewriteAgent.id).toBe('report-rewrite-agent');
++  });
++
++  it('正しい名前が設定されている', () => {
++    expect(reportRewriteAgent.name).toBe('Report Rewrite Agent');
++  });
++});
 diff --git a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
-index 764538e..974baea 100644
+index 974baea..e2b0cc8 100644
 --- a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
 +++ b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
-@@ -83,25 +83,6 @@ ${additional}
- `;
+@@ -67,18 +67,18 @@ function renderTargetJobsTable(jobs: TargetJobSummary[]): string {
  }
  
--/**
-- * CI/CD Job Definitions セクションを組み立てる。
-- * mergedYaml が null の場合は空文字列を返し、非 null の場合はコードブロックで提示する。
-- */
--function renderJobDefinitionsSection(mergedYaml: string | null): string {
--  if (mergedYaml === null) {
--    return '';
--  }
--  return `## CI/CD Job Definitions (merged YAML)
--
--The following is the fully resolved CI/CD configuration. Use it to understand what each job is configured to do.
--
--\`\`\`yaml
--${mergedYaml}
--\`\`\`
--
--`;
--}
--
  /**
-  * Tool Catalog セクションを組み立てる
-  * 常時登録ツールに加え、omittedJobLogs / hasImages の状況に応じて説明を追加する
-@@ -239,7 +220,6 @@ export function buildInstructions(
+- * additionalInstructions セクションを組み立てる
++ * analysisInstructions セクションを組み立てる
+  * null の場合は空文字列を返し、non-null の場合は最優先セクションとして挿入する
+  */
+-function renderAdditionalInstructionsSection(additional: string | null): string {
+-  if (additional === null || additional.trim() === '') {
++function renderAnalysisInstructionsSection(analysisInstructions: string | null): string {
++  if (analysisInstructions === null || analysisInstructions.trim() === '') {
+     return '';
+   }
+   return `## User-Specified Instructions (HIGHEST PRIORITY)
+ 
+ The following instructions were provided by the user. You MUST follow them with the highest priority, even when they appear to conflict with the guidance below.
+ 
+-${additional}
++${analysisInstructions}
+ 
+ `;
+ }
+@@ -219,7 +219,7 @@ export function buildInstructions(
+   const ctx = requestContext.all;
    const targetJobsTable = renderTargetJobsTable(ctx.targetJobs);
    const stageOrder = deriveStageOrder(ctx.targetJobs);
-   const additionalSection = renderAdditionalInstructionsSection(ctx.additionalInstructions);
--  const jobDefinitionsSection = renderJobDefinitionsSection(ctx.mergedYaml);
+-  const additionalSection = renderAdditionalInstructionsSection(ctx.additionalInstructions);
++  const analysisInstructionsSection = renderAnalysisInstructionsSection(ctx.analysisInstructions);
    const toolCatalog = renderToolCatalog(ctx);
    const compressionNotes = renderCompressionNotes(ctx);
  
-@@ -285,7 +265,7 @@ You must produce a block for every job in the following table:
+@@ -229,7 +229,7 @@ export function buildInstructions(
  
- ${targetJobsTable}
+ Your mission is to produce a complete analysis report by writing it to the report file using the report tools. WARNING: You MUST write all report content using the report tools (write-report to replace, patch-report to edit, get-report to read). Never output report content as plain text in the conversation — it will be lost. The report file is maintained throughout the analysis; use the tools to read and update it. When the user message includes the current report state, use it as your starting point and focus on completing or correcting the remaining sections. When you are done, every target job listed later in this prompt must have its own per-job block inside the report, and the overall sections (summary, status breakdown, recommended actions) must also be completed.
  
--${jobDefinitionsSection}## Reasoning Framework (ReAct)
-+## Reasoning Framework (ReAct)
+-${additionalSection}## Report Structure
++${analysisInstructionsSection}## Report Structure
  
- For each target job, apply the Reason-Act-Observe cycle until you can confidently write its block:
+ The overall report skeleton is fixed. Fill in every placeholder (including the overall summary, status breakdown table, recommended actions, and the per-job section region) according to the template below:
  
-@@ -356,6 +336,7 @@ export function buildUserPrompt(
-     artifactCacheStatuses: inputs.artifactCacheStatuses,
-     folderTree: ctx.folderTree,
-     folderTreeStripped: ctx.folderTreeStripped,
-+    mergedYaml: ctx.mergedYaml,
-   };
-   return buildPipelineUserPrompt(params);
+diff --git a/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts b/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
+deleted file mode 100644
+index 688e0d6..0000000
+--- a/src/mastra/pipeline-report/agents/reportCompletenessJudgeAgent.ts
++++ /dev/null
+@@ -1,161 +0,0 @@
+-import { Agent } from '@mastra/core/agent';
+-import { z } from 'zod';
+-import type { ReportCompletenessJudgeRequestContext } from '../requestContext.js';
+-import type { TargetJobSummary } from '../types.js';
+-import { createModelFromContext } from '../../shared/requestContext.js';
+-
+-/**
+- * レポート完全性判定の出力スキーマ
+- * pipelineAnalysisWorkflowのverifyCompletenessStepで構造化出力として利用する
+- */
+-export const reportCompletenessJudgementSchema = z.object({
+-  isComplete: z.boolean().describe('MUST be true if and only if reasons is empty'),
+-  reasons: z
+-    .array(z.string())
+-    .describe(
+-      'Array of actionable reasons why the report is not complete; empty when the report is complete',
+-    ),
+-});
+-
+-/**
+- * レポート完全性判定エージェントのsystemプロンプト
+- * ユーザ指定の jobReportFormat / additionalInstructions、対象ジョブ一覧、
+- * および現在のレポート内容に基づいてレポートが完成しているか判定する
+- */
+-export const REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS = `You are a QA auditor for CI/CD pipeline analysis reports. Your sole responsibility is to decide whether the current report file is complete according to the rules below. You do not write the report — you only judge it.
+-
+-You will be given two user messages:
+-- First message: The target job list (jobId, jobName, stage, status), the expected per-job block format (\`jobReportFormat\`), and the overall report skeleton.
+-- Second message: The full current contents of the report file.
+-
+-You MUST return a single JSON object that conforms to the following schema, and nothing else. JSON only. Do not call tools. Do not emit markdown, prose, or explanations outside the JSON value.
+-
+-\`\`\`
+-{
+-  "isComplete": boolean,
+-  "reasons": [ string, ... ]
+-}
+-\`\`\`
+-
+-## Judgement Rules
+-
+-Apply every rule below. The report is complete only when every rule passes.
+-
+-1. **Target job coverage**: Every target job in the provided list MUST appear in the report with its own per-job block. If a job has no block, add a reason describing which job is missing.
+-
+-2. **Report completeness**: The report MUST be fully written. No section in the report should be blank, contain only placeholder text, or be obviously unfinished. If any section is incomplete, add a reason describing which part is unfinished.
+-
+-3. **Job section ordering**: Job sections should be ordered by (1) AI assessment severity, with the most severe/problematic jobs first, then (2) stage execution order within the same severity level. If the stage execution order is provided in the user message, use it as reference. If the sections are clearly out of order, add a reason describing the ordering issue.
+-
+-## Decision
+-
+-- \`isComplete\` MUST be \`true\` if and only if \`reasons\` is empty.
+-- Otherwise \`isComplete\` MUST be \`false\`.
+-
+-When the report does not satisfy a rule above, populate \`reasons\` with precise, actionable descriptions so the analysis agent can fix the specific issues.`;
+-
+-/**
+- * レポート完全性判定 Agent の user プロンプトビルダー入力
+- */
+-export interface BuildReportCompletenessJudgeUserPromptInputs {
+-  /** 現在のレポート本文（resultFilePath の中身） */
+-  currentReportContent: string;
+-  /** 対象ジョブ一覧 */
+-  targetJobs: TargetJobSummary[];
+-  /** ジョブ1件分のレポートブロックフォーマット */
+-  jobReportFormat: string;
+-  /** レポート全体のスケルトン */
+-  overallTemplate: string;
+-  /** ステージ実行順（ジョブセクション順序検証用） */
+-  stageOrder: string[];
+-}
+-
+-/**
+- * 対象ジョブ一覧を Markdown テーブルにレンダリング
+- */
+-function renderTargetJobsTable(jobs: TargetJobSummary[]): string {
+-  if (jobs.length === 0) {
+-    return '_(no target jobs)_';
+-  }
+-  const header = '| jobId | stage | name | status |';
+-  const divider = '| --- | --- | --- | --- |';
+-  const rows = jobs.map((job) => `| ${job.id} | ${job.stage} | ${job.name} | ${job.status} |`);
+-  return [header, divider, ...rows].join('\n');
+-}
+-
+-/**
+- * 完全性判定 Agent の user メッセージ配列を組み立てる
+- *
+- * 2つの user メッセージに分割して返す:
+- * 1つ目: 判定基準（Target job list, jobReportFormat, overallTemplate, stageOrder）
+- * 2つ目: 現在のレポート本文
+- *
+- * レポートが長くなった場合でも LLM が最新の user メッセージとして
+- * レポート本文を正しく認識できるようにするための構造。
+- */
+-export function buildReportCompletenessJudgeUserPrompt(
+-  inputs: BuildReportCompletenessJudgeUserPromptInputs,
+-): Array<{ role: 'user'; content: string }> {
+-  // 1つ目: 判定基準コンテキスト
+-  const contextParts: string[] = [];
+-
+-  contextParts.push('## Target Jobs');
+-  contextParts.push('');
+-  contextParts.push(renderTargetJobsTable(inputs.targetJobs));
+-  contextParts.push('');
+-
+-  contextParts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
+-  contextParts.push('');
+-  contextParts.push('```');
+-  contextParts.push(inputs.jobReportFormat);
+-  contextParts.push('```');
+-  contextParts.push('');
+-
+-  contextParts.push('## Overall Report Skeleton (`overallTemplate`)');
+-  contextParts.push('');
+-  contextParts.push('```');
+-  contextParts.push(inputs.overallTemplate);
+-  contextParts.push('```');
+-  contextParts.push('');
+-
+-  if (inputs.stageOrder.length > 0) {
+-    contextParts.push('## Stage Execution Order');
+-    contextParts.push('');
+-    contextParts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
+-    contextParts.push('');
+-  }
+-
+-  // 2つ目: レポート本文
+-  const reportParts: string[] = [];
+-  reportParts.push('## Current Report Contents');
+-  reportParts.push('');
+-  reportParts.push('```');
+-  reportParts.push(inputs.currentReportContent);
+-  reportParts.push('```');
+-
+-  return [
+-    { role: 'user' as const, content: contextParts.join('\n') },
+-    { role: 'user' as const, content: reportParts.join('\n') },
+-  ];
+-}
+-
+-/**
+- * レポート完全性判定エージェント（シングルトン）
+- *
+- * Tools なし、構造化出力（reportCompletenessJudgementSchema）のみを返す。
+- * モデルはRequestContext上のaiConfigから動的に生成される。
+- */
+-export const reportCompletenessJudgeAgent = new Agent<
+-  'report-completeness-judge-agent',
+-  Record<string, never>,
+-  undefined,
+-  ReportCompletenessJudgeRequestContext
+->({
+-  id: 'report-completeness-judge-agent',
+-  name: 'Report Completeness Judge Agent',
+-  model: ({ requestContext }) => {
+-    const ctx = requestContext.all as ReportCompletenessJudgeRequestContext;
+-    return createModelFromContext(ctx);
+-  },
+-  instructions: REPORT_COMPLETENESS_JUDGE_INSTRUCTIONS,
+-});
+diff --git a/src/mastra/pipeline-report/agents/reportFinalizationJudgeAgent.ts b/src/mastra/pipeline-report/agents/reportFinalizationJudgeAgent.ts
+new file mode 100644
+index 0000000..08bca9a
+--- /dev/null
++++ b/src/mastra/pipeline-report/agents/reportFinalizationJudgeAgent.ts
+@@ -0,0 +1,183 @@
++import { Agent } from '@mastra/core/agent';
++import { z } from 'zod';
++import type { ReportFinalizationJudgeRequestContext } from '../requestContext.js';
++import type { TargetJobSummary } from '../types.js';
++import { createModelFromContext } from '../../shared/requestContext.js';
++
++/**
++ * レポート最終化判定の出力スキーマ
++ * pipelineAnalysisWorkflowのreportFinalizationStepで構造化出力として利用する
++ */
++export const reportFinalizationJudgementSchema = z.object({
++  hasMissingJobs: z.boolean().describe('true if any target jobs are missing from the report'),
++  missingJobReasons: z
++    .array(z.string())
++    .describe('Actionable reasons for missing jobs; empty array when hasMissingJobs is false'),
++  finalizationNeeded: z
++    .boolean()
++    .describe('true if sort order is wrong or user refinement instructions need to be applied'),
++  finalizationActions: z
++    .array(z.string())
++    .describe(
++      'Descriptions of finalization actions needed; empty array when finalizationNeeded is false',
++    ),
++});
++
++/**
++ * レポート最終化判定エージェントのsystemプロンプト
++ * ユーザ指定の jobReportFormat / analysisInstructions / reportRefinementInstructions、対象ジョブ一覧、
++ * および現在のレポート内容に基づいてレポートの最終化が必要か判定する
++ */
++export const REPORT_FINALIZATION_JUDGE_INSTRUCTIONS = `You are a QA auditor that judges whether the CI/CD pipeline analysis report needs finalization. You do not write or rewrite the report — you only evaluate it and report your findings.
++
++You will be given two user messages:
++- First message: The target job list (jobId, jobName, stage, status), the expected per-job block format (\`jobReportFormat\`), the overall report skeleton, the stage execution order, and optionally user-specified report refinement instructions.
++- Second message: The full current contents of the report file.
++
++You MUST return a single JSON object that conforms to the following schema, and nothing else. JSON only. Do not call tools. Do not emit markdown, prose, or explanations outside the JSON value.
++
++\`\`\`
++{
++  "hasMissingJobs": boolean,
++  "missingJobReasons": [ string, ... ],
++  "finalizationNeeded": boolean,
++  "finalizationActions": [ string, ... ]
++}
++\`\`\`
++
++## Judgement Rules
++
++Apply every rule below.
++
++1. **Target job coverage**: Every target job in the provided list MUST appear in the report with its own per-job block. If a job is missing, set \`hasMissingJobs\` to \`true\` and add a reason to \`missingJobReasons\` describing which job is missing and what needs to be added.
++
++2. **Job section ordering**: Job sections should be ordered by (1) AI assessment severity, with the most severe/problematic jobs first, then (2) stage execution order within the same severity level. If the stage execution order is provided in the user message, use it as reference. If the sections are clearly out of order, set \`finalizationNeeded\` to \`true\` and add a description of the ordering issue to \`finalizationActions\`.
++
++3. **User refinement instructions**: If user-specified report refinement instructions are provided in the first user message, check whether they have been applied to the current report. If they have NOT been applied, set \`finalizationNeeded\` to \`true\` and add a description of what refinement still needs to be done to \`finalizationActions\`.
++
++## Decision Rules
++
++- \`hasMissingJobs\` MUST be \`true\` if and only if \`missingJobReasons\` is non-empty.
++- \`finalizationNeeded\` MUST be \`true\` if and only if \`finalizationActions\` is non-empty.
++- When \`hasMissingJobs\` is \`true\`, provide precise, actionable descriptions so the analysis agent can add the missing jobs.
++- When \`finalizationNeeded\` is \`true\`, provide precise descriptions so the rewrite agent can fix the issues.`;
++
++/**
++ * レポート最終化判定 Agent の user プロンプトビルダー入力
++ */
++export interface BuildReportFinalizationJudgeUserPromptInputs {
++  /** 現在のレポート本文（resultFilePath の中身） */
++  currentReportContent: string;
++  /** 対象ジョブ一覧 */
++  targetJobs: TargetJobSummary[];
++  /** ジョブ1件分のレポートブロックフォーマット */
++  jobReportFormat: string;
++  /** レポート全体のスケルトン */
++  overallTemplate: string;
++  /** ステージ実行順（ジョブセクション順序検証用） */
++  stageOrder: string[];
++  /** ユーザ指定のレポート推敲指示（null の場合はセクション非表示） */
++  reportRefinementInstructions: string | null;
++}
++
++/**
++ * 対象ジョブ一覧を Markdown テーブルにレンダリング
++ */
++function renderTargetJobsTable(jobs: TargetJobSummary[]): string {
++  if (jobs.length === 0) {
++    return '_(no target jobs)_';
++  }
++  const header = '| jobId | stage | name | status |';
++  const divider = '| --- | --- | --- | --- |';
++  const rows = jobs.map((job) => `| ${job.id} | ${job.stage} | ${job.name} | ${job.status} |`);
++  return [header, divider, ...rows].join('\n');
++}
++
++/**
++ * 最終化判定 Agent の user メッセージ配列を組み立てる
++ *
++ * 2つの user メッセージに分割して返す:
++ * 1つ目: 判定基準（Target job list, jobReportFormat, overallTemplate, stageOrder, reportRefinementInstructions）
++ * 2つ目: 現在のレポート本文
++ *
++ * レポートが長くなった場合でも LLM が最新の user メッセージとして
++ * レポート本文を正しく認識できるようにするための構造。
++ */
++export function buildReportFinalizationJudgeUserPrompt(
++  inputs: BuildReportFinalizationJudgeUserPromptInputs,
++): Array<{ role: 'user'; content: string }> {
++  // 1つ目: 判定基準コンテキスト
++  const contextParts: string[] = [];
++
++  contextParts.push('## Target Jobs');
++  contextParts.push('');
++  contextParts.push(renderTargetJobsTable(inputs.targetJobs));
++  contextParts.push('');
++
++  contextParts.push('## Expected Per-Job Block Format (`jobReportFormat`)');
++  contextParts.push('');
++  contextParts.push('```');
++  contextParts.push(inputs.jobReportFormat);
++  contextParts.push('```');
++  contextParts.push('');
++
++  contextParts.push('## Overall Report Skeleton (`overallTemplate`)');
++  contextParts.push('');
++  contextParts.push('```');
++  contextParts.push(inputs.overallTemplate);
++  contextParts.push('```');
++  contextParts.push('');
++
++  if (inputs.stageOrder.length > 0) {
++    contextParts.push('## Stage Execution Order');
++    contextParts.push('');
++    contextParts.push(inputs.stageOrder.map((s) => `\`${s}\``).join(' → '));
++    contextParts.push('');
++  }
++
++  // ユーザ指定のレポート推敲指示セクション
++  if (inputs.reportRefinementInstructions !== null) {
++    contextParts.push('## User-Specified Report Refinement Instructions');
++    contextParts.push('');
++    contextParts.push(
++      'The user has requested the following refinements to the final report. Check whether these have been applied. If they have NOT been applied, set `finalizationNeeded` to `true` and describe the pending refinements in `finalizationActions`.',
++    );
++    contextParts.push('');
++    contextParts.push(inputs.reportRefinementInstructions);
++    contextParts.push('');
++  }
++
++  // 2つ目: レポート本文
++  const reportParts: string[] = [];
++  reportParts.push('## Current Report Contents');
++  reportParts.push('');
++  reportParts.push('```');
++  reportParts.push(inputs.currentReportContent);
++  reportParts.push('```');
++
++  return [
++    { role: 'user' as const, content: contextParts.join('\n') },
++    { role: 'user' as const, content: reportParts.join('\n') },
++  ];
++}
++
++/**
++ * レポート最終化判定エージェント（シングルトン）
++ *
++ * Tools なし、構造化出力（reportFinalizationJudgementSchema）のみを返す。
++ * モデルはRequestContext上のaiConfigから動的に生成される。
++ */
++export const reportFinalizationJudgeAgent = new Agent<
++  'report-finalization-judge-agent',
++  Record<string, never>,
++  undefined,
++  ReportFinalizationJudgeRequestContext
++>({
++  id: 'report-finalization-judge-agent',
++  name: 'Report Finalization Judge Agent',
++  model: ({ requestContext }) => {
++    const ctx = requestContext.all as ReportFinalizationJudgeRequestContext;
++    return createModelFromContext(ctx);
++  },
++  instructions: REPORT_FINALIZATION_JUDGE_INSTRUCTIONS,
++});
+diff --git a/src/mastra/pipeline-report/agents/reportRewriteAgent.ts b/src/mastra/pipeline-report/agents/reportRewriteAgent.ts
+new file mode 100644
+index 0000000..2ff6e2e
+--- /dev/null
++++ b/src/mastra/pipeline-report/agents/reportRewriteAgent.ts
+@@ -0,0 +1,117 @@
++import { Agent } from '@mastra/core/agent';
++import type { ReportRewriteAgentRequestContext } from '../requestContext.js';
++import { createModelFromContext } from '../../shared/requestContext.js';
++
++/**
++ * reportRewriteAgent のユーザプロンプトビルダーの入力型
++ */
++export interface BuildReportRewriteUserPromptInputs {
++  currentReportContent: string;
++  finalizationActions: string[];
++  reportRefinementInstructions: string | null;
++  commentLanguage: string;
++}
++
++/**
++ * reportRewriteAgent の system プロンプト
++ *
++ * レポートの構造的な書き換え（セクション順序変更・表示/非表示切り替え・フォーマット調整）を行う専門家として振る舞う。
++ * 分析エージェントが記述した元の分析内容・文言を厳密に保持することを最重要制約とする。
++ */
++export const REPORT_REWRITE_AGENT_INSTRUCTIONS = `You are a report rewrite specialist for CI/CD pipeline analysis reports. Your sole responsibility is to rewrite the given report according to a set of finalization actions and optional user-specified instructions.
++
++## CRITICAL CONSTRAINT — Preserve Original Content
++
++You MUST preserve the original analysis content and wording exactly as written by the analysis agent.
++
++Specifically, you MUST NOT alter, rephrase, summarize, or remove any of the following:
++- Factual findings and observations
++- Evidence citations (log lines, artifact excerpts, file paths)
++- AI assessments and severity ratings
++- Recommended actions and next steps
++
++You are ONLY permitted to change:
++- The structural order of job sections (reordering)
++- Visibility of sections (showing or hiding based on finalization actions)
++- Formatting adjustments as explicitly specified in the finalization actions
++- Content modifications explicitly requested by user-specified report refinement instructions
++
++When rewriting, copy the original text of each section verbatim. Do not "improve" wording, do not fix perceived grammar issues in the original content, and do not add or remove information.
++
++**Exception — User-Specified Instructions**: If user-specified report refinement instructions are provided in the user message, they may override this constraint for the specific changes they request. For example, the user may ask to remove certain job sections, rewrite descriptions, or restructure content. Apply those changes as instructed. However, for all content NOT affected by user instructions, this constraint remains in full effect — preserve the original text verbatim.
++
++## Input Format
++
++You will receive a single user message containing:
++1. A list of finalization actions to apply to the report
++2. (Optional) User-specified report refinement instructions for additional customization
++3. The current full report content in Markdown
++
++## Output Format
++
++Output ONLY the complete rewritten report in Markdown format. Do not include any explanations, preamble, or commentary before or after the report. Do not wrap the report in a code block. The output must be the final report ready for delivery.`;
++
++/**
++ * reportRewriteAgent の user プロンプトを組み立てる
++ *
++ * finalizationActions（ソート修正・表示制御等）および任意のユーザ推敲指示と
++ * 現在のレポート本文を1つの user メッセージとして構成する。
++ */
++export function buildReportRewriteUserPrompt(inputs: BuildReportRewriteUserPromptInputs): string {
++  const parts: string[] = [];
++
++  // ファイナライゼーションアクション
++  parts.push('## Finalization Actions');
++  parts.push('');
++  parts.push('Apply the following changes to the report:');
++  parts.push('');
++  for (const action of inputs.finalizationActions) {
++    parts.push(`- ${action}`);
++  }
++  parts.push('');
++
++  // ユーザ指定のレポート推敲指示（存在する場合のみ）
++  if (inputs.reportRefinementInstructions !== null) {
++    parts.push('## User-Specified Report Refinement Instructions');
++    parts.push('');
++    parts.push(inputs.reportRefinementInstructions);
++    parts.push('');
++  }
++
++  // 言語指定
++  parts.push('## Language');
++  parts.push('');
++  parts.push(`Write the report content in ${inputs.commentLanguage}.`);
++  parts.push('');
++
++  // 現在のレポート本文
++  parts.push('## Current Report');
++  parts.push('');
++  parts.push('```markdown');
++  parts.push(inputs.currentReportContent);
++  parts.push('```');
++
++  return parts.join('\n');
++}
++
++/**
++ * reportRewriteAgent（シングルトン）
++ *
++ * 完成判定ステップで検出されたファイナライゼーションアクション（ソート順修正・ユーザ推敲指示の適用等）を
++ * 受けてレポートを書き換える専門エージェント。
++ * ツールなし、メモリなし。モデルは RequestContext から動的に生成される。
++ */
++export const reportRewriteAgent = new Agent<
++  'report-rewrite-agent',
++  Record<string, never>,
++  undefined,
++  ReportRewriteAgentRequestContext
++>({
++  id: 'report-rewrite-agent',
++  name: 'Report Rewrite Agent',
++  model: ({ requestContext }) => {
++    const ctx = requestContext.all as ReportRewriteAgentRequestContext;
++    return createModelFromContext(ctx);
++  },
++  instructions: REPORT_REWRITE_AGENT_INSTRUCTIONS,
++});
+diff --git a/src/mastra/pipeline-report/requestContext.ts b/src/mastra/pipeline-report/requestContext.ts
+index 16eca4e..b2b7e9a 100644
+--- a/src/mastra/pipeline-report/requestContext.ts
++++ b/src/mastra/pipeline-report/requestContext.ts
+@@ -17,7 +17,8 @@ export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestCont
+   targetJobs: TargetJobSummary[];
+   overallTemplate: string;
+   jobReportFormat: string;
+-  additionalInstructions: string | null;
++  analysisInstructions: string | null;
++  reportRefinementInstructions: string | null;
+   commentLanguage: string;
+   resultFilePath: string;
+   skillsPaths: string[];
+@@ -49,10 +50,15 @@ export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestCont
  }
-@@ -409,9 +390,16 @@ export function createWorkspaceFromContext(ctx: PipelineAnalysisAgentRequestCont
-     filesystem: new LocalFilesystem({
-       basePath: ctx.projectDir,
-       readOnly: true,
-+      // Mastraデフォルトの "File access is restricted to this directory." は
-+      // エージェントにフォルダツリー探索不可と誤解させる恐れがあるため、
-+      // コードベースの所在と相対パス利用を明示したinstructionsに置き換える
-+      instructions: `The project codebase is located at "${ctx.projectDir}". The folder tree provided in the user message reflects the contents of this directory. Use relative paths (e.g. "src/index.ts") to access files.`,
-     }),
-     sandbox: new LocalSandbox({
-       workingDirectory: ctx.projectDir,
-+      // Mastraデフォルトと同等だが、明示的に指定することで
-+      // 将来のMastraバージョン変更による意図しない変更を防ぐ
-+      instructions: `Local command execution. Working directory: "${ctx.projectDir}".`,
-     }),
-     skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
-     tools: WORKSPACE_TOOLS_CONFIG,
-diff --git a/src/mastra/review/agents/reviewAgent.ts b/src/mastra/review/agents/reviewAgent.ts
-index 816f882..104247d 100644
---- a/src/mastra/review/agents/reviewAgent.ts
-+++ b/src/mastra/review/agents/reviewAgent.ts
-@@ -225,9 +225,16 @@ export function createWorkspaceFromContext(ctx: ReviewAgentRequestContext): Work
-     filesystem: new LocalFilesystem({
-       basePath: ctx.projectDir,
-       readOnly: true,
-+      // Mastraデフォルトの "File access is restricted to this directory." は
-+      // エージェントにフォルダツリー探索不可と誤解させる恐れがあるため、
-+      // コードベースの所在と相対パス利用を明示したinstructionsに置き換える
-+      instructions: `The project codebase is located at "${ctx.projectDir}". The folder tree provided in the user message reflects the contents of this directory. Use relative paths (e.g. "src/index.ts") to access files.`,
-     }),
-     sandbox: new LocalSandbox({
-       workingDirectory: ctx.projectDir,
-+      // Mastraデフォルトと同等だが、明示的に指定することで
-+      // 将来のMastraバージョン変更による意図しない変更を防ぐ
-+      instructions: `Local command execution. Working directory: "${ctx.projectDir}".`,
-     }),
-     skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
-     tools: WORKSPACE_TOOLS_CONFIG,
+ 
+ /**
+- * ReportCompletenessJudgeAgent用のRequestContext型
++ * ReportFinalizationJudgeAgent用のRequestContext型
+  * 判定ロジックに必要なのはAI設定のみ（WorkflowRequestContextで充足）
+  */
+-export type ReportCompletenessJudgeRequestContext = WorkflowRequestContext;
++export type ReportFinalizationJudgeRequestContext = WorkflowRequestContext;
++
++/**
++ * ReportRewriteAgent用のRequestContext型
++ */
++export type ReportRewriteAgentRequestContext = WorkflowRequestContext;
+ 
+ /**
+  * PipelineReportSummarizationAgent用のRequestContext型
+diff --git a/src/mastra/pipeline-report/workflows/__tests__/pipelineAnalysisWorkflow.test.ts b/src/mastra/pipeline-report/workflows/__tests__/pipelineAnalysisWorkflow.test.ts
+index da85b41..cc7d871 100644
+--- a/src/mastra/pipeline-report/workflows/__tests__/pipelineAnalysisWorkflow.test.ts
++++ b/src/mastra/pipeline-report/workflows/__tests__/pipelineAnalysisWorkflow.test.ts
+@@ -26,7 +26,8 @@ describe('pipelineAnalysisWorkflow', () => {
+       ],
+       overallTemplate: '# Report',
+       jobReportFormat: '### Job <jobId>',
+-      additionalInstructions: null,
++      analysisInstructions: null,
++      reportRefinementInstructions: null,
+       resultFilePath: '/tmp/report.md',
+       commentLanguage: 'Japanese',
+       maxCompletenessRetries: 3,
+@@ -44,7 +45,8 @@ describe('pipelineAnalysisWorkflow', () => {
+       targetJobs: [],
+       overallTemplate: '# Report',
+       jobReportFormat: '### Job',
+-      additionalInstructions: null,
++      analysisInstructions: null,
++      reportRefinementInstructions: null,
+       resultFilePath: '/tmp/report.md',
+       commentLanguage: 'Japanese',
+       maxCompletenessRetries: 0,
+@@ -70,13 +72,14 @@ describe('pipelineAnalysisWorkflow', () => {
+     expect(result.success).toBe(false);
+   });
+ 
+-  it('入力スキーマは additionalInstructions の null を許容する', () => {
++  it('入力スキーマは analysisInstructions の null を許容する', () => {
+     const input = {
+       initialUserPrompt: 'Analyze',
+       targetJobs: [],
+       overallTemplate: '# Report',
+       jobReportFormat: '### Job',
+-      additionalInstructions: null,
++      analysisInstructions: null,
++      reportRefinementInstructions: null,
+       resultFilePath: '/tmp/report.md',
+       commentLanguage: 'Japanese',
+       maxCompletenessRetries: 0,
+diff --git a/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts b/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
+index 2e241d5..db65392 100644
+--- a/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
++++ b/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
+@@ -7,9 +7,9 @@ import type { PipelineAnalysisAgentRequestContext } from '../requestContext.js';
+ import type { TargetJobSummary } from '../types.js';
+ import { executeAnalysisStep } from './steps/executeAnalysisStep.js';
+ import {
+-  verifyCompletenessStep,
++  reportFinalizationStep,
+   buildFeedbackWithReportPrompt,
+-} from './steps/verifyCompletenessStep.js';
++} from './steps/reportFinalizationStep.js';
+ import { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
+ import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
+ import { getLogger } from '../../../lib/logger.js';
+@@ -52,8 +52,10 @@ export const workflowInputSchema = z.object({
+   overallTemplate: z.string(),
+   /** ジョブ1件分のレポートブロックフォーマット */
+   jobReportFormat: z.string(),
+-  /** ユーザ指定の追加指示（未指定は null） */
+-  additionalInstructions: z.string().nullable(),
++  /** ユーザ指定の分析時追加指示（未指定は null） */
++  analysisInstructions: z.string().nullable(),
++  /** ユーザ指定のレポート推敲時指示（未指定は null） */
++  reportRefinementInstructions: z.string().nullable(),
+   /** レポート出力ファイルパス */
+   resultFilePath: z.string(),
+   /** コメント言語 */
+@@ -88,7 +90,8 @@ const requestContextSchema = z.object({
+   targetJobs: z.array(targetJobSummarySchema),
+   overallTemplate: z.string(),
+   jobReportFormat: z.string(),
+-  additionalInstructions: z.string().nullable(),
++  analysisInstructions: z.string().nullable(),
++  reportRefinementInstructions: z.string().nullable(),
+   commentLanguage: z.string(),
+   resultFilePath: z.string(),
+   skillsPaths: z.array(z.string()),
+@@ -150,8 +153,8 @@ const prepareStep = createStep({
+  *
+  * 1回のイテレーションで:
+  * 1. executeAnalysisStep で analysis agent を呼び出し
+- * 2. verifyCompletenessStep で judge agent が判定
+- * 3. 不完全なら feedbackPrompt + レポート現物を次イテレーションの prompt にセット
++ * 2. reportFinalizationStep で judge agent が判定 → 必要なら rewrite agent が書き換え
++ * 3. ジョブ欠落時のみ feedbackPrompt + レポート現物を次イテレーションの prompt にセット
+  */
+ const analyzeAndVerifyStep = createStep({
+   id: 'pipeline-report-analyze-and-verify',
+@@ -162,7 +165,8 @@ const analyzeAndVerifyStep = createStep({
+     const logger = getLogger();
+     const initData = getInitData<typeof pipelineAnalysisWorkflow>();
+     const analysisAgent = mastra.getAgent('pipelineAnalysisAgent');
+-    const judgeAgent = mastra.getAgent('reportCompletenessJudgeAgent');
++    const judgeAgent = mastra.getAgent('reportFinalizationJudgeAgent');
++    const rewriteAgent = mastra.getAgent('reportRewriteAgent');
+     const summarizationAgent = mastra.getAgent('pipelineReportSummarizationAgent');
+     const typedContext = requestContext as RequestContext<PipelineAnalysisAgentRequestContext>;
+ 
+@@ -198,9 +202,10 @@ const analyzeAndVerifyStep = createStep({
+       };
+     }
+ 
+-    // 3. judge agent で完成判定
+-    const verify = await verifyCompletenessStep({
++    // 3. judge agent で判定 → 必要に応じて rewrite agent で書き換え
++    const verify = await reportFinalizationStep({
+       judgeAgent,
++      rewriteAgent,
+       requestContext: typedContext,
+       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
+     });
+@@ -209,16 +214,16 @@ const analyzeAndVerifyStep = createStep({
+     let nextPrompt = inputData.prompt;
+     let nextFeedbackPrompt: string | null = null;
+ 
+-    if (!verify.isComplete && verify.feedbackPrompt) {
+-      // レポート現状 + フィードバックを結合
++    if (verify.hasMissingJobs && verify.feedbackPrompt) {
++      // ジョブ欠落時のみ analysis agent に再実行を要求
+       nextFeedbackPrompt = verify.feedbackPrompt;
+       nextPrompt = buildFeedbackWithReportPrompt(verify.reportContent, verify.feedbackPrompt);
+       logger.info(
+         {
+           attempt: inputData.completenessRetries + 1,
+-          reasons: verify.lastJudgement?.reasons?.length ?? 0,
++          missingJobReasons: verify.lastJudgement?.missingJobReasons?.length ?? 0,
+         },
+-        'Pipeline-report not complete; will rerun analysis with feedback',
++        'Pipeline-report has missing jobs; will rerun analysis with feedback',
+       );
+     }
+ 
+diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
+index 3254f4a..b688cb0 100644
+--- a/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
++++ b/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
+@@ -110,7 +110,8 @@ function createTestRequestContext(
+     targetJobs,
+     overallTemplate: '# Report\n{{job-sections}}',
+     jobReportFormat: '### Job <jobId>',
+-    additionalInstructions: null,
++    analysisInstructions: null,
++    reportRefinementInstructions: null,
+     commentLanguage: 'Japanese',
+     resultFilePath: '/tmp/report.md',
+     skillsPaths: [],
+diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
+index 328da40..37eb73e 100644
+--- a/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
++++ b/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
+@@ -41,7 +41,8 @@ function createTestRequestContext(
+     targetJobs,
+     overallTemplate: '# Pipeline Report\n{{job-sections}}',
+     jobReportFormat: '### Job <jobId>',
+-    additionalInstructions: null,
++    analysisInstructions: null,
++    reportRefinementInstructions: null,
+     commentLanguage: 'Japanese',
+     resultFilePath: '',
+     skillsPaths: [],
+diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/reportFinalizationStep.test.ts
+similarity index 51%
+rename from src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
+rename to src/mastra/pipeline-report/workflows/steps/__tests__/reportFinalizationStep.test.ts
+index 99dfead..12d122d 100644
+--- a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
++++ b/src/mastra/pipeline-report/workflows/steps/__tests__/reportFinalizationStep.test.ts
+@@ -10,12 +10,12 @@ import { initializeLogger, resetLogger } from '../../../../../lib/logger.js';
+ import { RateLimiter } from '../../../../../infrastructure/adapter/rateLimiter/RateLimiter.js';
+ import { initializeRateLimiter, resetRateLimiter } from '../../../../../lib/rateLimiterGlobal.js';
+ import {
+-  verifyCompletenessStep,
+-  buildCompletenessFeedbackPrompt,
++  reportFinalizationStep,
++  buildMissingJobsFeedbackPrompt,
+   buildFeedbackWithReportPrompt,
+-  type VerifyCompletenessStepConfig,
+-  type ReportCompletenessJudgement,
+-} from '../verifyCompletenessStep.js';
++  type ReportFinalizationStepConfig,
++  type ReportFinalizationJudgement,
++} from '../reportFinalizationStep.js';
+ 
+ function createTestRequestContext(
+   overrides: Partial<PipelineAnalysisAgentRequestContext> = {},
+@@ -36,7 +36,8 @@ function createTestRequestContext(
+     targetJobs,
+     overallTemplate: '# Report\n{{job-sections}}',
+     jobReportFormat: '### Job <jobId>',
+-    additionalInstructions: null,
++    analysisInstructions: null,
++    reportRefinementInstructions: null,
+     commentLanguage: 'Japanese',
+     resultFilePath: '',
+     skillsPaths: [],
+@@ -75,20 +76,22 @@ function createMockAgent(generateFn: (...args: unknown[]) => Promise<unknown>):
+   } as unknown as Agent;
+ }
+ 
+-describe('buildCompletenessFeedbackPrompt', () => {
+-  it('reasons が含まれる場合、各理由がリスト化される', () => {
+-    const judgement: ReportCompletenessJudgement = {
+-      isComplete: false,
+-      reasons: [
++describe('buildMissingJobsFeedbackPrompt', () => {
++  it('missingJobReasons が含まれる場合、各理由がリスト化される', () => {
++    const judgement: ReportFinalizationJudgement = {
++      hasMissingJobs: true,
++      missingJobReasons: [
+         "Job #1 'build' has no block in the report",
+         "Job #2 'test' has no block in the report",
+       ],
++      finalizationNeeded: false,
++      finalizationActions: [],
+     };
+ 
+-    const result = buildCompletenessFeedbackPrompt(judgement);
++    const result = buildMissingJobsFeedbackPrompt(judgement);
+ 
+     expect(result).toContain('Completeness Review Feedback');
+-    expect(result).toContain('Issues');
++    expect(result).toContain('Missing Jobs');
+     expect(result).toContain("Job #1 'build'");
+     expect(result).toContain("Job #2 'test'");
+   });
+@@ -116,12 +119,12 @@ describe('buildFeedbackWithReportPrompt', () => {
+   });
+ });
+ 
+-describe('verifyCompletenessStep', () => {
++describe('reportFinalizationStep', () => {
+   let tmpDir: string;
+   let resultFilePath: string;
+ 
+   beforeEach(() => {
+-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-complete-test-'));
++    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'report-finalization-test-'));
+     resultFilePath = path.join(tmpDir, 'pipeline-report.md');
+     fs.writeFileSync(resultFilePath, '# Report\n(initial)', 'utf8');
+     vi.clearAllMocks();
+@@ -140,109 +143,220 @@ describe('verifyCompletenessStep', () => {
+ 
+   it('judge agentに2つのuserメッセージが渡される', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+-      object: { isComplete: true, reasons: [] },
++      object: {
++        hasMissingJobs: false,
++        missingJobReasons: [],
++        finalizationNeeded: false,
++        finalizationActions: [],
++      },
+     });
++    const rewriteGenerate = vi.fn();
+ 
+-    const config: VerifyCompletenessStepConfig = {
++    const config: ReportFinalizationStepConfig = {
+       judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
+       requestContext: createTestRequestContext({ resultFilePath }),
+       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+     };
+ 
+-    await verifyCompletenessStep(config);
++    await reportFinalizationStep(config);
+ 
+     const prompt = judgeGenerate.mock.calls[0][0] as Array<{ role: string; content: string }>;
+     expect(Array.isArray(prompt)).toBe(true);
+     expect(prompt).toHaveLength(2);
+     expect(prompt[0].role).toBe('user');
+     expect(prompt[1].role).toBe('user');
+-    // 1つ目: 判定基準コンテキスト
+     expect(prompt[0].content).toContain('Target Jobs');
+-    expect(prompt[0].content).toContain('jobReportFormat');
+-    expect(prompt[0].content).not.toContain('Current Report Contents');
+-    // 2つ目: レポート本文
+     expect(prompt[1].content).toContain('Current Report Contents');
+-    expect(prompt[1].content).toContain('# Report\n(initial)');
+   });
+ 
+-  it('isComplete=true の場合、完了で feedbackPrompt=null を返す', async () => {
++  it('hasMissingJobs=false, finalizationNeeded=false → isComplete=true, finalizationApplied=false', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+-        isComplete: true,
+-        reasons: [],
++        hasMissingJobs: false,
++        missingJobReasons: [],
++        finalizationNeeded: false,
++        finalizationActions: [],
+       },
+     });
++    const rewriteGenerate = vi.fn();
+ 
+-    const config: VerifyCompletenessStepConfig = {
++    const config: ReportFinalizationStepConfig = {
+       judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
+       requestContext: createTestRequestContext({ resultFilePath }),
+       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+     };
+ 
+-    const result = await verifyCompletenessStep(config);
++    const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(true);
++    expect(result.hasMissingJobs).toBe(false);
+     expect(result.feedbackPrompt).toBeNull();
++    expect(result.finalizationApplied).toBe(false);
+     expect(result.reportContent).toBe('# Report\n(initial)');
+-    expect(result.lastJudgement?.isComplete).toBe(true);
+-    expect(judgeGenerate).toHaveBeenCalledTimes(1);
++    expect(rewriteGenerate).not.toHaveBeenCalled();
+   });
+ 
+-  it('isComplete=false の場合、feedbackPrompt を構築して返す', async () => {
++  it('hasMissingJobs=true → isComplete=false, feedbackPrompt を返す', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+-        isComplete: false,
+-        reasons: ["Job #102 'test' has no block in the report"],
++        hasMissingJobs: true,
++        missingJobReasons: ["Job #102 'test' has no block in the report"],
++        finalizationNeeded: false,
++        finalizationActions: [],
+       },
+     });
++    const rewriteGenerate = vi.fn();
+ 
+-    const config: VerifyCompletenessStepConfig = {
++    const config: ReportFinalizationStepConfig = {
+       judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
+       requestContext: createTestRequestContext({ resultFilePath }),
+       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+     };
+ 
+-    const result = await verifyCompletenessStep(config);
++    const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(false);
++    expect(result.hasMissingJobs).toBe(true);
+     expect(result.feedbackPrompt).toContain('Completeness Review Feedback');
+     expect(result.feedbackPrompt).toContain("Job #102 'test'");
+-    expect(result.lastJudgement?.reasons).toHaveLength(1);
+-    expect(judgeGenerate).toHaveBeenCalledTimes(1);
++    expect(result.finalizationApplied).toBe(false);
++    expect(rewriteGenerate).not.toHaveBeenCalled();
++  });
++
++  it('finalizationNeeded=true, hasMissingJobs=false → rewrite agent 呼び出し、ファイル書き込み、isComplete=true', async () => {
++    const judgeGenerate = vi.fn().mockResolvedValue({
++      object: {
++        hasMissingJobs: false,
++        missingJobReasons: [],
++        finalizationNeeded: true,
++        finalizationActions: ['Job sections are not ordered by assessment severity'],
++      },
++    });
++    const rewrittenContent = '# Report\n(rewritten by rewrite agent)';
++    const rewriteGenerate = vi.fn().mockResolvedValue({
++      text: rewrittenContent,
++    });
++
++    const config: ReportFinalizationStepConfig = {
++      judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
++      requestContext: createTestRequestContext({ resultFilePath }),
++      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
++    };
++
++    const result = await reportFinalizationStep(config);
++
++    expect(result.isComplete).toBe(true);
++    expect(result.hasMissingJobs).toBe(false);
++    expect(result.feedbackPrompt).toBeNull();
++    expect(result.finalizationApplied).toBe(true);
++    expect(result.reportContent).toBe(rewrittenContent);
++    // ファイルにも書き込まれていること
++    expect(fs.readFileSync(resultFilePath, 'utf8')).toBe(rewrittenContent);
++    expect(rewriteGenerate).toHaveBeenCalledTimes(1);
+   });
+ 
+-  it('judge agent が JSON エラーになった場合は warning で isComplete=false, feedbackPrompt=null を返す', async () => {
++  it('rewrite agent のプロンプトに finalizationActions と現レポートが含まれる', async () => {
++    const judgeGenerate = vi.fn().mockResolvedValue({
++      object: {
++        hasMissingJobs: false,
++        missingJobReasons: [],
++        finalizationNeeded: true,
++        finalizationActions: ['Fix sort order'],
++      },
++    });
++    const rewriteGenerate = vi.fn().mockResolvedValue({ text: '# Rewritten' });
++
++    const config: ReportFinalizationStepConfig = {
++      judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
++      requestContext: createTestRequestContext({
++        resultFilePath,
++        reportRefinementInstructions: '問題なしジョブを非表示',
++      }),
++      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
++    };
++
++    await reportFinalizationStep(config);
++
++    const prompt = rewriteGenerate.mock.calls[0][0] as Array<{ role: string; content: string }>;
++    expect(prompt[0].content).toContain('Fix sort order');
++    expect(prompt[0].content).toContain('# Report\n(initial)');
++    expect(prompt[0].content).toContain('問題なしジョブを非表示');
++  });
++
++  it('judge agent がエラーになった場合は isComplete=false, feedbackPrompt=null を返す', async () => {
+     const judgeGenerate = vi.fn().mockRejectedValue(new Error('invalid json'));
++    const rewriteGenerate = vi.fn();
+ 
+-    const config: VerifyCompletenessStepConfig = {
++    const config: ReportFinalizationStepConfig = {
+       judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
+       requestContext: createTestRequestContext({ resultFilePath }),
+       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+     };
+ 
+-    const result = await verifyCompletenessStep(config);
++    const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(false);
++    expect(result.hasMissingJobs).toBe(false);
+     expect(result.feedbackPrompt).toBeNull();
++    expect(result.finalizationApplied).toBe(false);
+     expect(result.lastJudgement).toBeNull();
+-    expect(result.reportContent).toBe('# Report\n(initial)');
++    expect(rewriteGenerate).not.toHaveBeenCalled();
++  });
++
++  it('rewrite agent がエラーになった場合は isComplete=false, finalizationApplied=false を返す', async () => {
++    const judgeGenerate = vi.fn().mockResolvedValue({
++      object: {
++        hasMissingJobs: false,
++        missingJobReasons: [],
++        finalizationNeeded: true,
++        finalizationActions: ['Fix sort order'],
++      },
++    });
++    const rewriteGenerate = vi.fn().mockRejectedValue(new Error('rewrite failed'));
++
++    const config: ReportFinalizationStepConfig = {
++      judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
++      requestContext: createTestRequestContext({ resultFilePath }),
++      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
++    };
++
++    const result = await reportFinalizationStep(config);
++
++    expect(result.isComplete).toBe(false);
++    expect(result.hasMissingJobs).toBe(false);
++    expect(result.feedbackPrompt).toBeNull();
++    expect(result.finalizationApplied).toBe(false);
++    expect(result.lastJudgement?.finalizationNeeded).toBe(true);
++    // ファイルは元のまま
++    expect(fs.readFileSync(resultFilePath, 'utf8')).toBe('# Report\n(initial)');
+   });
+ 
+   it('structuredOutput が object を返さず text で返す場合も JSON パースで判定できる', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       text: JSON.stringify({
+-        isComplete: true,
+-        reasons: [],
++        hasMissingJobs: false,
++        missingJobReasons: [],
++        finalizationNeeded: false,
++        finalizationActions: [],
+       }),
+     });
++    const rewriteGenerate = vi.fn();
+ 
+-    const config: VerifyCompletenessStepConfig = {
++    const config: ReportFinalizationStepConfig = {
+       judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
+       requestContext: createTestRequestContext({ resultFilePath }),
+       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+     };
+ 
+-    const result = await verifyCompletenessStep(config);
++    const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(true);
+     expect(result.feedbackPrompt).toBeNull();
+@@ -250,11 +364,18 @@ describe('verifyCompletenessStep', () => {
+ 
+   it('buildGenerateOptions 経由で reasoningEffort が judge agent に渡される', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+-      object: { isComplete: true, missingItems: [], formatDeviations: [] },
++      object: {
++        hasMissingJobs: false,
++        missingJobReasons: [],
++        finalizationNeeded: false,
++        finalizationActions: [],
++      },
+     });
++    const rewriteGenerate = vi.fn();
+ 
+-    const config: VerifyCompletenessStepConfig = {
++    const config: ReportFinalizationStepConfig = {
+       judgeAgent: createMockAgent(judgeGenerate),
++      rewriteAgent: createMockAgent(rewriteGenerate),
+       requestContext: createTestRequestContext({
+         resultFilePath,
+         openaiReasoningEffort: 'medium',
+@@ -262,7 +383,7 @@ describe('verifyCompletenessStep', () => {
+       rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+     };
+ 
+-    await verifyCompletenessStep(config);
++    await reportFinalizationStep(config);
+ 
+     const opts = judgeGenerate.mock.calls[0][1] as Record<string, unknown>;
+     expect(opts.modelSettings).toEqual({ temperature: 1 });
+diff --git a/src/mastra/pipeline-report/workflows/steps/reportFinalizationStep.ts b/src/mastra/pipeline-report/workflows/steps/reportFinalizationStep.ts
+new file mode 100644
+index 0000000..b90586c
+--- /dev/null
++++ b/src/mastra/pipeline-report/workflows/steps/reportFinalizationStep.ts
+@@ -0,0 +1,342 @@
++import * as fs from 'node:fs';
++import type { Agent } from '@mastra/core/agent';
++import { RequestContext } from '@mastra/core/request-context';
++import { z } from 'zod';
++import type {
++  PipelineAnalysisAgentRequestContext,
++  ReportFinalizationJudgeRequestContext,
++  ReportRewriteAgentRequestContext,
++} from '../../requestContext.js';
++import {
++  buildReportFinalizationJudgeUserPrompt,
++  reportFinalizationJudgementSchema,
++} from '../../agents/reportFinalizationJudgeAgent.js';
++import { buildReportRewriteUserPrompt } from '../../agents/reportRewriteAgent.js';
++import { deriveStageOrder } from '../../agents/pipelineAnalysisAgent.js';
++import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
++import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
++import { getLogger } from '../../../../lib/logger.js';
++
++export type ReportFinalizationJudgement = z.infer<typeof reportFinalizationJudgementSchema>;
++
++/**
++ * reportFinalizationStep の設定
++ *
++ * ループ制御は workflow 側（dountil）が担うため、本ステップは
++ * 「レポートを読み → judge agent で判定 → 必要に応じて rewrite agent で書き換え → 結果を返す」の責務を持つ。
++ */
++export interface ReportFinalizationStepConfig {
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any
++  judgeAgent: Agent<string, Record<string, any>, any, any>;
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any
++  rewriteAgent: Agent<string, Record<string, any>, any, any>;
++  requestContext: RequestContext<PipelineAnalysisAgentRequestContext>;
++  rateLimitRetryConfig: RateLimitRetryConfig;
++}
++
++/**
++ * reportFinalizationStep の結果
++ */
++export interface ReportFinalizationStepResult {
++  /** 判定/書き換え後のレポート本文 */
++  reportContent: string;
++  /** レポートが完成しているか（hasMissingJobs=false かつ finalization 完了/不要） */
++  isComplete: boolean;
++  /** 対象ジョブがレポートに欠落しているか */
++  hasMissingJobs: boolean;
++  /** hasMissingJobs=true のとき、次回 analysis 呼び出しに渡すフィードバックプロンプト */
++  feedbackPrompt: string | null;
++  /** rewrite agent によるレポート書き換えが実行されたか */
++  finalizationApplied: boolean;
++  /** 最後の judge 結果（失敗時の診断に使える） */
++  lastJudgement: ReportFinalizationJudgement | null;
++}
++
++/**
++ * ジョブ欠落時に pipelineAnalysisAgent に渡す再実行フィードバックを組み立てる
++ * missingJobReasons のみをフィードバックとして返す（finalizationActions は rewrite agent 側で処理する）
++ */
++export function buildMissingJobsFeedbackPrompt(judgement: ReportFinalizationJudgement): string {
++  const parts: string[] = [];
++
++  parts.push('## Completeness Review Feedback');
++  parts.push('');
++  parts.push(
++    'The QA judge has reviewed the current report file and found missing jobs. You MUST add every missing job listed below before ending your turn.',
++  );
++  parts.push('');
++
++  parts.push('### Missing Jobs');
++  parts.push('');
++  for (const reason of judgement.missingJobReasons) {
++    parts.push(`- ${reason}`);
++  }
++  parts.push('');
++
++  parts.push(
++    'After fixing these issues, run get-report one more time to confirm every target job has a block and the report is fully complete. Do NOT remove content that is already correct.',
++  );
++
++  return parts.join('\n');
++}
++
++/**
++ * レポート現物＋判定フィードバックを結合した再実行プロンプトを構築する
++ *
++ * Agent が get-report ツールを呼ばなくてもレポートの現状を即座に把握できるよう、
++ * レポート全文をプロンプト先頭に埋め込む。
++ */
++export function buildFeedbackWithReportPrompt(
++  currentReportContent: string,
++  feedbackPrompt: string,
++): string {
++  return `## Current Report Progress
++Below is the current state of the report file. Use this as reference to understand what has been completed and what still needs work.
++
++\`\`\`markdown
++${currentReportContent}
++\`\`\`
++
++---
++
++${feedbackPrompt}`;
++}
++
++/**
++ * judge agent を呼び出して判定結果を取得する
++ */
++async function callJudgeAgent(params: {
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any
++  judgeAgent: Agent<string, Record<string, any>, any, any>;
++  requestContext: RequestContext<PipelineAnalysisAgentRequestContext>;
++  currentReportContent: string;
++  rateLimitRetryConfig: RateLimitRetryConfig;
++}): Promise<ReportFinalizationJudgement> {
++  const { judgeAgent, requestContext, currentReportContent, rateLimitRetryConfig } = params;
++  const ctx = requestContext.all;
++
++  const userMessages = buildReportFinalizationJudgeUserPrompt({
++    currentReportContent,
++    targetJobs: ctx.targetJobs,
++    jobReportFormat: ctx.jobReportFormat,
++    overallTemplate: ctx.overallTemplate,
++    stageOrder: deriveStageOrder(ctx.targetJobs),
++    reportRefinementInstructions: ctx.reportRefinementInstructions,
++  });
++
++  const judgeContext = new RequestContext<ReportFinalizationJudgeRequestContext>([
++    ['userId', ctx.userId],
++    ['projectId', ctx.projectId],
++    ['aiApiKey', ctx.aiApiKey],
++    ['aiApiEndpointUrl', ctx.aiApiEndpointUrl],
++    ['aiModelName', ctx.aiModelName],
++    ['projectDir', ctx.projectDir],
++    ['openaiReasoningEffort', ctx.openaiReasoningEffort],
++  ]);
++
++  const generateOptions: Record<string, unknown> = {
++    requestContext: judgeContext,
++    structuredOutput: {
++      schema: reportFinalizationJudgementSchema,
++      errorStrategy: 'strict',
++    },
++    ...buildGenerateOptions(ctx),
++  };
++
++  const logger = getLogger();
++  logger.debug(
++    { requestContext: sanitizeForLog(judgeContext.all) },
++    'Calling reportFinalizationJudgeAgent.generate',
++  );
++
++  const result = await withRateLimitRetry(
++    () => judgeAgent.generate(userMessages, generateOptions),
++    rateLimitRetryConfig,
++    { projectId: ctx.projectId },
++  );
++
++  // Mastra の structuredOutput は result.object に乗る
++  const obj = (result as { object?: ReportFinalizationJudgement }).object;
++  if (obj) {
++    return obj;
++  }
++
++  // フォールバック: text プロパティを JSON パース
++  const text =
++    typeof (result as { text?: string }).text === 'string' ? (result as { text: string }).text : '';
++  return reportFinalizationJudgementSchema.parse(JSON.parse(text));
++}
++
++/**
++ * rewrite agent を呼び出してレポートを書き換える
++ */
++async function callRewriteAgent(params: {
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any
++  rewriteAgent: Agent<string, Record<string, any>, any, any>;
++  requestContext: RequestContext<PipelineAnalysisAgentRequestContext>;
++  currentReportContent: string;
++  judgement: ReportFinalizationJudgement;
++  rateLimitRetryConfig: RateLimitRetryConfig;
++}): Promise<string> {
++  const { rewriteAgent, requestContext, currentReportContent, judgement, rateLimitRetryConfig } =
++    params;
++  const ctx = requestContext.all;
++
++  const userPrompt = buildReportRewriteUserPrompt({
++    currentReportContent,
++    finalizationActions: judgement.finalizationActions,
++    reportRefinementInstructions: ctx.reportRefinementInstructions,
++    commentLanguage: ctx.commentLanguage,
++  });
++
++  const rewriteContext = new RequestContext<ReportRewriteAgentRequestContext>([
++    ['userId', ctx.userId],
++    ['projectId', ctx.projectId],
++    ['aiApiKey', ctx.aiApiKey],
++    ['aiApiEndpointUrl', ctx.aiApiEndpointUrl],
++    ['aiModelName', ctx.aiModelName],
++    ['projectDir', ctx.projectDir],
++    ['openaiReasoningEffort', ctx.openaiReasoningEffort],
++  ]);
++
++  const generateOptions: Record<string, unknown> = {
++    requestContext: rewriteContext,
++    ...buildGenerateOptions(ctx),
++  };
++
++  const logger = getLogger();
++  logger.debug(
++    { finalizationActions: judgement.finalizationActions.length },
++    'Calling reportRewriteAgent.generate',
++  );
++
++  const result = await withRateLimitRetry(
++    () => rewriteAgent.generate([{ role: 'user' as const, content: userPrompt }], generateOptions),
++    rateLimitRetryConfig,
++    { projectId: ctx.projectId },
++  );
++
++  const rewrittenReport =
++    typeof (result as { text?: string }).text === 'string' ? (result as { text: string }).text : '';
++
++  return rewrittenReport;
++}
++
++/**
++ * レポートの最終仕上げステップ
++ *
++ * 処理フロー:
++ * 1. resultFilePath を読む
++ * 2. judge agent で判定結果を取得
++ * 3. hasMissingJobs=true → feedbackPrompt を返す（analysis agent が修正）
++ * 4. finalizationNeeded=true かつ hasMissingJobs=false → rewrite agent でレポートを書き換え
++ * 5. 両方 false → isComplete=true で返す
++ * 6. agent がエラーになった場合は warning ログ + isComplete=false, feedbackPrompt=null を返す
++ */
++export async function reportFinalizationStep(
++  config: ReportFinalizationStepConfig,
++): Promise<ReportFinalizationStepResult> {
++  const logger = getLogger();
++  const { judgeAgent, rewriteAgent, requestContext, rateLimitRetryConfig } = config;
++
++  const resultFilePath = requestContext.get('resultFilePath') as string;
++
++  // 1. 現在のレポートを読む
++  const currentReport = await fs.promises.readFile(resultFilePath, 'utf8');
++
++  // 2. judge agent を呼ぶ（パースエラーは warning ログで返却）
++  let judgement: ReportFinalizationJudgement;
++  try {
++    judgement = await callJudgeAgent({
++      judgeAgent,
++      requestContext,
++      currentReportContent: currentReport,
++      rateLimitRetryConfig,
++    });
++  } catch (err) {
++    logger.warn(
++      { err },
++      'Pipeline-report finalization judgement failed to produce structured output; returning current report as-is',
++    );
++    return {
++      reportContent: currentReport,
++      isComplete: false,
++      hasMissingJobs: false,
++      feedbackPrompt: null,
++      finalizationApplied: false,
++      lastJudgement: null,
++    };
++  }
++
++  // 3. ジョブ欠落なし かつ 最終化不要 → 完成
++  if (!judgement.hasMissingJobs && !judgement.finalizationNeeded) {
++    logger.info('Pipeline-report finalization verified: no issues found');
++    return {
++      reportContent: currentReport,
++      isComplete: true,
++      hasMissingJobs: false,
++      feedbackPrompt: null,
++      finalizationApplied: false,
++      lastJudgement: judgement,
++    };
++  }
++
++  // 4. ジョブ欠落あり → フィードバックプロンプトを構築して analysis agent に再実行させる
++  if (judgement.hasMissingJobs) {
++    logger.info(
++      {
++        missingJobReasons: judgement.missingJobReasons.length,
++        finalizationActions: judgement.finalizationActions.length,
++      },
++      'Pipeline-report has missing jobs; feedback generated for analysis agent',
++    );
++    const feedbackPrompt = buildMissingJobsFeedbackPrompt(judgement);
++    return {
++      reportContent: currentReport,
++      isComplete: false,
++      hasMissingJobs: true,
++      feedbackPrompt,
++      finalizationApplied: false,
++      lastJudgement: judgement,
++    };
++  }
++
++  // 5. 最終化のみ必要（ジョブ欠落なし） → rewrite agent でレポートを書き換える
++  logger.info(
++    { finalizationActions: judgement.finalizationActions.length },
++    'Pipeline-report needs finalization; calling rewrite agent',
++  );
++
++  try {
++    const rewrittenReport = await callRewriteAgent({
++      rewriteAgent,
++      requestContext,
++      currentReportContent: currentReport,
++      judgement,
++      rateLimitRetryConfig,
++    });
++
++    // 書き換え後のレポートをファイルに書き込む
++    await fs.promises.writeFile(resultFilePath, rewrittenReport, 'utf8');
++
++    logger.info('Pipeline-report finalization complete: report rewritten');
++    return {
++      reportContent: rewrittenReport,
++      isComplete: true,
++      hasMissingJobs: false,
++      feedbackPrompt: null,
++      finalizationApplied: true,
++      lastJudgement: judgement,
++    };
++  } catch (err) {
++    logger.warn({ err }, 'Pipeline-report rewrite agent failed; returning current report as-is');
++    return {
++      reportContent: currentReport,
++      isComplete: false,
++      hasMissingJobs: false,
++      feedbackPrompt: null,
++      finalizationApplied: false,
++      lastJudgement: judgement,
++    };
++  }
++}
+diff --git a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts b/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
+deleted file mode 100644
+index 7cbfb82..0000000
+--- a/src/mastra/pipeline-report/workflows/steps/verifyCompletenessStep.ts
++++ /dev/null
+@@ -1,229 +0,0 @@
+-import * as fs from 'node:fs';
+-import type { Agent } from '@mastra/core/agent';
+-import { RequestContext } from '@mastra/core/request-context';
+-import { z } from 'zod';
+-import type {
+-  PipelineAnalysisAgentRequestContext,
+-  ReportCompletenessJudgeRequestContext,
+-} from '../../requestContext.js';
+-import {
+-  buildReportCompletenessJudgeUserPrompt,
+-  reportCompletenessJudgementSchema,
+-} from '../../agents/reportCompletenessJudgeAgent.js';
+-import { deriveStageOrder } from '../../agents/pipelineAnalysisAgent.js';
+-import { buildGenerateOptions, sanitizeForLog } from '../../../shared/requestContext.js';
+-import { withRateLimitRetry, type RateLimitRetryConfig } from '../../../../lib/rateLimitRetry.js';
+-import { getLogger } from '../../../../lib/logger.js';
+-
+-export type ReportCompletenessJudgement = z.infer<typeof reportCompletenessJudgementSchema>;
+-
+-/**
+- * verifyCompletenessStep の設定
+- *
+- * ループ制御は workflow 側（dountil）が担うため、本ステップは
+- * 「レポートを読み → judge agent で判定 → 結果を返す」のみの責務を持つ。
+- */
+-export interface VerifyCompletenessStepConfig {
+-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+-  judgeAgent: Agent<string, Record<string, any>, any, any>;
+-  requestContext: RequestContext<PipelineAnalysisAgentRequestContext>;
+-  rateLimitRetryConfig: RateLimitRetryConfig;
+-}
+-
+-/**
+- * verifyCompletenessStep の結果
+- */
+-export interface VerifyCompletenessStepResult {
+-  /** 判定時点のレポート本文 */
+-  reportContent: string;
+-  /** 判定が isComplete=true か */
+-  isComplete: boolean;
+-  /** isComplete=false のとき、次回 analysis 呼び出しに渡すフィードバックプロンプト */
+-  feedbackPrompt: string | null;
+-  /** 最後の judge 結果（失敗時の診断に使える） */
+-  lastJudgement: ReportCompletenessJudgement | null;
+-}
+-
+-/**
+- * 判定結果を受けて pipelineAnalysisAgent に渡す再実行フィードバックを組み立てる
+- */
+-export function buildCompletenessFeedbackPrompt(judgement: ReportCompletenessJudgement): string {
+-  const parts: string[] = [];
+-
+-  parts.push('## Completeness Review Feedback');
+-  parts.push('');
+-  parts.push(
+-    'The QA judge has reviewed the current report file and found issues. You MUST fix every issue listed below before ending your turn.',
+-  );
+-  parts.push('');
+-
+-  parts.push('### Issues');
+-  parts.push('');
+-  for (const reason of judgement.reasons) {
+-    parts.push(`- ${reason}`);
+-  }
+-  parts.push('');
+-
+-  parts.push(
+-    'After fixing these issues, run get-report one more time to confirm every target job has a block and the report is fully complete. Do NOT remove content that is already correct.',
+-  );
+-
+-  return parts.join('\n');
+-}
+-
+-/**
+- * レポート現物＋判定フィードバックを結合した再実行プロンプトを構築する
+- *
+- * Agent が get-report ツールを呼ばなくてもレポートの現状を即座に把握できるよう、
+- * レポート全文をプロンプト先頭に埋め込む。
+- */
+-export function buildFeedbackWithReportPrompt(
+-  currentReportContent: string,
+-  feedbackPrompt: string,
+-): string {
+-  return `## Current Report Progress
+-Below is the current state of the report file. Use this as reference to understand what has been completed and what still needs work.
+-
+-\`\`\`markdown
+-${currentReportContent}
+-\`\`\`
+-
+----
+-
+-${feedbackPrompt}`;
+-}
+-
+-/**
+- * judge agent を呼び出して判定結果を取得する
+- */
+-async function callJudgeAgent(params: {
+-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+-  judgeAgent: Agent<string, Record<string, any>, any, any>;
+-  requestContext: RequestContext<PipelineAnalysisAgentRequestContext>;
+-  currentReportContent: string;
+-  rateLimitRetryConfig: RateLimitRetryConfig;
+-}): Promise<ReportCompletenessJudgement> {
+-  const { judgeAgent, requestContext, currentReportContent, rateLimitRetryConfig } = params;
+-  const ctx = requestContext.all;
+-
+-  const userMessages = buildReportCompletenessJudgeUserPrompt({
+-    currentReportContent,
+-    targetJobs: ctx.targetJobs,
+-    jobReportFormat: ctx.jobReportFormat,
+-    overallTemplate: ctx.overallTemplate,
+-    stageOrder: deriveStageOrder(ctx.targetJobs),
+-  });
+-
+-  const judgeContext = new RequestContext<ReportCompletenessJudgeRequestContext>([
+-    ['userId', ctx.userId],
+-    ['projectId', ctx.projectId],
+-    ['aiApiKey', ctx.aiApiKey],
+-    ['aiApiEndpointUrl', ctx.aiApiEndpointUrl],
+-    ['aiModelName', ctx.aiModelName],
+-    ['projectDir', ctx.projectDir],
+-    ['openaiReasoningEffort', ctx.openaiReasoningEffort],
+-  ]);
+-
+-  const generateOptions: Record<string, unknown> = {
+-    requestContext: judgeContext,
+-    structuredOutput: {
+-      schema: reportCompletenessJudgementSchema,
+-      errorStrategy: 'strict',
+-    },
+-    ...buildGenerateOptions(ctx),
+-  };
+-
+-  const logger = getLogger();
+-  logger.debug(
+-    { requestContext: sanitizeForLog(judgeContext.all) },
+-    'Calling reportCompletenessJudgeAgent.generate',
+-  );
+-
+-  const result = await withRateLimitRetry(
+-    () => judgeAgent.generate(userMessages, generateOptions),
+-    rateLimitRetryConfig,
+-    { projectId: ctx.projectId },
+-  );
+-
+-  // Mastra の structuredOutput は result.object に乗る
+-  const obj = (result as { object?: ReportCompletenessJudgement }).object;
+-  if (obj) {
+-    return obj;
+-  }
+-
+-  // フォールバック: text プロパティを JSON パース
+-  const text =
+-    typeof (result as { text?: string }).text === 'string' ? (result as { text: string }).text : '';
+-  return reportCompletenessJudgementSchema.parse(JSON.parse(text));
+-}
+-
+-/**
+- * レポートの完全性を検証するステップ（判定のみ）
+- *
+- * ループ制御は workflow 側（dountil）が行うため、本関数は1回分の判定のみを実行する。
+- *
+- * 処理フロー:
+- * 1. resultFilePath を読む
+- * 2. judge agent に渡して判定結果を取得
+- * 3. isComplete / feedbackPrompt を返す
+- * 4. judge agent がエラーになった場合は warning ログ + isComplete=false, feedbackPrompt=null を返す
+- */
+-export async function verifyCompletenessStep(
+-  config: VerifyCompletenessStepConfig,
+-): Promise<VerifyCompletenessStepResult> {
+-  const logger = getLogger();
+-  const { judgeAgent, requestContext, rateLimitRetryConfig } = config;
+-
+-  const resultFilePath = requestContext.get('resultFilePath') as string;
+-
+-  // 1. 現在のレポートを読む
+-  const currentReport = await fs.promises.readFile(resultFilePath, 'utf8');
+-
+-  // 2. judge agent を呼ぶ（パースエラーは warning ログで返却）
+-  let judgement: ReportCompletenessJudgement;
+-  try {
+-    judgement = await callJudgeAgent({
+-      judgeAgent,
+-      requestContext,
+-      currentReportContent: currentReport,
+-      rateLimitRetryConfig,
+-    });
+-  } catch (err) {
+-    logger.warn(
+-      { err },
+-      'Pipeline-report completeness judgement failed to produce structured output; returning current report as-is',
+-    );
+-    return {
+-      reportContent: currentReport,
+-      isComplete: false,
+-      feedbackPrompt: null,
+-      lastJudgement: null,
+-    };
+-  }
+-
+-  // 3. 完成
+-  if (judgement.isComplete) {
+-    logger.info('Pipeline-report completeness verified');
+-    return {
+-      reportContent: currentReport,
+-      isComplete: true,
+-      feedbackPrompt: null,
+-      lastJudgement: judgement,
+-    };
+-  }
+-
+-  // 4. 不完全 → フィードバックプロンプトを構築して返す
+-  logger.info(
+-    {
+-      reasons: judgement.reasons.length,
+-    },
+-    'Pipeline-report not complete; feedback generated',
+-  );
+-  const feedbackPrompt = buildCompletenessFeedbackPrompt(judgement);
+-  return {
+-    reportContent: currentReport,
+-    isComplete: false,
+-    feedbackPrompt,
+-    lastJudgement: judgement,
+-  };
+-}
+diff --git a/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts b/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
+index 64efcb8..3d10075 100644
+--- a/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
++++ b/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
+@@ -40,7 +40,8 @@ describe('pipelineReportRequestSchema', () => {
+       ...createValidRequestBody(),
+       settings: {
+         jobReportFormat: '### <jobName>',
+-        additionalInstructions: 'focus on security jobs',
++        analysisInstructions: 'focus on security jobs',
++        reportRefinementInstructions: 'hide passing jobs',
+         includeJobPatterns: ['^test:', '^build'],
+         excludeJobPatterns: ['\\.dev$'],
+       },
+@@ -138,7 +139,8 @@ describe('buildPipelineReportSettings', () => {
+     const settings = buildPipelineReportSettings(undefined);
+     const defaults = PipelineReportSettings.default();
+     expect(settings.jobReportFormat).toBe(defaults.jobReportFormat);
+-    expect(settings.additionalInstructions).toBe(defaults.additionalInstructions);
++    expect(settings.analysisInstructions).toBe(defaults.analysisInstructions);
++    expect(settings.reportRefinementInstructions).toBe(defaults.reportRefinementInstructions);
+     expect(settings.includeJobPatterns).toEqual([]);
+     expect(settings.excludeJobPatterns).toEqual([]);
+   });
+@@ -150,11 +152,18 @@ describe('buildPipelineReportSettings', () => {
+     expect(settings.jobReportFormat).toBe('### custom <jobName>');
+   });
+ 
+-  it('additionalInstructions を保持すること', () => {
++  it('analysisInstructions を保持すること', () => {
+     const settings = buildPipelineReportSettings({
+-      additionalInstructions: 'be strict',
++      analysisInstructions: 'be strict',
+     });
+-    expect(settings.additionalInstructions).toBe('be strict');
++    expect(settings.analysisInstructions).toBe('be strict');
++  });
++
++  it('reportRefinementInstructions を保持すること', () => {
++    const settings = buildPipelineReportSettings({
++      reportRefinementInstructions: 'hide passing jobs',
++    });
++    expect(settings.reportRefinementInstructions).toBe('hide passing jobs');
+   });
+ 
+   it('includeJobPatterns / excludeJobPatterns が RegExp にコンパイルされること', () => {
+diff --git a/src/presentation/api/pipeline-report/pipelineReportHandler.ts b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
+index 1ba6fb4..422b3a0 100644
+--- a/src/presentation/api/pipeline-report/pipelineReportHandler.ts
++++ b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
+@@ -36,7 +36,8 @@ export const pipelineReportRequestSchema = z.object({
+   settings: z
+     .object({
+       jobReportFormat: z.string().optional(),
+-      additionalInstructions: z.string().nullable().optional(),
++      analysisInstructions: z.string().nullable().optional(),
++      reportRefinementInstructions: z.string().nullable().optional(),
+       includeJobPatterns: z.array(z.string()).optional(),
+       excludeJobPatterns: z.array(z.string()).optional(),
+     })
+@@ -209,7 +210,9 @@ export function buildPipelineReportSettings(
+ 
+   return PipelineReportSettings.of({
+     jobReportFormat: settings.jobReportFormat ?? defaults.jobReportFormat,
+-    additionalInstructions: settings.additionalInstructions ?? defaults.additionalInstructions,
++    analysisInstructions: settings.analysisInstructions ?? defaults.analysisInstructions,
++    reportRefinementInstructions:
++      settings.reportRefinementInstructions ?? defaults.reportRefinementInstructions,
+     includeJobPatterns: compile(settings.includeJobPatterns, 'includeJobPatterns'),
+     excludeJobPatterns: compile(settings.excludeJobPatterns, 'excludeJobPatterns'),
+   });
