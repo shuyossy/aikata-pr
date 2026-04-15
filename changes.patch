@@ -1,205 +1,473 @@
+diff --git a/PBI.md b/PBI.md
+index b6d296c..b40f5e0 100644
+--- a/PBI.md
++++ b/PBI.md
+@@ -8,3 +8,22 @@
+ - 注意事項
+ - 指摘事項（in progressの場合のみ）
+ ```
++
++# ID: 1
++- PBI名: mastra workspaceの仕様に合わせた最適化
++- ステータス: done
++- 背景
++  - mastra workspaceを有効化すると次のようなsystemプロンプトが差し込まれる様に見えている（実際にGitLabのCI/CDパイプラインにてジョブを実行した際のログから取得している。`org/div_99408/sak/sak_sample`はプロジェクトのパス）
++  ```
++  {
++    "role": "system",
++    "content": "Local command execution. Working directory: \"/builds/org/div_99408/sak/sak_sample\".\n\nLocal filesystem at \"/builds/org/div_99408/sak/sak_sample\". Relative paths resolve from this directory. File access is restricted to this directory."
++  }
++  ```
++  - レビュー用Agentやパイプライン分析用Agentはプロジェクトのフォルダツリーが連携されているが、上記のメッセージが同時に与えられることでフォルダツリーが探索できないと錯覚してしまうのではないか
++- 受け入れ基準
++  - mastra workspaceの使用をよく確認し、どの様なsystemプロンプトが差し込まれるのか、実際にworkspace提供toolを利用する際は相対パス記法でなければならないのか（例えば、/src/~としていするとエラーになるのか）十分に理解した上で、以下の対応が完了している
++    - mastra workspaceのクセを正しく把握した上で、Agentに送信するプロンプトが最適化できている
++- 注意事項
++  - プロンプトの追加は最小限にとどめること
++- 指摘事項（in progressの場合のみ）
 diff --git a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-index 68f36e6..b7b81a0 100644
+index b7b81a0..6b698fa 100644
 --- a/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
 +++ b/src/application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.ts
-@@ -217,6 +217,7 @@ export class PipelineAnalysisService {
-           resultFilePath,
-           projectDir: command.projectDir,
-           artifactCacheStatuses,
-+          archiveReader: this.archiveReader,
-           maxCompletenessRetries: command.options.maxCompletenessRetries,
-           skipCompletenessCheck: command.options.skipCompletenessCheck,
-           aiConfig: command.aiConfig,
-diff --git a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-index 23e2f0e..5a931b7 100644
---- a/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-+++ b/src/application/pipeline-report/pipelineAnalysis/__tests__/PipelineAnalysisService.test.ts
-@@ -233,6 +233,8 @@ describe('PipelineAnalysisService', () => {
-     expect(runnerCall.artifactCacheStatuses.get(5002)).toEqual(
-       expect.objectContaining({ kind: 'cached' }),
-     );
-+    // archiveReader がworkflow runnerに渡されている
-+    expect(runnerCall.archiveReader).toBe(archiveReader);
+@@ -188,6 +188,7 @@ export class PipelineAnalysisService {
+         artifactTrees,
+         artifactCacheStatuses,
+         folderTree,
++        mergedYaml,
+       );
  
-     // 結果
-     expect(result.report.content).toBe('# Final report content\n- done');
-diff --git a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-index af4b8de..09cf646 100644
---- a/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-+++ b/src/application/shared/port/workflow/PipelineAnalysisWorkflowRunner.ts
-@@ -2,6 +2,7 @@ import type { Pipeline } from '../../../../domain/pipeline-report/pipeline/Pipel
- import type { Job } from '../../../../domain/pipeline-report/job/Job.js';
- import type { ArtifactTree } from '../../../../domain/pipeline-report/artifact/ArtifactTree.js';
- import type { ArtifactCacheEntryStatus } from '../../../pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
-+import type { ArtifactArchiveReader } from '../../../pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
+       // Step 10: 一時ファイルにレポートテンプレートを書き込み（review機能と同パターン）
+@@ -307,6 +308,7 @@ export class PipelineAnalysisService {
+     artifactTrees: ArtifactTree[],
+     artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>,
+     folderTree: string,
++    mergedYaml: string | null,
+   ): {
+     compressed: boolean;
+     compressedJobLogs: Map<number, string>;
+@@ -325,6 +327,7 @@ export class PipelineAnalysisService {
+         artifactCacheStatuses,
+         folderTree: ft,
+         folderTreeStripped: false,
++        mergedYaml,
+       });
  
- /**
-  * pipeline-report 機能の AI 分析ワークフロー実行パラメータ。
-@@ -30,6 +31,8 @@ export interface PipelineAnalysisWorkflowParams {
-   projectDir: string;
-   /** ジョブ ID -> artifacts キャッシュステータス（no-artifacts / cached / error 等の詳細を保持） */
+     if (command.maxContextLength === null) {
+diff --git a/src/application/pipeline-report/pipelineAnalysis/__tests__/pipelineContextBuilder.test.ts b/src/application/pipeline-report/pipelineAnalysis/__tests__/pipelineContextBuilder.test.ts
+index 73d681e..3879c86 100644
+--- a/src/application/pipeline-report/pipelineAnalysis/__tests__/pipelineContextBuilder.test.ts
++++ b/src/application/pipeline-report/pipelineAnalysis/__tests__/pipelineContextBuilder.test.ts
+@@ -81,6 +81,7 @@ describe('buildPipelineUserPrompt', () => {
+       artifactCacheStatuses,
+       folderTree,
+       folderTreeStripped: false,
++      mergedYaml: null,
+     });
+ 
+     // Pipeline セクション
+@@ -126,6 +127,7 @@ describe('buildPipelineUserPrompt', () => {
+       artifactCacheStatuses: new Map([[5001, { kind: 'no-artifacts' }]]),
+       folderTree: 'src/\n  (files omitted)',
+       folderTreeStripped: true,
++      mergedYaml: null,
+     });
+ 
+     expect(prompt).toContain('file entries were stripped');
+@@ -144,6 +146,7 @@ describe('buildPipelineUserPrompt', () => {
+       ]),
+       folderTree: 'src/',
+       folderTreeStripped: false,
++      mergedYaml: null,
+     });
+ 
+     expect(prompt).toContain('artifact zip too large');
+@@ -162,6 +165,7 @@ describe('buildPipelineUserPrompt', () => {
+       artifactCacheStatuses: new Map([[5004, { kind: 'no-artifacts' }]]),
+       folderTree: 'src/',
+       folderTreeStripped: false,
++      mergedYaml: null,
+     });
+ 
+     expect(prompt).toContain('no artifacts');
+@@ -180,6 +184,7 @@ describe('buildPipelineUserPrompt', () => {
+       ]),
+       folderTree: 'src/',
+       folderTreeStripped: false,
++      mergedYaml: null,
+     });
+ 
+     expect(prompt).toContain('disk quota exceeded');
+@@ -196,6 +201,7 @@ describe('buildPipelineUserPrompt', () => {
+       artifactCacheStatuses: new Map([[5006, { kind: 'error', reason: 'network timeout' }]]),
+       folderTree: 'src/',
+       folderTreeStripped: false,
++      mergedYaml: null,
+     });
+ 
+     expect(prompt).toContain('artifact fetch error');
+@@ -212,6 +218,7 @@ describe('buildPipelineUserPrompt', () => {
+       artifactCacheStatuses: new Map(),
+       folderTree: 'src/',
+       folderTreeStripped: false,
++      mergedYaml: null,
+     });
+ 
+     // Jobs ヘッダは存在する
+@@ -230,6 +237,7 @@ describe('buildPipelineUserPrompt', () => {
+       artifactCacheStatuses: new Map([[5007, { kind: 'no-artifacts' }]]),
+       folderTree: 'src/',
+       folderTreeStripped: false,
++      mergedYaml: null,
+     });
+ 
+     expect(prompt).toContain('Job #5007');
+@@ -247,8 +255,66 @@ describe('buildPipelineUserPrompt', () => {
+       artifactCacheStatuses: new Map(),
+       folderTree: '',
+       folderTreeStripped: false,
++      mergedYaml: null,
+     });
+ 
+     expect(prompt).toContain('777');
+   });
++
++  it('mergedYaml=null の場合、CI/CD Job Definitions セクションが含まれない', () => {
++    const pipeline = createPipeline();
++    const prompt = buildPipelineUserPrompt({
++      pipeline,
++      targetJobs: [],
++      jobLogs: new Map(),
++      artifactTrees: [],
++      artifactCacheStatuses: new Map(),
++      folderTree: 'src/',
++      folderTreeStripped: false,
++      mergedYaml: null,
++    });
++
++    expect(prompt).not.toContain('CI/CD Job Definitions');
++  });
++
++  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションが YAML コードブロック付きで含まれる', () => {
++    const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
++    const pipeline = createPipeline();
++    const prompt = buildPipelineUserPrompt({
++      pipeline,
++      targetJobs: [],
++      jobLogs: new Map(),
++      artifactTrees: [],
++      artifactCacheStatuses: new Map(),
++      folderTree: 'src/',
++      folderTreeStripped: false,
++      mergedYaml: yaml,
++    });
++
++    expect(prompt).toContain('CI/CD Job Definitions');
++    expect(prompt).toContain(yaml);
++    expect(prompt).toContain('```yaml');
++  });
++
++  it('mergedYaml が指定された場合、Jobs セクションの後、Job Logs セクションの前に配置される', () => {
++    const pipeline = createPipeline();
++    const job = createJob();
++    const prompt = buildPipelineUserPrompt({
++      pipeline,
++      targetJobs: [job],
++      jobLogs: new Map([[5001, 'log']]),
++      artifactTrees: [],
++      artifactCacheStatuses: new Map([[5001, { kind: 'no-artifacts' }]]),
++      folderTree: 'src/',
++      folderTreeStripped: false,
++      mergedYaml: 'stages:\n  - build\n',
++    });
++
++    const jobsSectionIdx = prompt.indexOf('## Jobs');
++    const jobDefsIdx = prompt.indexOf('## CI/CD Job Definitions');
++    const jobLogsIdx = prompt.indexOf('## Job Logs');
++    expect(jobsSectionIdx).toBeGreaterThanOrEqual(0);
++    expect(jobDefsIdx).toBeGreaterThan(jobsSectionIdx);
++    expect(jobDefsIdx).toBeLessThan(jobLogsIdx);
++  });
+ });
+diff --git a/src/application/pipeline-report/pipelineAnalysis/pipelineContextBuilder.ts b/src/application/pipeline-report/pipelineAnalysis/pipelineContextBuilder.ts
+index 74993c5..8efcd10 100644
+--- a/src/application/pipeline-report/pipelineAnalysis/pipelineContextBuilder.ts
++++ b/src/application/pipeline-report/pipelineAnalysis/pipelineContextBuilder.ts
+@@ -17,6 +17,8 @@ export interface BuildPipelineUserPromptParams {
    artifactCacheStatuses: Map<number, ArtifactCacheEntryStatus>;
-+  /** アーティファクトzipアーカイブの読み取り実装（workflow内のgetArtifactContentツールが使用） */
-+  archiveReader: ArtifactArchiveReader;
-   maxCompletenessRetries: number;
-   skipCompletenessCheck: boolean;
-   aiConfig: {
-diff --git a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
-index b1a2aed..e975e04 100644
---- a/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
-+++ b/src/domain/pipeline-report/pipelineReportSettings/PipelineReportSettings.ts
-@@ -22,7 +22,7 @@ const DEFAULT_JOB_REPORT_FORMAT = `### ジョブ #<jobId> — \`<jobName>\` (<st
- - \`<ログ行またはアーティファクト抜粋>\` — <なぜこれが根拠になるのか。アーティファクトについては中身を見て何かしらの判断をしたのか、それとも存在を確認して根拠としたのかわかる様に記載>
- 
- **推奨される次のアクション**
--<具体的なアクション、または「特になし」>
-+<具体的なアクション、または「特になし」。アクション内容は必要あればコードベースやアーティファクトのファイル内容を調査する等して、ユーザへネクストアクションが明確に伝わる様にすること>
- `;
+   folderTree: string;
+   folderTreeStripped: boolean;
++  /** CI/CD ジョブ定義（merged YAML）。取得できなかった場合は null */
++  mergedYaml: string | null;
+ }
  
  /**
+@@ -145,6 +147,23 @@ function renderArtifactPaths(
+   return sections.join('\n\n');
+ }
+ 
++/**
++ * CI/CD Job Definitions セクションを組み立てる。
++ * mergedYaml が null の場合は空文字列を返し、非 null の場合はコードブロックで提示する。
++ */
++function renderJobDefinitionsSection(mergedYaml: string | null): string {
++  if (mergedYaml === null) {
++    return '';
++  }
++  return `## CI/CD Job Definitions (merged YAML)
++
++The following is the fully resolved CI/CD configuration. Use it to understand what each job is configured to do.
++
++\`\`\`yaml
++${mergedYaml}
++\`\`\``;
++}
++
+ /**
+  * Source Code Paths セクションを組み立てる。
+  */
+@@ -175,6 +194,7 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams):
+     artifactCacheStatuses,
+     folderTree,
+     folderTreeStripped,
++    mergedYaml,
+   } = params;
+ 
+   // Pipeline セクション
+@@ -196,6 +216,9 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams):
+     renderJobsTable(targetJobs),
+   ].join('\n');
+ 
++  // CI/CD Job Definitions セクション（条件付き）
++  const jobDefinitionsSection = renderJobDefinitionsSection(mergedYaml);
++
+   // Job Logs セクション
+   const jobLogsSection = ['## Job Logs', '', renderJobLogs(targetJobs, jobLogs)].join('\n');
+ 
+@@ -213,11 +236,13 @@ export function buildPipelineUserPrompt(params: BuildPipelineUserPromptParams):
+     renderSourceCodePaths(folderTree, folderTreeStripped),
+   ].join('\n');
+ 
+-  return [
++  const sections = [
+     pipelineSection,
+     jobsSection,
++    ...(jobDefinitionsSection ? [jobDefinitionsSection] : []),
+     jobLogsSection,
+     artifactPathsSection,
+     sourceCodeSection,
+-  ].join('\n\n');
++  ];
++  return sections.join('\n\n');
+ }
 diff --git a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
-index 4f014cc..eb20d8a 100644
+index eb20d8a..38740a1 100644
 --- a/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
 +++ b/src/infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.ts
-@@ -67,6 +67,7 @@ function buildAgentRequestContext(
-     folderTreeStripped: params.folderTreeStripped,
-     omittedJobLogs: params.omittedJobLogs,
-     artifactCachePaths: deriveCachePaths(params.artifactCacheStatuses),
-+    artifactArchiveReader: params.archiveReader,
-     mergedYaml: params.mergedYaml,
-     hasImages: false,
-     pendingImages: [],
-@@ -143,6 +144,7 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
-         ['folderTreeStripped', agentRequestContext.folderTreeStripped],
-         ['omittedJobLogs', agentRequestContext.omittedJobLogs],
-         ['artifactCachePaths', agentRequestContext.artifactCachePaths],
-+        ['artifactArchiveReader', agentRequestContext.artifactArchiveReader],
-         ['hasImages', agentRequestContext.hasImages],
-         ['pendingImages', agentRequestContext.pendingImages],
-         ['reportLockTimeoutMs', agentRequestContext.reportLockTimeoutMs],
-diff --git a/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts b/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
-index 2e36fc9..7b6a1e9 100644
---- a/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
-+++ b/src/infrastructure/adapter/pipeline-report/workflow/__tests__/MastraPipelineAnalysisWorkflowRunner.test.ts
-@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
- import type { Mastra } from '@mastra/core';
- import type { PipelineAnalysisWorkflowParams } from '../../../../../application/shared/port/workflow/index.js';
- import type { ArtifactCacheEntryStatus } from '../../../../../application/pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
-+import type { ArtifactArchiveReader } from '../../../../../application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
- import { Pipeline } from '../../../../../domain/pipeline-report/pipeline/Pipeline.js';
- import { Job } from '../../../../../domain/pipeline-report/job/Job.js';
- import { ArtifactTree } from '../../../../../domain/pipeline-report/artifact/ArtifactTree.js';
-@@ -76,6 +77,10 @@ function createParams(
-     [5001, { kind: 'cached', zipPath: '/tmp/cache/5001.zip', bytes: 1024 }],
-     [5002, { kind: 'no-artifacts' }],
-   ]);
-+  const fakeArchiveReader: ArtifactArchiveReader = {
-+    listEntries: vi.fn().mockResolvedValue([]),
-+    readFile: vi.fn().mockResolvedValue({ data: Buffer.from(''), truncated: false }),
-+  };
-   return {
-     userId: 'test-user',
-     projectId: 42,
-@@ -94,6 +99,7 @@ function createParams(
-     resultFilePath: '/tmp/result.md',
-     projectDir: '/workspace/project',
-     artifactCacheStatuses,
-+    archiveReader: fakeArchiveReader,
-     mergedYaml: 'stages:\n  - build\n  - test\n',
-     maxCompletenessRetries: 2,
-     skipCompletenessCheck: false,
-@@ -192,6 +198,14 @@ describe('MastraPipelineAnalysisWorkflowRunner', () => {
-     const cachePaths = ctx.get('artifactCachePaths') as Map<number, string | null>;
-     expect(cachePaths.get(5001)).toBe('/tmp/cache/5001.zip');
-     expect(cachePaths.get(5002)).toBeNull();
-+    // artifactArchiveReader がRequestContextに注入されていること
-+    expect(ctx.get('artifactArchiveReader')).toBeDefined();
-+    expect(typeof (ctx.get('artifactArchiveReader') as ArtifactArchiveReader).listEntries).toBe(
-+      'function',
-+    );
-+    expect(typeof (ctx.get('artifactArchiveReader') as ArtifactArchiveReader).readFile).toBe(
-+      'function',
-+    );
-     expect(ctx.get('hasImages')).toBe(false);
-     expect(ctx.get('pendingImages')).toEqual([]);
-     expect(ctx.get('workspaceAvailable')).toBe(true);
+@@ -106,6 +106,7 @@ export class MastraPipelineAnalysisWorkflowRunner implements PipelineAnalysisWor
+         artifactCacheStatuses,
+         folderTree: params.folderTree,
+         folderTreeStripped: params.folderTreeStripped,
++        mergedYaml: params.mergedYaml,
+       });
+ 
+       // workflow inputSchema に対応する inputData
 diff --git a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
-index 7f67e93..d675247 100644
+index d675247..8f79b61 100644
 --- a/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
 +++ b/src/mastra/pipeline-report/agents/__tests__/pipelineAnalysisAgent.test.ts
-@@ -44,6 +44,10 @@ function createTestContextObject(
-     folderTreeStripped: false,
-     omittedJobLogs: new Map<number, string>(),
-     artifactCachePaths: new Map<number, string | null>(),
-+    artifactArchiveReader: overrides.artifactArchiveReader ?? {
-+      listEntries: async () => [],
-+      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
-+    },
-     hasImages: false,
-     pendingImages: [],
-     reportLockTimeoutMs: undefined,
-diff --git a/src/mastra/pipeline-report/requestContext.ts b/src/mastra/pipeline-report/requestContext.ts
-index 280302e..16eca4e 100644
---- a/src/mastra/pipeline-report/requestContext.ts
-+++ b/src/mastra/pipeline-report/requestContext.ts
-@@ -1,5 +1,6 @@
- import type { WorkflowRequestContext } from '../shared/requestContext.js';
- import type { PendingImageData } from '../shared/readImageCommon.js';
-+import type { ArtifactArchiveReader } from '../../application/pipeline-report/pipelineAnalysis/ArtifactArchiveReader.js';
- import type { TargetJobSummary } from './types.js';
+@@ -440,18 +440,17 @@ describe('buildInstructions', () => {
+     expect(result).not.toContain('CI/CD Job Definitions');
+   });
  
+-  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションが YAML コードブロック付きで含まれる', () => {
++  it('mergedYaml が指定されても、system プロンプトには CI/CD Job Definitions セクションが含まれない（user プロンプト側で提供）', () => {
+     const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
+     const ctx = createTestRequestContext({ mergedYaml: yaml });
+ 
+     const result = buildInstructions(ctx);
+ 
+-    expect(result).toContain('CI/CD Job Definitions');
+-    expect(result).toContain(yaml);
+-    expect(result).toContain('```yaml');
++    expect(result).not.toContain('CI/CD Job Definitions');
++    expect(result).not.toContain('```yaml');
+   });
+ 
+-  it('mergedYaml が指定された場合、Role Definition に job definitions が含まれる', () => {
++  it('mergedYaml が指定された場合でも、Role Definition に job definitions への言及が含まれる', () => {
+     const ctx = createTestRequestContext({ mergedYaml: 'stages:\n  - build\n' });
+ 
+     const result = buildInstructions(ctx);
+@@ -459,19 +458,6 @@ describe('buildInstructions', () => {
+     expect(result).toMatch(/CI\/CD job definitions/i);
+   });
+ 
+-  it('mergedYaml が指定された場合、CI/CD Job Definitions セクションは Target Jobs の後、Reasoning Framework の前に配置される', () => {
+-    const ctx = createTestRequestContext({ mergedYaml: 'stages:\n  - build\n' });
+-
+-    const result = buildInstructions(ctx);
+-
+-    const targetJobsIdx = result.indexOf('Target Jobs');
+-    const jobDefsIdx = result.indexOf('CI/CD Job Definitions');
+-    const reactIdx = result.indexOf('Reasoning Framework');
+-    expect(targetJobsIdx).toBeGreaterThanOrEqual(0);
+-    expect(jobDefsIdx).toBeGreaterThan(targetJobsIdx);
+-    expect(jobDefsIdx).toBeLessThan(reactIdx);
+-  });
+-
+   it('folderTreeStripped=true かつ workspaceAvailable=false の場合、workspace tools への言及は含まれない', () => {
+     const ctx = createTestRequestContext({
+       folderTreeStripped: true,
+@@ -539,6 +525,59 @@ describe('buildUserPrompt', () => {
+   });
+ });
+ 
++describe('buildUserPrompt - mergedYaml', () => {
++  it('mergedYaml が指定された場合、user プロンプトに CI/CD Job Definitions セクションが含まれる', () => {
++    const yaml = 'stages:\n  - build\n  - test\njob1:\n  script: echo hello\n';
++    const ctx = createTestRequestContext({ mergedYaml: yaml });
++    const pipeline = Pipeline.of({
++      projectId: 1,
++      pipelineId: 2,
++      ref: 'main',
++      sha: 'abc123',
++      status: 'success',
++      webUrl: 'https://example.com/p/1/pipelines/2',
++      createdAt: new Date('2026-04-11T09:00:00Z'),
++      updatedAt: new Date('2026-04-11T09:05:00Z'),
++    });
++
++    const result = buildUserPrompt(ctx, {
++      pipeline,
++      targetJobs: [],
++      jobLogs: new Map(),
++      artifactTrees: [],
++      artifactCacheStatuses: new Map(),
++    });
++
++    expect(result).toContain('CI/CD Job Definitions');
++    expect(result).toContain(yaml);
++    expect(result).toContain('```yaml');
++  });
++
++  it('mergedYaml=null の場合、user プロンプトに CI/CD Job Definitions セクションが含まれない', () => {
++    const ctx = createTestRequestContext({ mergedYaml: null });
++    const pipeline = Pipeline.of({
++      projectId: 1,
++      pipelineId: 2,
++      ref: 'main',
++      sha: 'abc123',
++      status: 'success',
++      webUrl: 'https://example.com/p/1/pipelines/2',
++      createdAt: new Date('2026-04-11T09:00:00Z'),
++      updatedAt: new Date('2026-04-11T09:05:00Z'),
++    });
++
++    const result = buildUserPrompt(ctx, {
++      pipeline,
++      targetJobs: [],
++      jobLogs: new Map(),
++      artifactTrees: [],
++      artifactCacheStatuses: new Map(),
++    });
++
++    expect(result).not.toContain('CI/CD Job Definitions');
++  });
++});
++
+ describe('createToolset', () => {
+   it('最小構成では4つのベースツール（write/patch/get/getArtifact）を返す', () => {
+     const ctx = createTestContextObject({
+diff --git a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
+index 764538e..974baea 100644
+--- a/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
++++ b/src/mastra/pipeline-report/agents/pipelineAnalysisAgent.ts
+@@ -83,25 +83,6 @@ ${additional}
+ `;
+ }
+ 
+-/**
+- * CI/CD Job Definitions セクションを組み立てる。
+- * mergedYaml が null の場合は空文字列を返し、非 null の場合はコードブロックで提示する。
+- */
+-function renderJobDefinitionsSection(mergedYaml: string | null): string {
+-  if (mergedYaml === null) {
+-    return '';
+-  }
+-  return `## CI/CD Job Definitions (merged YAML)
+-
+-The following is the fully resolved CI/CD configuration. Use it to understand what each job is configured to do.
+-
+-\`\`\`yaml
+-${mergedYaml}
+-\`\`\`
+-
+-`;
+-}
+-
  /**
-@@ -26,6 +27,8 @@ export interface PipelineAnalysisAgentRequestContext extends WorkflowRequestCont
-   omittedJobLogs: Map<number, string>;
-   /** ダウンロード済みアーティファクトzipのキャッシュパス（jobId → zipパス or null） */
-   artifactCachePaths: Map<number, string | null>;
-+  /** アーティファクトzipアーカイブの読み取り実装（getArtifactContentツールが使用） */
-+  artifactArchiveReader: ArtifactArchiveReader;
-   /** 画像アーティファクトが1つ以上参照可能かどうか */
-   hasImages: boolean;
-   /** 画像取得Tool経由で蓄積された画像データ（review機能と同形式のPendingImageData配列） */
-diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
-index 93824b5..3254f4a 100644
---- a/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
-+++ b/src/mastra/pipeline-report/workflows/steps/__tests__/contextLengthRecovery.test.ts
-@@ -118,6 +118,10 @@ function createTestRequestContext(
-     folderTreeStripped: false,
-     omittedJobLogs: new Map(),
-     artifactCachePaths: new Map(),
-+    artifactArchiveReader: {
-+      listEntries: async () => [],
-+      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
-+    },
-     hasImages: false,
-     pendingImages: [],
-     reportLockTimeoutMs: undefined,
-diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
-index e64dc49..328da40 100644
---- a/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
-+++ b/src/mastra/pipeline-report/workflows/steps/__tests__/executeAnalysisStep.test.ts
-@@ -49,6 +49,10 @@ function createTestRequestContext(
-     folderTreeStripped: false,
-     omittedJobLogs: new Map(),
-     artifactCachePaths: new Map(),
-+    artifactArchiveReader: {
-+      listEntries: async () => [],
-+      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
-+    },
-     hasImages: false,
-     pendingImages: [],
-     reportLockTimeoutMs: undefined,
-diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
-index fb89308..99dfead 100644
---- a/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
-+++ b/src/mastra/pipeline-report/workflows/steps/__tests__/verifyCompletenessStep.test.ts
-@@ -44,6 +44,10 @@ function createTestRequestContext(
-     folderTreeStripped: false,
-     omittedJobLogs: new Map(),
-     artifactCachePaths: new Map(),
-+    artifactArchiveReader: {
-+      listEntries: async () => [],
-+      readFile: async () => ({ data: Buffer.from(''), truncated: false }),
-+    },
-     hasImages: false,
-     pendingImages: [],
-     reportLockTimeoutMs: undefined,
+  * Tool Catalog セクションを組み立てる
+  * 常時登録ツールに加え、omittedJobLogs / hasImages の状況に応じて説明を追加する
+@@ -239,7 +220,6 @@ export function buildInstructions(
+   const targetJobsTable = renderTargetJobsTable(ctx.targetJobs);
+   const stageOrder = deriveStageOrder(ctx.targetJobs);
+   const additionalSection = renderAdditionalInstructionsSection(ctx.additionalInstructions);
+-  const jobDefinitionsSection = renderJobDefinitionsSection(ctx.mergedYaml);
+   const toolCatalog = renderToolCatalog(ctx);
+   const compressionNotes = renderCompressionNotes(ctx);
+ 
+@@ -285,7 +265,7 @@ You must produce a block for every job in the following table:
+ 
+ ${targetJobsTable}
+ 
+-${jobDefinitionsSection}## Reasoning Framework (ReAct)
++## Reasoning Framework (ReAct)
+ 
+ For each target job, apply the Reason-Act-Observe cycle until you can confidently write its block:
+ 
+@@ -356,6 +336,7 @@ export function buildUserPrompt(
+     artifactCacheStatuses: inputs.artifactCacheStatuses,
+     folderTree: ctx.folderTree,
+     folderTreeStripped: ctx.folderTreeStripped,
++    mergedYaml: ctx.mergedYaml,
+   };
+   return buildPipelineUserPrompt(params);
+ }
+@@ -409,9 +390,16 @@ export function createWorkspaceFromContext(ctx: PipelineAnalysisAgentRequestCont
+     filesystem: new LocalFilesystem({
+       basePath: ctx.projectDir,
+       readOnly: true,
++      // Mastraデフォルトの "File access is restricted to this directory." は
++      // エージェントにフォルダツリー探索不可と誤解させる恐れがあるため、
++      // コードベースの所在と相対パス利用を明示したinstructionsに置き換える
++      instructions: `The project codebase is located at "${ctx.projectDir}". The folder tree provided in the user message reflects the contents of this directory. Use relative paths (e.g. "src/index.ts") to access files.`,
+     }),
+     sandbox: new LocalSandbox({
+       workingDirectory: ctx.projectDir,
++      // Mastraデフォルトと同等だが、明示的に指定することで
++      // 将来のMastraバージョン変更による意図しない変更を防ぐ
++      instructions: `Local command execution. Working directory: "${ctx.projectDir}".`,
+     }),
+     skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
+     tools: WORKSPACE_TOOLS_CONFIG,
+diff --git a/src/mastra/review/agents/reviewAgent.ts b/src/mastra/review/agents/reviewAgent.ts
+index 816f882..104247d 100644
+--- a/src/mastra/review/agents/reviewAgent.ts
++++ b/src/mastra/review/agents/reviewAgent.ts
+@@ -225,9 +225,16 @@ export function createWorkspaceFromContext(ctx: ReviewAgentRequestContext): Work
+     filesystem: new LocalFilesystem({
+       basePath: ctx.projectDir,
+       readOnly: true,
++      // Mastraデフォルトの "File access is restricted to this directory." は
++      // エージェントにフォルダツリー探索不可と誤解させる恐れがあるため、
++      // コードベースの所在と相対パス利用を明示したinstructionsに置き換える
++      instructions: `The project codebase is located at "${ctx.projectDir}". The folder tree provided in the user message reflects the contents of this directory. Use relative paths (e.g. "src/index.ts") to access files.`,
+     }),
+     sandbox: new LocalSandbox({
+       workingDirectory: ctx.projectDir,
++      // Mastraデフォルトと同等だが、明示的に指定することで
++      // 将来のMastraバージョン変更による意図しない変更を防ぐ
++      instructions: `Local command execution. Working directory: "${ctx.projectDir}".`,
+     }),
+     skills: ctx.skillsPaths.length > 0 ? ctx.skillsPaths : undefined,
+     tools: WORKSPACE_TOOLS_CONFIG,
