@@ -130,6 +130,9 @@ describe('LocalGitDiffMrGateway', () => {
           diff: 'api-diff-should-be-replaced',
           commitHash: repo.headCommitHash,
           commitMessage: 'add new file',
+          baseSha: repo.baseCommitHash,
+          headSha: repo.headCommitHash,
+          startSha: repo.baseCommitHash,
         });
         mockFallbackGateway.getMrContext.mockResolvedValueOnce(apiMrContext);
 
@@ -167,6 +170,9 @@ describe('LocalGitDiffMrGateway', () => {
         diff: 'api-diff-original',
         commitHash: 'abc123',
         commitMessage: 'add new file',
+        baseSha: 'base-sha',
+        headSha: 'head-sha',
+        startSha: 'start-sha',
       });
       mockFallbackGateway.getMrContext.mockResolvedValueOnce(apiMrContext);
 
@@ -206,6 +212,9 @@ describe('LocalGitDiffMrGateway', () => {
         diff: 'api-diff-original',
         commitHash: 'abc123',
         commitMessage: 'add new file',
+        baseSha: 'base-sha',
+        headSha: 'head-sha',
+        startSha: 'start-sha',
       });
       mockFallbackGateway.getMrContext.mockResolvedValueOnce(apiMrContext);
 
@@ -231,6 +240,9 @@ describe('LocalGitDiffMrGateway', () => {
           diff: 'api-diff',
           commitHash: repo.headCommitHash,
           commitMessage: 'original commit message',
+          baseSha: repo.baseCommitHash,
+          headSha: repo.headCommitHash,
+          startSha: repo.baseCommitHash,
         });
         mockFallbackGateway.getMrContext.mockResolvedValueOnce(apiMrContext);
 

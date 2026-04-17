@@ -13,6 +13,7 @@ describe('ReviewSettings', () => {
       commentFormat: '{comment}',
       ratings,
       hiddenRatingLabels: ['A'],
+      suggestEnabledRatingLabels: ['B'],
       qualityGate,
     });
     expect(settings.additionalInstructions).toBe('追加指示');
@@ -20,6 +21,7 @@ describe('ReviewSettings', () => {
     expect(settings.commentFormat).toBe('{comment}');
     expect(settings.ratings).toEqual(ratings);
     expect(settings.hiddenRatingLabels).toEqual(['A']);
+    expect(settings.suggestEnabledRatingLabels).toEqual(['B']);
     expect(settings.qualityGate).toBe(qualityGate);
   });
 
@@ -30,6 +32,7 @@ describe('ReviewSettings', () => {
       commentFormat: '{comment}',
       ratings: [new Rating('A', 'def')],
       hiddenRatingLabels: [],
+      suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
     });
     expect(settings.concurrentReviewCount).toBeNull();
@@ -56,6 +59,7 @@ describe('ReviewSettings', () => {
           commentFormat: '{comment}',
           ratings: [new Rating('A', 'def')],
           hiddenRatingLabels: [],
+          suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
         }),
     ).toThrow();
@@ -67,6 +71,7 @@ describe('ReviewSettings', () => {
           commentFormat: '{comment}',
           ratings: [new Rating('A', 'def')],
           hiddenRatingLabels: [],
+          suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
         }),
     ).toThrow();
@@ -81,6 +86,7 @@ describe('ReviewSettings', () => {
           commentFormat: '{comment}',
           ratings: [],
           hiddenRatingLabels: [],
+          suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
         }),
     ).toThrow();
@@ -93,6 +99,7 @@ describe('ReviewSettings', () => {
       commentFormat: '{comment}',
       ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
       hiddenRatingLabels: [],
+      suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
     });
     expect(settings.hiddenRatingLabels).toEqual([]);
@@ -105,6 +112,7 @@ describe('ReviewSettings', () => {
       commentFormat: '{comment}',
       ratings: [new Rating('A', 'def'), new Rating('B', 'def2'), new Rating('C', 'def3')],
       hiddenRatingLabels: ['A', 'B'],
+      suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
     });
     expect(settings.hiddenRatingLabels).toEqual(['A', 'B']);
@@ -119,6 +127,7 @@ describe('ReviewSettings', () => {
           commentFormat: '{comment}',
           ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
           hiddenRatingLabels: ['X'],
+          suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
         }),
     ).toThrow();
@@ -132,6 +141,7 @@ describe('ReviewSettings', () => {
       commentFormat: '{comment}',
       ratings: [new Rating('A', 'def'), new Rating('B', 'def2'), new Rating('C', 'def3')],
       hiddenRatingLabels: [],
+      suggestEnabledRatingLabels: [],
       qualityGate,
     });
     expect(settings.qualityGate.failureCriteria).toHaveLength(1);
@@ -146,8 +156,57 @@ describe('ReviewSettings', () => {
           commentFormat: '{comment}',
           ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
           hiddenRatingLabels: [],
+          suggestEnabledRatingLabels: [],
           qualityGate: new QualityGate([{ ratingLabel: 'X', threshold: 1 }]),
         }),
     ).toThrow();
+  });
+
+  describe('suggestEnabledRatingLabels', () => {
+    it('デフォルト値は["C"]である', () => {
+      const settings = ReviewSettings.default();
+      expect(settings.suggestEnabledRatingLabels).toEqual(['C']);
+    });
+
+    it('ratingsに存在するラベルを指定して生成できる', () => {
+      const settings = new ReviewSettings({
+        additionalInstructions: '',
+        concurrentReviewCount: null,
+        commentFormat: '{comment}',
+        ratings: [new Rating('A', 'def'), new Rating('B', 'def2'), new Rating('C', 'def3')],
+        hiddenRatingLabels: [],
+        suggestEnabledRatingLabels: ['B', 'C'],
+        qualityGate: QualityGate.none(),
+      });
+      expect(settings.suggestEnabledRatingLabels).toEqual(['B', 'C']);
+    });
+
+    it('空配列の場合は正常に生成できる（suggest無効）', () => {
+      const settings = new ReviewSettings({
+        additionalInstructions: '',
+        concurrentReviewCount: null,
+        commentFormat: '{comment}',
+        ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
+        hiddenRatingLabels: [],
+        suggestEnabledRatingLabels: [],
+        qualityGate: QualityGate.none(),
+      });
+      expect(settings.suggestEnabledRatingLabels).toEqual([]);
+    });
+
+    it('ratingsに存在しないラベルがある場合エラーになる', () => {
+      expect(
+        () =>
+          new ReviewSettings({
+            additionalInstructions: '',
+            concurrentReviewCount: null,
+            commentFormat: '{comment}',
+            ratings: [new Rating('A', 'def'), new Rating('B', 'def2')],
+            hiddenRatingLabels: [],
+            suggestEnabledRatingLabels: ['X'],
+            qualityGate: QualityGate.none(),
+          }),
+      ).toThrow('suggestEnabledRatingLabels contains unknown label: X');
+    });
   });
 });

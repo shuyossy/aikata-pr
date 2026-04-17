@@ -30,6 +30,9 @@ function createMrContext(
     diff: 'diff content',
     commitHash: 'current-commit-hash',
     commitMessage: 'feat: test commit message',
+    baseSha: 'base-sha',
+    headSha: 'head-sha',
+    startSha: 'start-sha',
     ...overrides,
   });
 }
@@ -52,6 +55,7 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
         new Rating('C', '満たしていない'),
       ],
       hiddenRatingLabels: [],
+      suggestEnabledRatingLabels: ['C'],
       qualityGate: QualityGate.none(),
     }),
     skillsPaths: [],

@@ -88,6 +88,9 @@ export class GitLabMrGateway implements MrGateway {
       diff,
       commitHash: mrInfo.sha,
       commitMessage,
+      baseSha: mrInfo.diff_refs.base_sha,
+      headSha: mrInfo.diff_refs.head_sha,
+      startSha: mrInfo.diff_refs.start_sha,
     });
   }
 

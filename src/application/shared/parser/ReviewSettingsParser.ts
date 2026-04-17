@@ -20,6 +20,7 @@ const reviewSettingsSchema = z.object({
     .min(1)
     .optional(),
   hiddenRatingLabels: z.array(z.string().min(1)).optional(),
+  suggestEnabledRatingLabels: z.array(z.string().min(1)).optional(),
   qualityGate: z
     .object({
       failureCriteria: z.array(
@@ -77,6 +78,8 @@ export class ReviewSettingsParser {
         ? data.ratings.map((r) => new Rating(r.label, r.definition))
         : defaults.ratings,
       hiddenRatingLabels: data.hiddenRatingLabels ?? [],
+      suggestEnabledRatingLabels:
+        data.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
       qualityGate,
     });
   }

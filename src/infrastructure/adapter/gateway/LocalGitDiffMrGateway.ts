@@ -55,6 +55,9 @@ export class LocalGitDiffMrGateway implements MrGateway {
         diff: localDiff,
         commitHash: mrContext.commitHash,
         commitMessage: mrContext.commitMessage,
+        baseSha: mrContext.baseSha,
+        headSha: mrContext.headSha,
+        startSha: mrContext.startSha,
       });
     }
 
@@ -76,6 +79,9 @@ export class LocalGitDiffMrGateway implements MrGateway {
         diff: apiDiff,
         commitHash: mrContext.commitHash,
         commitMessage: mrContext.commitMessage,
+        baseSha: mrContext.baseSha,
+        headSha: mrContext.headSha,
+        startSha: mrContext.startSha,
       });
     } catch (apiError) {
       throw new Error(

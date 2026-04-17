@@ -146,6 +146,7 @@ describe('buildReviewSettings', () => {
         { label: 'B', definition: 'OK' },
       ],
       hiddenRatingLabels: ['A'],
+      suggestEnabledRatingLabels: ['B'],
       qualityGate: {
         failureCriteria: [{ ratingLabel: 'B', threshold: 3 }],
       },
@@ -157,6 +158,7 @@ describe('buildReviewSettings', () => {
     expect(settings.ratings).toHaveLength(2);
     expect(settings.ratings[0].label).toBe('A');
     expect(settings.hiddenRatingLabels).toEqual(['A']);
+    expect(settings.suggestEnabledRatingLabels).toEqual(['B']);
     expect(settings.qualityGate.failureCriteria).toHaveLength(1);
     expect(settings.qualityGate.failureCriteria[0].ratingLabel).toBe('B');
   });

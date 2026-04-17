@@ -12,6 +12,7 @@ describe('ReviewSettingsParser', () => {
         { label: 'A', definition: '完全に満たしている' },
         { label: 'B', definition: '概ね満たしている' },
       ],
+      suggestEnabledRatingLabels: ['B'],
     });
 
     const settings = ReviewSettingsParser.parse(json);
@@ -24,6 +25,7 @@ describe('ReviewSettingsParser', () => {
     expect(settings.ratings[0].definition).toBe('完全に満たしている');
     expect(settings.ratings[1].label).toBe('B');
     expect(settings.ratings[1].definition).toBe('概ね満たしている');
+    expect(settings.suggestEnabledRatingLabels).toEqual(['B']);
   });
 
   it('部分指定の場合はデフォルト値が適用される', () => {

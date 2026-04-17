@@ -180,6 +180,7 @@ function createValidRequestBody() {
         { label: 'B', definition: 'Needs improvement' },
       ],
       hiddenRatingLabels: [],
+      suggestEnabledRatingLabels: [],
     },
   };
 }

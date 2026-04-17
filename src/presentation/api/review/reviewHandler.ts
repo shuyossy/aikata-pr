@@ -46,6 +46,7 @@ export const reviewRequestSchema = z.object({
         .min(1)
         .optional(),
       hiddenRatingLabels: z.array(z.string()).optional(),
+      suggestEnabledRatingLabels: z.array(z.string()).optional(),
       qualityGate: z
         .object({
           failureCriteria: z
@@ -387,6 +388,8 @@ export function buildReviewSettings(settings: ReviewRequest['reviewSettings']): 
     commentFormat: settings.commentFormat ?? defaults.commentFormat,
     ratings,
     hiddenRatingLabels: settings.hiddenRatingLabels ?? [],
+    suggestEnabledRatingLabels:
+      settings.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
     qualityGate,
   });
 }

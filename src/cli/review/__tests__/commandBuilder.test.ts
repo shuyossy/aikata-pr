@@ -47,6 +47,7 @@ function createReviewSettings(
     commentFormat: string;
     ratings: Rating[];
     hiddenRatingLabels: string[];
+    suggestEnabledRatingLabels: string[];
     qualityGate: QualityGate;
   }>,
 ): ReviewSettings {
@@ -60,6 +61,7 @@ function createReviewSettings(
       new Rating('C', '満たしていない'),
     ],
     hiddenRatingLabels: overrides?.hiddenRatingLabels ?? ['A'],
+    suggestEnabledRatingLabels: overrides?.suggestEnabledRatingLabels ?? ['C'],
     qualityGate: overrides?.qualityGate ?? new QualityGate([{ ratingLabel: 'C', threshold: 2 }]),
   });
 }

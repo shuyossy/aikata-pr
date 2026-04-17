@@ -10,6 +10,9 @@ interface MrContextParams {
   diff: string;
   commitHash: string;
   commitMessage: string;
+  baseSha: string;
+  headSha: string;
+  startSha: string;
 }
 
 export class MrContext {
@@ -20,6 +23,9 @@ export class MrContext {
   readonly diff: string;
   readonly commitHash: string;
   readonly commitMessage: string;
+  readonly baseSha: string;
+  readonly headSha: string;
+  readonly startSha: string;
 
   constructor(params: MrContextParams) {
     this.title = params.title;
@@ -29,5 +35,8 @@ export class MrContext {
     this.diff = params.diff;
     this.commitHash = params.commitHash;
     this.commitMessage = params.commitMessage;
+    this.baseSha = params.baseSha;
+    this.headSha = params.headSha;
+    this.startSha = params.startSha;
   }
 }
