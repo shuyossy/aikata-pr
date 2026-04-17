@@ -23,6 +23,7 @@ export class SuggestCommentFormatter {
       filePath: resolved.suggestion.filePath,
       originalCode: resolved.suggestion.originalCode,
       suggestedCode: resolved.suggestion.suggestedCode,
+      comment: resolved.suggestion.comment,
     })}${SUGGEST_DATA_SUFFIX}`;
 
     const header = `**チェック項目:** ${resolved.suggestion.checkItemContent}`;

@@ -106,6 +106,7 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
         filePath: suggestData.filePath,
         originalCode: suggestData.originalCode,
         suggestedCode: suggestData.suggestedCode,
+        comment: suggestData.comment,
         hasChangedSinceNote,
       });
     }

@@ -58,6 +58,7 @@ describe('SuggestCommentFormatter', () => {
         filePath: 'src/app.ts',
         originalCode: 'console.log(error)',
         suggestedCode: 'return result',
+        comment: 'メタデータ検証用コメント',
       });
       const output = SuggestCommentFormatter.format(resolved);
 
@@ -75,6 +76,7 @@ describe('SuggestCommentFormatter', () => {
       expect(metadata.filePath).toBe('src/app.ts');
       expect(metadata.originalCode).toBe('console.log(error)');
       expect(metadata.suggestedCode).toBe('return result');
+      expect(metadata.comment).toBe('メタデータ検証用コメント');
     });
 
     it('出力にチェック項目ヘッダーが含まれる', () => {
@@ -113,6 +115,7 @@ describe('SuggestCommentFormatter', () => {
         filePath: 'src/roundtrip.ts',
         originalCode: 'const x = 0;',
         suggestedCode: 'const x = 1;',
+        comment: 'ラウンドトリップ用コメント',
       });
       const output = SuggestCommentFormatter.format(resolved);
       const parsed = SuggestCommentParser.parse(output);
@@ -122,6 +125,7 @@ describe('SuggestCommentFormatter', () => {
       expect(parsed!.filePath).toBe('src/roundtrip.ts');
       expect(parsed!.originalCode).toBe('const x = 0;');
       expect(parsed!.suggestedCode).toBe('const x = 1;');
+      expect(parsed!.comment).toBe('ラウンドトリップ用コメント');
     });
   });
 });

@@ -514,7 +514,7 @@ export class ReviewExecutionService {
     suggestDiscussions: SuggestDiscussion[],
   ): SuggestContext {
     // suggest無効の場合
-    if (command.suggestEnabledRatingLabels.length === 0) {
+    if (!command.reviewSettings.isSuggestEnabled()) {
       return {
         activeSuggests: null,
         suggestsToResolveIds: suggestDiscussions.map((s) => s.discussionId),
@@ -540,7 +540,7 @@ export class ReviewExecutionService {
         filePath: s.filePath,
         originalCode: s.originalCode,
         suggestedCode: s.suggestedCode,
-        comment: '', // SuggestDiscussionにはcommentフィールドがないため空文字
+        comment: s.comment,
       })),
       suggestsToResolveIds,
     };

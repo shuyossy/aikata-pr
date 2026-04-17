@@ -1,3 +1,6 @@
+/** GitLabのsuggestionが対応する最大行数 */
+export const MAX_ORIGINAL_CODE_LINES = 201;
+
 /**
  * 変更提案の値オブジェクト
  * チェック項目に紐づくコード修正提案を表す
@@ -38,12 +41,23 @@ export class Suggestion {
     if (params.comment.trim() === '') {
       throw new Error('comment must not be empty');
     }
+    const originalLines = params.originalCode.split('\n').length;
+    if (originalLines > MAX_ORIGINAL_CODE_LINES) {
+      throw new Error(
+        `originalCode must be ${MAX_ORIGINAL_CODE_LINES} lines or less, but got ${originalLines} lines`,
+      );
+    }
 
     this.checkItemContent = params.checkItemContent;
     this.filePath = params.filePath;
     this.originalCode = params.originalCode;
     this.suggestedCode = params.suggestedCode;
     this.comment = params.comment;
+  }
+
+  /** 同一filePath + 同一originalCodeによる重複判定 */
+  isDuplicate(other: Pick<Suggestion, 'filePath' | 'originalCode'>): boolean {
+    return this.filePath === other.filePath && this.originalCode === other.originalCode;
   }
 
   equals(other: Suggestion): boolean {

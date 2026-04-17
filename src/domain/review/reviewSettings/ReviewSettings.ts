@@ -74,6 +74,11 @@ export class ReviewSettings {
     this.qualityGate = params.qualityGate;
   }
 
+  /** suggestが有効かどうか判定する */
+  isSuggestEnabled(): boolean {
+    return this.suggestEnabledRatingLabels.length > 0;
+  }
+
   /** デフォルト値でReviewSettingsを生成する */
   static default(): ReviewSettings {
     return new ReviewSettings({

@@ -1381,6 +1381,7 @@ describe('ReviewExecutionService', () => {
           filePath: 'src/app.ts',
           originalCode: 'old code',
           suggestedCode: 'new code',
+          comment: 'コメント1',
           hasChangedSinceNote: true, // 変更済み → 除外
         },
         {
@@ -1389,6 +1390,7 @@ describe('ReviewExecutionService', () => {
           filePath: 'src/test.ts',
           originalCode: 'old test',
           suggestedCode: 'new test',
+          comment: 'コメント2',
           hasChangedSinceNote: false, // 未変更 → アクティブ
         },
       ];
@@ -1421,6 +1423,7 @@ describe('ReviewExecutionService', () => {
           filePath: 'src/app.ts',
           originalCode: 'old code',
           suggestedCode: 'new code',
+          comment: 'コメント',
           hasChangedSinceNote: false,
         },
       ];
@@ -1448,6 +1451,7 @@ describe('ReviewExecutionService', () => {
           filePath: 'src/app.ts',
           originalCode: 'old code',
           suggestedCode: 'new code',
+          comment: 'コメント1',
           hasChangedSinceNote: true, // 変更済み → resolve対象
         },
         {
@@ -1456,6 +1460,7 @@ describe('ReviewExecutionService', () => {
           filePath: 'src/test.ts',
           originalCode: 'old test',
           suggestedCode: 'new test',
+          comment: 'コメント2',
           hasChangedSinceNote: false, // 未変更かつチェックリストに含まれる → アクティブ
         },
         {
@@ -1464,6 +1469,7 @@ describe('ReviewExecutionService', () => {
           filePath: 'src/old.ts',
           originalCode: 'deleted code',
           suggestedCode: 'suggested code',
+          comment: 'コメント3',
           hasChangedSinceNote: false, // 未変更だがチェックリストに含まれない → resolve対象
         },
       ];
@@ -1532,7 +1538,22 @@ describe('ReviewExecutionService', () => {
     });
 
     it('suggestEnabledRatingLabelsが空配列の場合、activeSuggestsはnullになる', async () => {
-      const command = createCommand({ suggestEnabledRatingLabels: [] });
+      const command = createCommand({
+        suggestEnabledRatingLabels: [],
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: [
+            new Rating('A', '完全に満たしている'),
+            new Rating('B', '概ね満たしている'),
+            new Rating('C', '満たしていない'),
+          ],
+          hiddenRatingLabels: [],
+          suggestEnabledRatingLabels: [],
+          qualityGate: QualityGate.none(),
+        }),
+      });
       const mrContext = createMrContext();
       const workflowResult = createWorkflowResult();
 

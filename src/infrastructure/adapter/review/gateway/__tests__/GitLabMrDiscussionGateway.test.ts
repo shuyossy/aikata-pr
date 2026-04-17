@@ -227,6 +227,7 @@ describe('GitLabMrDiscussionGateway', () => {
           filePath: 'src/main.ts',
           originalCode: 'if (x) { ... }',
           suggestedCode: 'if (x != null) { ... }',
+          comment: '',
           hasChangedSinceNote: false,
         },
       ]);
@@ -410,6 +411,7 @@ describe('GitLabMrDiscussionGateway', () => {
         filePath: 'src/a.ts',
         originalCode: '',
         suggestedCode: 'code 1',
+        comment: '',
         hasChangedSinceNote: false,
       });
       expect(result[1]).toEqual({
@@ -418,6 +420,7 @@ describe('GitLabMrDiscussionGateway', () => {
         filePath: 'src/b.ts',
         originalCode: '',
         suggestedCode: 'code 2',
+        comment: '',
         hasChangedSinceNote: true,
       });
     });

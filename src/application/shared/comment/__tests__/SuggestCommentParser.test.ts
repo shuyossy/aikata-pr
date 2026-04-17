@@ -66,6 +66,7 @@ describe('SuggestCommentParser', () => {
         checkItemContent: '抽出テスト',
         filePath: 'src/extract.ts',
         suggestedCode: 'return 42',
+        comment: '抽出テスト用コメント',
       });
 
       const parsed = SuggestCommentParser.parse(body);
@@ -75,6 +76,7 @@ describe('SuggestCommentParser', () => {
       expect(parsed!.filePath).toBe('src/extract.ts');
       expect(parsed!.originalCode).toBe('original code');
       expect(parsed!.suggestedCode).toBe('return 42');
+      expect(parsed!.comment).toBe('抽出テスト用コメント');
     });
 
     it('suggestマーカーを含まない本文に対してnullを返す', () => {

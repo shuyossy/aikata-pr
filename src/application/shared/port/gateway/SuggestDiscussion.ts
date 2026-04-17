@@ -8,5 +8,6 @@ export interface SuggestDiscussion {
   filePath: string;
   originalCode: string;
   suggestedCode: string;
+  comment: string;
   hasChangedSinceNote: boolean;
 }

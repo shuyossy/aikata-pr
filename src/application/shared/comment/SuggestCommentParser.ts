@@ -16,6 +16,8 @@ export interface ParsedSuggestComment {
   originalCode: string;
   /** 提案コード */
   suggestedCode: string;
+  /** suggestに添えるコメント */
+  comment: string;
 }
 
 /**
@@ -53,6 +55,7 @@ export class SuggestCommentParser {
         filePath: data.filePath,
         originalCode: data.originalCode ?? '',
         suggestedCode: data.suggestedCode,
+        comment: data.comment ?? '',
       };
     } catch {
       return null;

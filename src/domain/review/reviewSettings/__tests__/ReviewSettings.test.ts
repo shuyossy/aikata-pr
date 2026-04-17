@@ -209,4 +209,24 @@ describe('ReviewSettings', () => {
       ).toThrow('suggestEnabledRatingLabels contains unknown label: X');
     });
   });
+
+  describe('isSuggestEnabled', () => {
+    it('suggestEnabledRatingLabelsが空でない場合はtrueを返す', () => {
+      const settings = ReviewSettings.default();
+      expect(settings.isSuggestEnabled()).toBe(true);
+    });
+
+    it('suggestEnabledRatingLabelsが空の場合はfalseを返す', () => {
+      const settings = new ReviewSettings({
+        additionalInstructions: '',
+        concurrentReviewCount: null,
+        commentFormat: '{comment}',
+        ratings: [new Rating('A', 'def')],
+        hiddenRatingLabels: [],
+        suggestEnabledRatingLabels: [],
+        qualityGate: QualityGate.none(),
+      });
+      expect(settings.isSuggestEnabled()).toBe(false);
+    });
+  });
 });

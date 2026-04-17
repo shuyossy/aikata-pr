@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Suggestion } from '../Suggestion.js';
+import { Suggestion, MAX_ORIGINAL_CODE_LINES } from '../Suggestion.js';
 
 describe('Suggestion', () => {
   const validParams = {
@@ -87,6 +87,49 @@ describe('Suggestion', () => {
     expect(() => new Suggestion({ ...validParams, comment: '   ' })).toThrow(
       'comment must not be empty',
     );
+  });
+
+  it(`originalCodeが${MAX_ORIGINAL_CODE_LINES}行の場合は正常に生成できる`, () => {
+    const code = Array.from({ length: MAX_ORIGINAL_CODE_LINES }, (_, i) => `line ${i + 1}`).join(
+      '\n',
+    );
+    const suggestion = new Suggestion({ ...validParams, originalCode: code });
+    expect(suggestion.originalCode).toBe(code);
+  });
+
+  it(`originalCodeが${MAX_ORIGINAL_CODE_LINES + 1}行の場合はエラーになる`, () => {
+    const code = Array.from(
+      { length: MAX_ORIGINAL_CODE_LINES + 1 },
+      (_, i) => `line ${i + 1}`,
+    ).join('\n');
+    expect(() => new Suggestion({ ...validParams, originalCode: code })).toThrow(
+      `originalCode must be ${MAX_ORIGINAL_CODE_LINES} lines or less, but got ${MAX_ORIGINAL_CODE_LINES + 1} lines`,
+    );
+  });
+
+  describe('isDuplicate', () => {
+    it('同一filePath + 同一originalCodeの場合はtrueを返す', () => {
+      const a = new Suggestion(validParams);
+      const b = new Suggestion({
+        ...validParams,
+        suggestedCode: '別のコード',
+        comment: '別のコメント',
+        checkItemContent: '別の項目',
+      });
+      expect(a.isDuplicate(b)).toBe(true);
+    });
+
+    it('filePathが異なる場合はfalseを返す', () => {
+      const a = new Suggestion(validParams);
+      const b = new Suggestion({ ...validParams, filePath: 'src/other.ts' });
+      expect(a.isDuplicate(b)).toBe(false);
+    });
+
+    it('originalCodeが異なる場合はfalseを返す', () => {
+      const a = new Suggestion(validParams);
+      const b = new Suggestion({ ...validParams, originalCode: 'const y = null;' });
+      expect(a.isDuplicate(b)).toBe(false);
+    });
   });
 
   describe('equals', () => {

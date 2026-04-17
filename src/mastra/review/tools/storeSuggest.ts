@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import { readStoredSuggestions, type StoredSuggestion } from '../suggestTypes.js';
 import type { IndexedCheckItem } from '../indexedCheckItem.js';
 import type { SuggestionLineResolver } from '../../../application/shared/port/suggestion/index.js';
+import { Suggestion, MAX_ORIGINAL_CODE_LINES } from '../../../domain/review/suggestion/index.js';
 
 // Atomics.waitによる同期スリープ用バッファ
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -35,9 +36,6 @@ function releaseLock(lockPath: string): void {
     /* ignore */
   }
 }
-
-/** GitLabのsuggestionが対応する最大行数 */
-const GITLAB_MAX_SUGGESTION_LINES = 201;
 
 /**
  * コード変更提案をJSONファイルに保存するMastra Tool
@@ -79,10 +77,10 @@ export const storeSuggestTool = createTool({
 
     // 2. originalCodeの行数がGitLabの上限を超えていないか検証する
     const originalLines = originalCode.split('\n').length;
-    if (originalLines > GITLAB_MAX_SUGGESTION_LINES) {
+    if (originalLines > MAX_ORIGINAL_CODE_LINES) {
       return {
         success: false,
-        message: `originalCode is ${originalLines} lines, but GitLab suggestions support a maximum of ${GITLAB_MAX_SUGGESTION_LINES} lines. Split into smaller suggestions.`,
+        message: `originalCode is ${originalLines} lines, but GitLab suggestions support a maximum of ${MAX_ORIGINAL_CODE_LINES} lines. Split into smaller suggestions.`,
       };
     }
 
@@ -105,7 +103,16 @@ export const storeSuggestTool = createTool({
       originalCode: string;
     }> | null;
 
-    if (activeSuggests?.some((s) => s.filePath === filePath && s.originalCode === originalCode)) {
+    // 入力からSuggestionドメインオブジェクトを生成して重複判定に使用
+    const currentSuggestion = new Suggestion({
+      checkItemContent: matchedItem.content,
+      filePath,
+      originalCode,
+      suggestedCode,
+      comment,
+    });
+
+    if (activeSuggests?.some((s) => currentSuggestion.isDuplicate(s))) {
       return {
         success: false,
         message:
@@ -121,9 +128,7 @@ export const storeSuggestTool = createTool({
       const storedSuggestions = readStoredSuggestions(suggestResultFilePath);
 
       // 5. 現在のセッションとの重複チェック
-      if (
-        storedSuggestions.some((s) => s.filePath === filePath && s.originalCode === originalCode)
-      ) {
+      if (storedSuggestions.some((s) => currentSuggestion.isDuplicate(s))) {
         return {
           success: false,
           message:
