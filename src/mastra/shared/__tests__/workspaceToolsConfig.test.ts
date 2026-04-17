@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { WORKSPACE_TOOLS_CONFIG } from '../workspaceToolsConfig.js';
 
 describe('WORKSPACE_TOOLS_CONFIG', () => {
-  it('read_file のトークン上限が4000に設定されている', () => {
-    expect(WORKSPACE_TOOLS_CONFIG.mastra_workspace_read_file?.maxOutputTokens).toBe(4000);
+  it('read_file のトークン上限が6000に設定されている', () => {
+    expect(WORKSPACE_TOOLS_CONFIG.mastra_workspace_read_file?.maxOutputTokens).toBe(6000);
   });
 
-  it('grep のトークン上限が3000に設定されている', () => {
-    expect(WORKSPACE_TOOLS_CONFIG.mastra_workspace_grep?.maxOutputTokens).toBe(3000);
+  it('grep のトークン上限が6000に設定されている', () => {
+    expect(WORKSPACE_TOOLS_CONFIG.mastra_workspace_grep?.maxOutputTokens).toBe(6000);
   });
 
   it('list_files のトークン上限が2000に設定されている', () => {
