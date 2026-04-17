@@ -1,28 +1,779 @@
-diff --git a/src/presentation/api/review/__tests__/reviewHandler.test.ts b/src/presentation/api/review/__tests__/reviewHandler.test.ts
-index bfa7288..bbb4dad 100644
---- a/src/presentation/api/review/__tests__/reviewHandler.test.ts
-+++ b/src/presentation/api/review/__tests__/reviewHandler.test.ts
-@@ -129,7 +129,8 @@ describe('buildReviewSettings', () => {
-     const settings = buildReviewSettings(undefined);
-     expect(settings.additionalInstructions).toBe('');
-     expect(settings.concurrentReviewCount).toBeNull();
--    expect(settings.commentFormat).toBe('{comment}');
-+    expect(settings.commentFormat).toContain('【評価理由・根拠】');
-+    expect(settings.commentFormat).toContain('【改善提案】');
-     expect(settings.ratings.length).toBeGreaterThan(0);
-     expect(settings.hiddenRatingLabels).toEqual([]);
-     expect(settings.qualityGate.failureCriteria.length).toBe(0);
-diff --git a/src/presentation/api/review/__tests__/reviewRoute.test.ts b/src/presentation/api/review/__tests__/reviewRoute.test.ts
-index 07c11a2..1590c8e 100644
---- a/src/presentation/api/review/__tests__/reviewRoute.test.ts
-+++ b/src/presentation/api/review/__tests__/reviewRoute.test.ts
-@@ -828,7 +828,8 @@ describe('reviewRoute', () => {
-       // デフォルト値が適用されること
-       expect(command.reviewSettings.additionalInstructions).toBe('');
-       expect(command.reviewSettings.concurrentReviewCount).toBeNull();
--      expect(command.reviewSettings.commentFormat).toBe('{comment}');
-+      expect(command.reviewSettings.commentFormat).toContain('【評価理由・根拠】');
-+      expect(command.reviewSettings.commentFormat).toContain('【改善提案】');
-       expect(command.reviewSettings.ratings.length).toBeGreaterThan(0);
-       expect(command.reviewSettings.ratings[0].label).toBe('A');
-       expect(command.reviewSettings.hiddenRatingLabels).toEqual([]);
+diff --git a/AGENTS.md b/AGENTS.md
+index 489ded6..6ef9ba5 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -111,6 +111,7 @@ node dist/index.js server                                       # APIサーバ
+ - 関数の引数は特別な理由がない限りオプショナルは避けること（バグの温床になるため）
+ - 新機能（AIレビュー以外のジョブ）を追加する場合は `docs/archtecture/feature-extension.md` を参照すること
+   - CLIはサブコマンド方式（`node dist/index.js <feature> [options]`）で動作するので、新機能のCLI実装は `src/cli/<feature>/` に配置し `CliFeatureModule` をエクスポートして `src/cli/dispatch.ts` の `defaultFeatures` に追加する
++- GitLabはv16を想定すること
+ 
+ # PBI
+ @PBI.md
+diff --git a/PBI.md b/PBI.md
+index 09e7d43..e35830a 100644
+--- a/PBI.md
++++ b/PBI.md
+@@ -11,7 +11,7 @@
+ 
+ # ID: 1
+ - PBI名: パイプライン分析レポート完成判定Agentの改良
+-- ステータス: done
++- ステータス: in progress
+ - 背景
+   - 現状は完成判定Agentは完成したかどうかを判定して、不合格の場合は分析Agentにフィードバックするのみである
+     - ジョブの分析結果が全て記載されている場合は、完成判定Agent自身が書き直すのが一番早いし効率的
+@@ -30,3 +30,6 @@
+     - 必要あれば従来の「追加指示」項目の変数名も変更する必要があるか
+ - 注意事項
+ - 指摘事項（in progressの場合のみ）
++  - 全てのjobが分析レポートに含まれているかチェックを廃止する（実際に現状でテストした結果、判定の精度が低いため）
++    - 最終的なレポートの書き換えのみ対応とする
++  - レポート書き換えの際、レポート以外の文言が併せて出力されない様にsystemプロンプトの最後に指示を記載しているが、それは絶対に守って欲しいので、MDの協調表現など使いながら、さらに強調するべき
+diff --git a/docs/archtecture/pipeline-report/overallflow_concept.md b/docs/archtecture/pipeline-report/overallflow_concept.md
+index f405836..892c5d2 100644
+--- a/docs/archtecture/pipeline-report/overallflow_concept.md
++++ b/docs/archtecture/pipeline-report/overallflow_concept.md
+@@ -89,18 +89,10 @@ pipelineAnalysisWorkflow
+  └─ reportFinalizationStep
+       ├─ fs.readFile(resultFilePath)
+       ├─ reportFinalizationJudgeAgent.generate(...)
+-      │    └─ JSON 出力: { hasMissingJobs, missingJobReasons[], finalizationNeeded, finalizationActions[] }
+-      ├─ hasMissingJobs === false かつ finalizationNeeded === false
++      │    └─ JSON 出力: { finalizationNeeded, finalizationActions[] }
++      ├─ finalizationNeeded === false
+       │    └─ workflow 完了 → { reportContent, completenessVerified: true, completenessRetries: N }
+-      ├─ hasMissingJobs === true
+-      │    ├─ completenessRetries < maxCompletenessRetries
+-      │    │    ├─ missingJobReasons をフィードバックプロンプトにまとめる
+-      │    │    ├─ 同一スレッドで pipelineAnalysisAgent.stream(feedback, ...) 再実行
+-      │    │    └─ 再度 reportFinalizationStep へ
+-      │    └─ completenessRetries >= maxCompletenessRetries
+-      │         └─ warning ログを出して workflow 完了
+-      │            → { reportContent, completenessVerified: false, completenessRetries: max }
+-      └─ hasMissingJobs === false かつ finalizationNeeded === true
++      └─ finalizationNeeded === true
+            ├─ reportRewriteAgent に現レポートと finalizationActions を渡して書き換え
+            └─ workflow 完了 → { reportContent, completenessVerified: true, completenessRetries: N }
+ ```
+diff --git a/docs/domain/pipeline-report/business_rule.md b/docs/domain/pipeline-report/business_rule.md
+index 95d5b44..119cdaa 100644
+--- a/docs/domain/pipeline-report/business_rule.md
++++ b/docs/domain/pipeline-report/business_rule.md
+@@ -70,25 +70,22 @@
+     - AI 総合評価ラベル（`問題なし` / `要注意` / `問題あり`）はデフォルト `jobReportFormat` のプレースホルダ hint 内に定義される。ユーザが `jobReportFormat` を差し替えればラベル自体を変更できる
+   - 結果(アクション)
+     - Agent は全体骨組みをそのまま採用し、ジョブブロックだけを `jobReportFormat` に従って生成する
+-    - `reportFinalizationJudgeAgent` は全対象ジョブのブロックが存在するか・レポートが全て埋まっているか・ジョブセクションの並び順が妥当かを判定する
++    - `reportFinalizationJudgeAgent` はジョブセクションの並び順が妥当か・ユーザの推敲指示が適用されているかを判定する
+     - 仕上げが必要な場合は `reportRewriteAgent` が書き換えを実行する
+   - 関連するユースケースorエンティティ: OVERALL_REPORT_TEMPLATE, PipelineReportSettings, pipelineAnalysisAgent, reportFinalizationJudgeAgent, reportRewriteAgent
+ 
+ - レポート最終仕上げルール
+   - 目的/背景
+-    - AI が途中で離脱したり、フォーマットを一部無視したまま完了を報告する事故を防ぎ、レポート品質を強制する
+-    - ジョブ欠落以外の仕上げ（ソート順修正・ユーザ指示に基づく書き換え等）は分析Agentにフィードバックせず、専用の書き換えAgentが直接対応することで効率化する
++    - レポートのソート順やユーザの推敲指示が正しく反映されているかを検証し、必要に応じて書き換えることでレポート品質を担保する
++    - 仕上げ（ソート順修正・ユーザ指示に基づく書き換え等）は専用の書き換えAgentが直接対応することで効率化する
+   - 条件
+     - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportFinalizationJudgeAgent` に (a) 全体骨組み / (b) `jobReportFormat` / (c) 対象ジョブ一覧 / (d) 現レポート内容 / (e) `reportRefinementInstructions` を渡して JSON 判定
+-    - Judge 出力スキーマ: `{ hasMissingJobs: boolean, missingJobReasons: string[], finalizationNeeded: boolean, finalizationActions: string[] }`
+-    - `hasMissingJobs=true` の場合: `missingJobReasons` をフィードバックとして同一スレッドの `pipelineAnalysisAgent` に投げ直して再実行し、再度 verify
+-    - `hasMissingJobs=false` かつ `finalizationNeeded=true` の場合: `reportRewriteAgent` に現レポート内容と `finalizationActions` を渡して書き換えを実行する。書き換え時は元の文言を正確にそのまま利用することを強調する
+-    - 再試行回数は `maxCompletenessRetries`（デフォルト 3）まで
++    - Judge 出力スキーマ: `{ finalizationNeeded: boolean, finalizationActions: string[] }`
++    - `finalizationNeeded=true` の場合: `reportRewriteAgent` に現レポート内容と `finalizationActions` を渡して書き換えを実行する。書き換え時は元の文言を正確にそのまま利用することを強調する
+   - 結果(アクション)
+-    - `hasMissingJobs=false` かつ `finalizationNeeded=false`: そのままレポート採用
+-    - `hasMissingJobs=false` かつ `finalizationNeeded=true`: `reportRewriteAgent` による書き換え後にレポート採用
+-    - 上限到達: warning ログを出力し、現状のレポートをそのまま返却（ジョブ自体は成功扱い）
+-  - 関連するユースケースorエンティティ: reportFinalizationStep, reportFinalizationJudgeAgent, reportRewriteAgent, pipelineAnalysisAgent
++    - `finalizationNeeded=false`: そのままレポート採用
++    - `finalizationNeeded=true`: `reportRewriteAgent` による書き換え後にレポート採用
++  - 関連するユースケースorエンティティ: reportFinalizationStep, reportFinalizationJudgeAgent, reportRewriteAgent
+ 
+ - コンテキスト長リカバリールール
+   - 目的/背景
+diff --git a/docs/domain/pipeline-report/glossary.md b/docs/domain/pipeline-report/glossary.md
+index 6a3b745..13dd011 100644
+--- a/docs/domain/pipeline-report/glossary.md
++++ b/docs/domain/pipeline-report/glossary.md
+@@ -19,11 +19,9 @@
+ - 省略マーカー (omission marker)
+   - 圧縮されたジョブログの中央に埋め込まれる `[aikata: N chars omitted from middle of job log. ...]` 形式の文字列。AI が `getJobLogDetail` ツールで省略部分を取り戻せることを示す
+ - レポート最終仕上げ判定 (report finalization judgement)
+-  - `reportFinalizationJudgeAgent` による、AI が生成したレポートが全対象ジョブを網羅しているか / フォーマット仕様に従っているか / ユーザの推敲指示に沿っているかの JSON 判定。出力は `{ hasMissingJobs, missingJobReasons, finalizationNeeded, finalizationActions }`
++  - `reportFinalizationJudgeAgent` による、AI が生成したレポートのソート順が妥当か / ユーザの推敲指示に沿っているかの JSON 判定。出力は `{ finalizationNeeded, finalizationActions }`
+ - レポート書き換え (report rewrite)
+-  - `reportRewriteAgent` による、ジョブ欠落以外の仕上げ（ソート順修正・ユーザの推敲指示に基づく書き換え等）の実行。元の文言を正確にそのまま利用して書き換える
+-- 最終仕上げループ (finalization retry loop)
+-  - ジョブ欠落（`hasMissingJobs=true`）の場合に `pipelineAnalysisAgent` へフィードバックを返して再実行するループ。仕上げのみ必要（`finalizationNeeded=true`）の場合は `reportRewriteAgent` が直接書き換える。上限は `PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES`（デフォルト 3）
++  - `reportRewriteAgent` による、ソート順修正・ユーザの推敲指示に基づく書き換え等の実行。元の文言を正確にそのまま利用して書き換える。`finalizationNeeded=true` の場合のみ実行される
+ - 全体骨組み (overall template)
+   - 固定レポート構造。`OVERALL_REPORT_TEMPLATE` 定数としてハードコードされており、ユーザはカスタマイズ不可
+ - ジョブレポートフォーマット (job report format)
+diff --git a/src/mastra/pipeline-report/agents/__tests__/reportFinalizationJudgeAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/reportFinalizationJudgeAgent.test.ts
+index c99803b..52ad66a 100644
+--- a/src/mastra/pipeline-report/agents/__tests__/reportFinalizationJudgeAgent.test.ts
++++ b/src/mastra/pipeline-report/agents/__tests__/reportFinalizationJudgeAgent.test.ts
+@@ -16,10 +16,6 @@ describe('REPORT_FINALIZATION_JUDGE_INSTRUCTIONS', () => {
+     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/JSON only/i);
+   });
+ 
+-  it('hasMissingJobs の出力フィールド説明が含まれる', () => {
+-    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('hasMissingJobs');
+-  });
+-
+   it('finalizationNeeded の出力フィールド説明が含まれる', () => {
+     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('finalizationNeeded');
+   });
+@@ -28,19 +24,10 @@ describe('REPORT_FINALIZATION_JUDGE_INSTRUCTIONS', () => {
+     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('finalizationActions');
+   });
+ 
+-  it('missingJobReasons の出力フィールド説明が含まれる', () => {
+-    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('missingJobReasons');
+-  });
+-
+   it('2つのuserメッセージで入力を受け取ることが明示される', () => {
+     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/two user messages/i);
+   });
+ 
+-  it('対象ジョブ網羅の判定ルールが含まれる', () => {
+-    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/target job/i);
+-    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/missing/i);
+-  });
+-
+   it('ジョブセクション順序に関する判定ルールが含まれる', () => {
+     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/order/i);
+     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/stage/i);
+@@ -56,38 +43,17 @@ describe('REPORT_FINALIZATION_JUDGE_INSTRUCTIONS', () => {
+ });
+ 
+ describe('reportFinalizationJudgementSchema', () => {
+-  it('hasMissingJobs=false, finalizationNeeded=false かつ配列が空の入力をパースできる', () => {
++  it('finalizationNeeded=false かつ配列が空の入力をパースできる', () => {
+     const parsed = reportFinalizationJudgementSchema.parse({
+-      hasMissingJobs: false,
+-      missingJobReasons: [],
+       finalizationNeeded: false,
+       finalizationActions: [],
+     });
+-    expect(parsed.hasMissingJobs).toBe(false);
+-    expect(parsed.missingJobReasons).toEqual([]);
+     expect(parsed.finalizationNeeded).toBe(false);
+     expect(parsed.finalizationActions).toEqual([]);
+   });
+ 
+-  it('hasMissingJobs=true かつ missingJobReasons に理由が含まれる入力をパースできる', () => {
+-    const parsed = reportFinalizationJudgementSchema.parse({
+-      hasMissingJobs: true,
+-      missingJobReasons: [
+-        "Job #101 'build' has no block in the report",
+-        "Job #102 'deploy' is missing from the report",
+-      ],
+-      finalizationNeeded: false,
+-      finalizationActions: [],
+-    });
+-    expect(parsed.hasMissingJobs).toBe(true);
+-    expect(parsed.missingJobReasons).toHaveLength(2);
+-    expect(parsed.missingJobReasons[0]).toContain('build');
+-  });
+-
+   it('finalizationNeeded=true かつ finalizationActions に理由が含まれる入力をパースできる', () => {
+     const parsed = reportFinalizationJudgementSchema.parse({
+-      hasMissingJobs: false,
+-      missingJobReasons: [],
+       finalizationNeeded: true,
+       finalizationActions: [
+         'Job sections are not ordered by assessment severity',
+@@ -98,19 +64,8 @@ describe('reportFinalizationJudgementSchema', () => {
+     expect(parsed.finalizationActions).toHaveLength(2);
+   });
+ 
+-  it('missingJobReasons が欠けている入力はパースに失敗する', () => {
+-    const result = reportFinalizationJudgementSchema.safeParse({
+-      hasMissingJobs: false,
+-      finalizationNeeded: false,
+-      finalizationActions: [],
+-    });
+-    expect(result.success).toBe(false);
+-  });
+-
+   it('finalizationActions が欠けている入力はパースに失敗する', () => {
+     const result = reportFinalizationJudgementSchema.safeParse({
+-      hasMissingJobs: false,
+-      missingJobReasons: [],
+       finalizationNeeded: false,
+     });
+     expect(result.success).toBe(false);
+@@ -118,8 +73,6 @@ describe('reportFinalizationJudgementSchema', () => {
+ 
+   it('各フィールドにdescribeが設定されている', () => {
+     const shape = reportFinalizationJudgementSchema.shape;
+-    expect(shape.hasMissingJobs.description).toBeDefined();
+-    expect(shape.missingJobReasons.description).toBeDefined();
+     expect(shape.finalizationNeeded.description).toBeDefined();
+     expect(shape.finalizationActions.description).toBeDefined();
+   });
+diff --git a/src/mastra/pipeline-report/agents/__tests__/reportRewriteAgent.test.ts b/src/mastra/pipeline-report/agents/__tests__/reportRewriteAgent.test.ts
+index fd4eddf..208e5e4 100644
+--- a/src/mastra/pipeline-report/agents/__tests__/reportRewriteAgent.test.ts
++++ b/src/mastra/pipeline-report/agents/__tests__/reportRewriteAgent.test.ts
+@@ -14,6 +14,24 @@ describe('REPORT_REWRITE_AGENT_INSTRUCTIONS', () => {
+   it('元の内容（original）への言及が含まれる', () => {
+     expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain('original');
+   });
++
++  it('Output ONLY 指示がボールド強調されている', () => {
++    expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain(
++      '**Output ONLY the complete rewritten report**',
++    );
++  });
++
++  it('レポート以外の出力を禁止する指示がボールド強調されている', () => {
++    expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain(
++      '**Do not include ANY explanations, preamble, or commentary**',
++    );
++  });
++
++  it('レポート以外の出力を禁止する追加の強調指示が含まれる', () => {
++    expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain(
++      '**IMPORTANT: Your entire response must be the report itself',
++    );
++  });
+ });
+ 
+ describe('buildReportRewriteUserPrompt', () => {
+diff --git a/src/mastra/pipeline-report/agents/reportFinalizationJudgeAgent.ts b/src/mastra/pipeline-report/agents/reportFinalizationJudgeAgent.ts
+index 08bca9a..8ad92d9 100644
+--- a/src/mastra/pipeline-report/agents/reportFinalizationJudgeAgent.ts
++++ b/src/mastra/pipeline-report/agents/reportFinalizationJudgeAgent.ts
+@@ -9,10 +9,6 @@ import { createModelFromContext } from '../../shared/requestContext.js';
+  * pipelineAnalysisWorkflowのreportFinalizationStepで構造化出力として利用する
+  */
+ export const reportFinalizationJudgementSchema = z.object({
+-  hasMissingJobs: z.boolean().describe('true if any target jobs are missing from the report'),
+-  missingJobReasons: z
+-    .array(z.string())
+-    .describe('Actionable reasons for missing jobs; empty array when hasMissingJobs is false'),
+   finalizationNeeded: z
+     .boolean()
+     .describe('true if sort order is wrong or user refinement instructions need to be applied'),
+@@ -38,8 +34,6 @@ You MUST return a single JSON object that conforms to the following schema, and
+ 
+ \`\`\`
+ {
+-  "hasMissingJobs": boolean,
+-  "missingJobReasons": [ string, ... ],
+   "finalizationNeeded": boolean,
+   "finalizationActions": [ string, ... ]
+ }
+@@ -49,17 +43,13 @@ You MUST return a single JSON object that conforms to the following schema, and
+ 
+ Apply every rule below.
+ 
+-1. **Target job coverage**: Every target job in the provided list MUST appear in the report with its own per-job block. If a job is missing, set \`hasMissingJobs\` to \`true\` and add a reason to \`missingJobReasons\` describing which job is missing and what needs to be added.
+-
+-2. **Job section ordering**: Job sections should be ordered by (1) AI assessment severity, with the most severe/problematic jobs first, then (2) stage execution order within the same severity level. If the stage execution order is provided in the user message, use it as reference. If the sections are clearly out of order, set \`finalizationNeeded\` to \`true\` and add a description of the ordering issue to \`finalizationActions\`.
++1. **Job section ordering**: Job sections should be ordered by (1) AI assessment severity, with the most severe/problematic jobs first, then (2) stage execution order within the same severity level. If the stage execution order is provided in the user message, use it as reference. If the sections are clearly out of order, set \`finalizationNeeded\` to \`true\` and add a description of the ordering issue to \`finalizationActions\`.
+ 
+-3. **User refinement instructions**: If user-specified report refinement instructions are provided in the first user message, check whether they have been applied to the current report. If they have NOT been applied, set \`finalizationNeeded\` to \`true\` and add a description of what refinement still needs to be done to \`finalizationActions\`.
++2. **User refinement instructions**: If user-specified report refinement instructions are provided in the first user message, check whether they have been applied to the current report. If they have NOT been applied, set \`finalizationNeeded\` to \`true\` and add a description of what refinement still needs to be done to \`finalizationActions\`.
+ 
+ ## Decision Rules
+ 
+-- \`hasMissingJobs\` MUST be \`true\` if and only if \`missingJobReasons\` is non-empty.
+ - \`finalizationNeeded\` MUST be \`true\` if and only if \`finalizationActions\` is non-empty.
+-- When \`hasMissingJobs\` is \`true\`, provide precise, actionable descriptions so the analysis agent can add the missing jobs.
+ - When \`finalizationNeeded\` is \`true\`, provide precise descriptions so the rewrite agent can fix the issues.`;
+ 
+ /**
+diff --git a/src/mastra/pipeline-report/agents/reportRewriteAgent.ts b/src/mastra/pipeline-report/agents/reportRewriteAgent.ts
+index 2ff6e2e..02ae384 100644
+--- a/src/mastra/pipeline-report/agents/reportRewriteAgent.ts
++++ b/src/mastra/pipeline-report/agents/reportRewriteAgent.ts
+@@ -49,7 +49,9 @@ You will receive a single user message containing:
+ 
+ ## Output Format
+ 
+-Output ONLY the complete rewritten report in Markdown format. Do not include any explanations, preamble, or commentary before or after the report. Do not wrap the report in a code block. The output must be the final report ready for delivery.`;
++**Output ONLY the complete rewritten report** in Markdown format. **Do not include ANY explanations, preamble, or commentary** before or after the report. **Do not wrap the report in a code block.** The output must be the final report ready for delivery — nothing else.
++
++**IMPORTANT: Your entire response must be the report itself — nothing before it, nothing after it. Any text outside the report content is strictly forbidden.**`;
+ 
+ /**
+  * reportRewriteAgent の user プロンプトを組み立てる
+diff --git a/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts b/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
+index db65392..2902fd8 100644
+--- a/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
++++ b/src/mastra/pipeline-report/workflows/pipelineAnalysisWorkflow.ts
+@@ -6,10 +6,7 @@ import { z } from 'zod';
+ import type { PipelineAnalysisAgentRequestContext } from '../requestContext.js';
+ import type { TargetJobSummary } from '../types.js';
+ import { executeAnalysisStep } from './steps/executeAnalysisStep.js';
+-import {
+-  reportFinalizationStep,
+-  buildFeedbackWithReportPrompt,
+-} from './steps/reportFinalizationStep.js';
++import { reportFinalizationStep } from './steps/reportFinalizationStep.js';
+ import { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
+ import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
+ import { getLogger } from '../../../lib/logger.js';
+@@ -115,8 +112,6 @@ const loopStateSchema = z.object({
+   threadId: z.string(),
+   /** 判定が isComplete=true で完了したか */
+   isComplete: z.boolean(),
+-  /** 不完全時の feedback プロンプト（judge 失敗時 null → ループ脱出扱い） */
+-  feedbackPrompt: z.string().nullable(),
+   /** 累積コンテキスト長リカバリー回数 */
+   contextLengthRecoveries: z.number(),
+   /** 実行済み verify 回数（completenessRetries 出力値は max(0, これ - 1)） */
+@@ -141,7 +136,6 @@ const prepareStep = createStep({
+       prompt: inputData.initialUserPrompt,
+       threadId: randomUUID(),
+       isComplete: false,
+-      feedbackPrompt: null,
+       contextLengthRecoveries: 0,
+       completenessRetries: 0,
+     };
+@@ -180,7 +174,7 @@ const analyzeAndVerifyStep = createStep({
+       currentPrompt: inputData.prompt,
+       threadId: inputData.threadId,
+       initialUserPromptForRecovery: initData.initialUserPrompt,
+-      feedbackPromptForRecovery: inputData.feedbackPrompt,
++      feedbackPromptForRecovery: null,
+       extraGenerateOptions: {
+         maxSteps: 50,
+         prepareStep: buildPrepareStepForImageInjection(typedContext),
+@@ -195,7 +189,6 @@ const analyzeAndVerifyStep = createStep({
+         prompt: inputData.prompt,
+         threadId: analysis.finalThreadId,
+         isComplete: true,
+-        feedbackPrompt: null,
+         contextLengthRecoveries:
+           inputData.contextLengthRecoveries + analysis.contextLengthRecoveries,
+         completenessRetries: 0,
+@@ -210,28 +203,10 @@ const analyzeAndVerifyStep = createStep({
+       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
+     });
+ 
+-    // 4. 次イテレーションの状態を構築
+-    let nextPrompt = inputData.prompt;
+-    let nextFeedbackPrompt: string | null = null;
+-
+-    if (verify.hasMissingJobs && verify.feedbackPrompt) {
+-      // ジョブ欠落時のみ analysis agent に再実行を要求
+-      nextFeedbackPrompt = verify.feedbackPrompt;
+-      nextPrompt = buildFeedbackWithReportPrompt(verify.reportContent, verify.feedbackPrompt);
+-      logger.info(
+-        {
+-          attempt: inputData.completenessRetries + 1,
+-          missingJobReasons: verify.lastJudgement?.missingJobReasons?.length ?? 0,
+-        },
+-        'Pipeline-report has missing jobs; will rerun analysis with feedback',
+-      );
+-    }
+-
+     return {
+-      prompt: nextPrompt,
++      prompt: inputData.prompt,
+       threadId: analysis.finalThreadId,
+       isComplete: verify.isComplete,
+-      feedbackPrompt: nextFeedbackPrompt,
+       contextLengthRecoveries: inputData.contextLengthRecoveries + analysis.contextLengthRecoveries,
+       completenessRetries: inputData.completenessRetries + 1,
+     };
+@@ -276,18 +251,11 @@ export const pipelineAnalysisWorkflow = createWorkflow({
+ 
+ pipelineAnalysisWorkflow
+   .then(prepareStep)
+-  .dountil(analyzeAndVerifyStep, async ({ inputData, getInitData }) => {
+-    const initData = getInitData<typeof pipelineAnalysisWorkflow>();
++  .dountil(analyzeAndVerifyStep, async ({ inputData }) => {
+     // 脱出条件:
+-    // - isComplete: 判定完了
+-    // - feedbackPrompt === null かつ isComplete === false: judge 失敗で打ち切り
+-    // - completenessRetries >= maxCompletenessRetries + 1: 再実行上限到達
+-    //   （初回の実行は「再実行」ではないため +1）
+-    return (
+-      inputData.isComplete ||
+-      (inputData.feedbackPrompt === null && inputData.completenessRetries > 0) ||
+-      inputData.completenessRetries >= initData.maxCompletenessRetries + 1
+-    );
++    // - isComplete: 判定完了（finalization 不要、または rewrite agent による書き換え完了）
++    // - completenessRetries > 0: 1回実行済みなら脱出（ジョブ欠落チェック廃止によりリトライ不要）
++    return inputData.isComplete || inputData.completenessRetries > 0;
+   })
+   .then(finalizeStep)
+   .commit();
+diff --git a/src/mastra/pipeline-report/workflows/steps/__tests__/reportFinalizationStep.test.ts b/src/mastra/pipeline-report/workflows/steps/__tests__/reportFinalizationStep.test.ts
+index 12d122d..53b9c77 100644
+--- a/src/mastra/pipeline-report/workflows/steps/__tests__/reportFinalizationStep.test.ts
++++ b/src/mastra/pipeline-report/workflows/steps/__tests__/reportFinalizationStep.test.ts
+@@ -11,10 +11,7 @@ import { RateLimiter } from '../../../../../infrastructure/adapter/rateLimiter/R
+ import { initializeRateLimiter, resetRateLimiter } from '../../../../../lib/rateLimiterGlobal.js';
+ import {
+   reportFinalizationStep,
+-  buildMissingJobsFeedbackPrompt,
+-  buildFeedbackWithReportPrompt,
+   type ReportFinalizationStepConfig,
+-  type ReportFinalizationJudgement,
+ } from '../reportFinalizationStep.js';
+ 
+ function createTestRequestContext(
+@@ -76,49 +73,6 @@ function createMockAgent(generateFn: (...args: unknown[]) => Promise<unknown>):
+   } as unknown as Agent;
+ }
+ 
+-describe('buildMissingJobsFeedbackPrompt', () => {
+-  it('missingJobReasons が含まれる場合、各理由がリスト化される', () => {
+-    const judgement: ReportFinalizationJudgement = {
+-      hasMissingJobs: true,
+-      missingJobReasons: [
+-        "Job #1 'build' has no block in the report",
+-        "Job #2 'test' has no block in the report",
+-      ],
+-      finalizationNeeded: false,
+-      finalizationActions: [],
+-    };
+-
+-    const result = buildMissingJobsFeedbackPrompt(judgement);
+-
+-    expect(result).toContain('Completeness Review Feedback');
+-    expect(result).toContain('Missing Jobs');
+-    expect(result).toContain("Job #1 'build'");
+-    expect(result).toContain("Job #2 'test'");
+-  });
+-});
+-
+-describe('buildFeedbackWithReportPrompt', () => {
+-  it('レポート現物とフィードバックの両方が含まれる', () => {
+-    const reportContent = '# Report\n## Job 101\nBuild succeeded.';
+-    const feedbackPrompt = '## Completeness Review Feedback\nJob #102 is missing.';
+-
+-    const result = buildFeedbackWithReportPrompt(reportContent, feedbackPrompt);
+-
+-    expect(result).toContain('Current Report Progress');
+-    expect(result).toContain('# Report\n## Job 101\nBuild succeeded.');
+-    expect(result).toContain('## Completeness Review Feedback');
+-    expect(result).toContain('Job #102 is missing.');
+-  });
+-
+-  it('レポート現物が markdown コードブロック内に含まれる', () => {
+-    const result = buildFeedbackWithReportPrompt('report text', 'feedback');
+-
+-    expect(result).toContain('```markdown');
+-    expect(result).toContain('report text');
+-    expect(result).toContain('```');
+-  });
+-});
+-
+ describe('reportFinalizationStep', () => {
+   let tmpDir: string;
+   let resultFilePath: string;
+@@ -144,8 +98,6 @@ describe('reportFinalizationStep', () => {
+   it('judge agentに2つのuserメッセージが渡される', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+-        hasMissingJobs: false,
+-        missingJobReasons: [],
+         finalizationNeeded: false,
+         finalizationActions: [],
+       },
+@@ -170,11 +122,9 @@ describe('reportFinalizationStep', () => {
+     expect(prompt[1].content).toContain('Current Report Contents');
+   });
+ 
+-  it('hasMissingJobs=false, finalizationNeeded=false → isComplete=true, finalizationApplied=false', async () => {
++  it('finalizationNeeded=false → isComplete=true, finalizationApplied=false', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+-        hasMissingJobs: false,
+-        missingJobReasons: [],
+         finalizationNeeded: false,
+         finalizationActions: [],
+       },
+@@ -191,46 +141,14 @@ describe('reportFinalizationStep', () => {
+     const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(true);
+-    expect(result.hasMissingJobs).toBe(false);
+-    expect(result.feedbackPrompt).toBeNull();
+     expect(result.finalizationApplied).toBe(false);
+     expect(result.reportContent).toBe('# Report\n(initial)');
+     expect(rewriteGenerate).not.toHaveBeenCalled();
+   });
+ 
+-  it('hasMissingJobs=true → isComplete=false, feedbackPrompt を返す', async () => {
+-    const judgeGenerate = vi.fn().mockResolvedValue({
+-      object: {
+-        hasMissingJobs: true,
+-        missingJobReasons: ["Job #102 'test' has no block in the report"],
+-        finalizationNeeded: false,
+-        finalizationActions: [],
+-      },
+-    });
+-    const rewriteGenerate = vi.fn();
+-
+-    const config: ReportFinalizationStepConfig = {
+-      judgeAgent: createMockAgent(judgeGenerate),
+-      rewriteAgent: createMockAgent(rewriteGenerate),
+-      requestContext: createTestRequestContext({ resultFilePath }),
+-      rateLimitRetryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+-    };
+-
+-    const result = await reportFinalizationStep(config);
+-
+-    expect(result.isComplete).toBe(false);
+-    expect(result.hasMissingJobs).toBe(true);
+-    expect(result.feedbackPrompt).toContain('Completeness Review Feedback');
+-    expect(result.feedbackPrompt).toContain("Job #102 'test'");
+-    expect(result.finalizationApplied).toBe(false);
+-    expect(rewriteGenerate).not.toHaveBeenCalled();
+-  });
+-
+-  it('finalizationNeeded=true, hasMissingJobs=false → rewrite agent 呼び出し、ファイル書き込み、isComplete=true', async () => {
++  it('finalizationNeeded=true → rewrite agent 呼び出し、ファイル書き込み、isComplete=true', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+-        hasMissingJobs: false,
+-        missingJobReasons: [],
+         finalizationNeeded: true,
+         finalizationActions: ['Job sections are not ordered by assessment severity'],
+       },
+@@ -250,8 +168,6 @@ describe('reportFinalizationStep', () => {
+     const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(true);
+-    expect(result.hasMissingJobs).toBe(false);
+-    expect(result.feedbackPrompt).toBeNull();
+     expect(result.finalizationApplied).toBe(true);
+     expect(result.reportContent).toBe(rewrittenContent);
+     // ファイルにも書き込まれていること
+@@ -262,8 +178,6 @@ describe('reportFinalizationStep', () => {
+   it('rewrite agent のプロンプトに finalizationActions と現レポートが含まれる', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+-        hasMissingJobs: false,
+-        missingJobReasons: [],
+         finalizationNeeded: true,
+         finalizationActions: ['Fix sort order'],
+       },
+@@ -288,7 +202,7 @@ describe('reportFinalizationStep', () => {
+     expect(prompt[0].content).toContain('問題なしジョブを非表示');
+   });
+ 
+-  it('judge agent がエラーになった場合は isComplete=false, feedbackPrompt=null を返す', async () => {
++  it('judge agent がエラーになった場合は isComplete=false を返す', async () => {
+     const judgeGenerate = vi.fn().mockRejectedValue(new Error('invalid json'));
+     const rewriteGenerate = vi.fn();
+ 
+@@ -302,8 +216,6 @@ describe('reportFinalizationStep', () => {
+     const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(false);
+-    expect(result.hasMissingJobs).toBe(false);
+-    expect(result.feedbackPrompt).toBeNull();
+     expect(result.finalizationApplied).toBe(false);
+     expect(result.lastJudgement).toBeNull();
+     expect(rewriteGenerate).not.toHaveBeenCalled();
+@@ -312,8 +224,6 @@ describe('reportFinalizationStep', () => {
+   it('rewrite agent がエラーになった場合は isComplete=false, finalizationApplied=false を返す', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+-        hasMissingJobs: false,
+-        missingJobReasons: [],
+         finalizationNeeded: true,
+         finalizationActions: ['Fix sort order'],
+       },
+@@ -330,8 +240,6 @@ describe('reportFinalizationStep', () => {
+     const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(false);
+-    expect(result.hasMissingJobs).toBe(false);
+-    expect(result.feedbackPrompt).toBeNull();
+     expect(result.finalizationApplied).toBe(false);
+     expect(result.lastJudgement?.finalizationNeeded).toBe(true);
+     // ファイルは元のまま
+@@ -341,8 +249,6 @@ describe('reportFinalizationStep', () => {
+   it('structuredOutput が object を返さず text で返す場合も JSON パースで判定できる', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       text: JSON.stringify({
+-        hasMissingJobs: false,
+-        missingJobReasons: [],
+         finalizationNeeded: false,
+         finalizationActions: [],
+       }),
+@@ -359,14 +265,11 @@ describe('reportFinalizationStep', () => {
+     const result = await reportFinalizationStep(config);
+ 
+     expect(result.isComplete).toBe(true);
+-    expect(result.feedbackPrompt).toBeNull();
+   });
+ 
+   it('buildGenerateOptions 経由で reasoningEffort が judge agent に渡される', async () => {
+     const judgeGenerate = vi.fn().mockResolvedValue({
+       object: {
+-        hasMissingJobs: false,
+-        missingJobReasons: [],
+         finalizationNeeded: false,
+         finalizationActions: [],
+       },
+diff --git a/src/mastra/pipeline-report/workflows/steps/reportFinalizationStep.ts b/src/mastra/pipeline-report/workflows/steps/reportFinalizationStep.ts
+index b90586c..560d2cd 100644
+--- a/src/mastra/pipeline-report/workflows/steps/reportFinalizationStep.ts
++++ b/src/mastra/pipeline-report/workflows/steps/reportFinalizationStep.ts
+@@ -40,68 +40,14 @@ export interface ReportFinalizationStepConfig {
+ export interface ReportFinalizationStepResult {
+   /** 判定/書き換え後のレポート本文 */
+   reportContent: string;
+-  /** レポートが完成しているか（hasMissingJobs=false かつ finalization 完了/不要） */
++  /** レポートが完成しているか（finalization 完了/不要） */
+   isComplete: boolean;
+-  /** 対象ジョブがレポートに欠落しているか */
+-  hasMissingJobs: boolean;
+-  /** hasMissingJobs=true のとき、次回 analysis 呼び出しに渡すフィードバックプロンプト */
+-  feedbackPrompt: string | null;
+   /** rewrite agent によるレポート書き換えが実行されたか */
+   finalizationApplied: boolean;
+   /** 最後の judge 結果（失敗時の診断に使える） */
+   lastJudgement: ReportFinalizationJudgement | null;
+ }
+ 
+-/**
+- * ジョブ欠落時に pipelineAnalysisAgent に渡す再実行フィードバックを組み立てる
+- * missingJobReasons のみをフィードバックとして返す（finalizationActions は rewrite agent 側で処理する）
+- */
+-export function buildMissingJobsFeedbackPrompt(judgement: ReportFinalizationJudgement): string {
+-  const parts: string[] = [];
+-
+-  parts.push('## Completeness Review Feedback');
+-  parts.push('');
+-  parts.push(
+-    'The QA judge has reviewed the current report file and found missing jobs. You MUST add every missing job listed below before ending your turn.',
+-  );
+-  parts.push('');
+-
+-  parts.push('### Missing Jobs');
+-  parts.push('');
+-  for (const reason of judgement.missingJobReasons) {
+-    parts.push(`- ${reason}`);
+-  }
+-  parts.push('');
+-
+-  parts.push(
+-    'After fixing these issues, run get-report one more time to confirm every target job has a block and the report is fully complete. Do NOT remove content that is already correct.',
+-  );
+-
+-  return parts.join('\n');
+-}
+-
+-/**
+- * レポート現物＋判定フィードバックを結合した再実行プロンプトを構築する
+- *
+- * Agent が get-report ツールを呼ばなくてもレポートの現状を即座に把握できるよう、
+- * レポート全文をプロンプト先頭に埋め込む。
+- */
+-export function buildFeedbackWithReportPrompt(
+-  currentReportContent: string,
+-  feedbackPrompt: string,
+-): string {
+-  return `## Current Report Progress
+-Below is the current state of the report file. Use this as reference to understand what has been completed and what still needs work.
+-
+-\`\`\`markdown
+-${currentReportContent}
+-\`\`\`
+-
+----
+-
+-${feedbackPrompt}`;
+-}
+-
+ /**
+  * judge agent を呼び出して判定結果を取得する
+  */
+@@ -228,10 +174,9 @@ async function callRewriteAgent(params: {
+  * 処理フロー:
+  * 1. resultFilePath を読む
+  * 2. judge agent で判定結果を取得
+- * 3. hasMissingJobs=true → feedbackPrompt を返す（analysis agent が修正）
+- * 4. finalizationNeeded=true かつ hasMissingJobs=false → rewrite agent でレポートを書き換え
+- * 5. 両方 false → isComplete=true で返す
+- * 6. agent がエラーになった場合は warning ログ + isComplete=false, feedbackPrompt=null を返す
++ * 3. finalizationNeeded=false → isComplete=true で返す
++ * 4. finalizationNeeded=true → rewrite agent でレポートを書き換え
++ * 5. agent がエラーになった場合は warning ログ + isComplete=false を返す
+  */
+ export async function reportFinalizationStep(
+   config: ReportFinalizationStepConfig,
+@@ -261,47 +206,23 @@ export async function reportFinalizationStep(
+     return {
+       reportContent: currentReport,
+       isComplete: false,
+-      hasMissingJobs: false,
+-      feedbackPrompt: null,
+       finalizationApplied: false,
+       lastJudgement: null,
+     };
+   }
+ 
+-  // 3. ジョブ欠落なし かつ 最終化不要 → 完成
+-  if (!judgement.hasMissingJobs && !judgement.finalizationNeeded) {
++  // 3. 最終化不要 → 完成
++  if (!judgement.finalizationNeeded) {
+     logger.info('Pipeline-report finalization verified: no issues found');
+     return {
+       reportContent: currentReport,
+       isComplete: true,
+-      hasMissingJobs: false,
+-      feedbackPrompt: null,
+-      finalizationApplied: false,
+-      lastJudgement: judgement,
+-    };
+-  }
+-
+-  // 4. ジョブ欠落あり → フィードバックプロンプトを構築して analysis agent に再実行させる
+-  if (judgement.hasMissingJobs) {
+-    logger.info(
+-      {
+-        missingJobReasons: judgement.missingJobReasons.length,
+-        finalizationActions: judgement.finalizationActions.length,
+-      },
+-      'Pipeline-report has missing jobs; feedback generated for analysis agent',
+-    );
+-    const feedbackPrompt = buildMissingJobsFeedbackPrompt(judgement);
+-    return {
+-      reportContent: currentReport,
+-      isComplete: false,
+-      hasMissingJobs: true,
+-      feedbackPrompt,
+       finalizationApplied: false,
+       lastJudgement: judgement,
+     };
+   }
+ 
+-  // 5. 最終化のみ必要（ジョブ欠落なし） → rewrite agent でレポートを書き換える
++  // 4. 最終化が必要 → rewrite agent でレポートを書き換える
+   logger.info(
+     { finalizationActions: judgement.finalizationActions.length },
+     'Pipeline-report needs finalization; calling rewrite agent',
+@@ -323,8 +244,6 @@ export async function reportFinalizationStep(
+     return {
+       reportContent: rewrittenReport,
+       isComplete: true,
+-      hasMissingJobs: false,
+-      feedbackPrompt: null,
+       finalizationApplied: true,
+       lastJudgement: judgement,
+     };
+@@ -333,8 +252,6 @@ export async function reportFinalizationStep(
+     return {
+       reportContent: currentReport,
+       isComplete: false,
+-      hasMissingJobs: false,
+-      feedbackPrompt: null,
+       finalizationApplied: false,
+       lastJudgement: judgement,
+     };
