@@ -129,7 +129,8 @@ describe('buildReviewSettings', () => {
     const settings = buildReviewSettings(undefined);
     expect(settings.additionalInstructions).toBe('');
     expect(settings.concurrentReviewCount).toBeNull();
-    expect(settings.commentFormat).toBe('{comment}');
+    expect(settings.commentFormat).toContain('【評価理由・根拠】');
+    expect(settings.commentFormat).toContain('【改善提案】');
     expect(settings.ratings.length).toBeGreaterThan(0);
     expect(settings.hiddenRatingLabels).toEqual([]);
     expect(settings.qualityGate.failureCriteria.length).toBe(0);

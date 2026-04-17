@@ -828,7 +828,8 @@ describe('reviewRoute', () => {
       // デフォルト値が適用されること
       expect(command.reviewSettings.additionalInstructions).toBe('');
       expect(command.reviewSettings.concurrentReviewCount).toBeNull();
-      expect(command.reviewSettings.commentFormat).toBe('{comment}');
+      expect(command.reviewSettings.commentFormat).toContain('【評価理由・根拠】');
+      expect(command.reviewSettings.commentFormat).toContain('【改善提案】');
       expect(command.reviewSettings.ratings.length).toBeGreaterThan(0);
       expect(command.reviewSettings.ratings[0].label).toBe('A');
       expect(command.reviewSettings.hiddenRatingLabels).toEqual([]);
