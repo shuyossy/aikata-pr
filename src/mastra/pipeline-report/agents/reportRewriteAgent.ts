@@ -49,7 +49,9 @@ You will receive a single user message containing:
 
 ## Output Format
 
-Output ONLY the complete rewritten report in Markdown format. Do not include any explanations, preamble, or commentary before or after the report. Do not wrap the report in a code block. The output must be the final report ready for delivery.`;
+**Output ONLY the complete rewritten report** in Markdown format. **Do not include ANY explanations, preamble, or commentary** before or after the report. **Do not wrap the report in a code block.** The output must be the final report ready for delivery — nothing else.
+
+**IMPORTANT: Your entire response must be the report itself — nothing before it, nothing after it. Any text outside the report content is strictly forbidden.**`;
 
 /**
  * reportRewriteAgent の user プロンプトを組み立てる

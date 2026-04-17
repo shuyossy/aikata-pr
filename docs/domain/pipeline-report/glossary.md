@@ -19,11 +19,9 @@
 - 省略マーカー (omission marker)
   - 圧縮されたジョブログの中央に埋め込まれる `[aikata: N chars omitted from middle of job log. ...]` 形式の文字列。AI が `getJobLogDetail` ツールで省略部分を取り戻せることを示す
 - レポート最終仕上げ判定 (report finalization judgement)
-  - `reportFinalizationJudgeAgent` による、AI が生成したレポートが全対象ジョブを網羅しているか / フォーマット仕様に従っているか / ユーザの推敲指示に沿っているかの JSON 判定。出力は `{ hasMissingJobs, missingJobReasons, finalizationNeeded, finalizationActions }`
+  - `reportFinalizationJudgeAgent` による、AI が生成したレポートのソート順が妥当か / ユーザの推敲指示に沿っているかの JSON 判定。出力は `{ finalizationNeeded, finalizationActions }`
 - レポート書き換え (report rewrite)
-  - `reportRewriteAgent` による、ジョブ欠落以外の仕上げ（ソート順修正・ユーザの推敲指示に基づく書き換え等）の実行。元の文言を正確にそのまま利用して書き換える
-- 最終仕上げループ (finalization retry loop)
-  - ジョブ欠落（`hasMissingJobs=true`）の場合に `pipelineAnalysisAgent` へフィードバックを返して再実行するループ。仕上げのみ必要（`finalizationNeeded=true`）の場合は `reportRewriteAgent` が直接書き換える。上限は `PIPELINE_REPORT_MAX_COMPLETENESS_RETRIES`（デフォルト 3）
+  - `reportRewriteAgent` による、ソート順修正・ユーザの推敲指示に基づく書き換え等の実行。元の文言を正確にそのまま利用して書き換える。`finalizationNeeded=true` の場合のみ実行される
 - 全体骨組み (overall template)
   - 固定レポート構造。`OVERALL_REPORT_TEMPLATE` 定数としてハードコードされており、ユーザはカスタマイズ不可
 - ジョブレポートフォーマット (job report format)

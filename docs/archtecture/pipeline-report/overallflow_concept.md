@@ -89,18 +89,10 @@ pipelineAnalysisWorkflow
  └─ reportFinalizationStep
       ├─ fs.readFile(resultFilePath)
       ├─ reportFinalizationJudgeAgent.generate(...)
-      │    └─ JSON 出力: { hasMissingJobs, missingJobReasons[], finalizationNeeded, finalizationActions[] }
-      ├─ hasMissingJobs === false かつ finalizationNeeded === false
+      │    └─ JSON 出力: { finalizationNeeded, finalizationActions[] }
+      ├─ finalizationNeeded === false
       │    └─ workflow 完了 → { reportContent, completenessVerified: true, completenessRetries: N }
-      ├─ hasMissingJobs === true
-      │    ├─ completenessRetries < maxCompletenessRetries
-      │    │    ├─ missingJobReasons をフィードバックプロンプトにまとめる
-      │    │    ├─ 同一スレッドで pipelineAnalysisAgent.stream(feedback, ...) 再実行
-      │    │    └─ 再度 reportFinalizationStep へ
-      │    └─ completenessRetries >= maxCompletenessRetries
-      │         └─ warning ログを出して workflow 完了
-      │            → { reportContent, completenessVerified: false, completenessRetries: max }
-      └─ hasMissingJobs === false かつ finalizationNeeded === true
+      └─ finalizationNeeded === true
            ├─ reportRewriteAgent に現レポートと finalizationActions を渡して書き換え
            └─ workflow 完了 → { reportContent, completenessVerified: true, completenessRetries: N }
 ```

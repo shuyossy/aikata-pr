@@ -70,25 +70,22 @@
     - AI 総合評価ラベル（`問題なし` / `要注意` / `問題あり`）はデフォルト `jobReportFormat` のプレースホルダ hint 内に定義される。ユーザが `jobReportFormat` を差し替えればラベル自体を変更できる
   - 結果(アクション)
     - Agent は全体骨組みをそのまま採用し、ジョブブロックだけを `jobReportFormat` に従って生成する
-    - `reportFinalizationJudgeAgent` は全対象ジョブのブロックが存在するか・レポートが全て埋まっているか・ジョブセクションの並び順が妥当かを判定する
+    - `reportFinalizationJudgeAgent` はジョブセクションの並び順が妥当か・ユーザの推敲指示が適用されているかを判定する
     - 仕上げが必要な場合は `reportRewriteAgent` が書き換えを実行する
   - 関連するユースケースorエンティティ: OVERALL_REPORT_TEMPLATE, PipelineReportSettings, pipelineAnalysisAgent, reportFinalizationJudgeAgent, reportRewriteAgent
 
 - レポート最終仕上げルール
   - 目的/背景
-    - AI が途中で離脱したり、フォーマットを一部無視したまま完了を報告する事故を防ぎ、レポート品質を強制する
-    - ジョブ欠落以外の仕上げ（ソート順修正・ユーザ指示に基づく書き換え等）は分析Agentにフィードバックせず、専用の書き換えAgentが直接対応することで効率化する
+    - レポートのソート順やユーザの推敲指示が正しく反映されているかを検証し、必要に応じて書き換えることでレポート品質を担保する
+    - 仕上げ（ソート順修正・ユーザ指示に基づく書き換え等）は専用の書き換えAgentが直接対応することで効率化する
   - 条件
     - `pipelineAnalysisAgent` の 1 ラウンド終了後、`reportFinalizationJudgeAgent` に (a) 全体骨組み / (b) `jobReportFormat` / (c) 対象ジョブ一覧 / (d) 現レポート内容 / (e) `reportRefinementInstructions` を渡して JSON 判定
-    - Judge 出力スキーマ: `{ hasMissingJobs: boolean, missingJobReasons: string[], finalizationNeeded: boolean, finalizationActions: string[] }`
-    - `hasMissingJobs=true` の場合: `missingJobReasons` をフィードバックとして同一スレッドの `pipelineAnalysisAgent` に投げ直して再実行し、再度 verify
-    - `hasMissingJobs=false` かつ `finalizationNeeded=true` の場合: `reportRewriteAgent` に現レポート内容と `finalizationActions` を渡して書き換えを実行する。書き換え時は元の文言を正確にそのまま利用することを強調する
-    - 再試行回数は `maxCompletenessRetries`（デフォルト 3）まで
+    - Judge 出力スキーマ: `{ finalizationNeeded: boolean, finalizationActions: string[] }`
+    - `finalizationNeeded=true` の場合: `reportRewriteAgent` に現レポート内容と `finalizationActions` を渡して書き換えを実行する。書き換え時は元の文言を正確にそのまま利用することを強調する
   - 結果(アクション)
-    - `hasMissingJobs=false` かつ `finalizationNeeded=false`: そのままレポート採用
-    - `hasMissingJobs=false` かつ `finalizationNeeded=true`: `reportRewriteAgent` による書き換え後にレポート採用
-    - 上限到達: warning ログを出力し、現状のレポートをそのまま返却（ジョブ自体は成功扱い）
-  - 関連するユースケースorエンティティ: reportFinalizationStep, reportFinalizationJudgeAgent, reportRewriteAgent, pipelineAnalysisAgent
+    - `finalizationNeeded=false`: そのままレポート採用
+    - `finalizationNeeded=true`: `reportRewriteAgent` による書き換え後にレポート採用
+  - 関連するユースケースorエンティティ: reportFinalizationStep, reportFinalizationJudgeAgent, reportRewriteAgent
 
 - コンテキスト長リカバリールール
   - 目的/背景

@@ -14,6 +14,24 @@ describe('REPORT_REWRITE_AGENT_INSTRUCTIONS', () => {
   it('元の内容（original）への言及が含まれる', () => {
     expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain('original');
   });
+
+  it('Output ONLY 指示がボールド強調されている', () => {
+    expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain(
+      '**Output ONLY the complete rewritten report**',
+    );
+  });
+
+  it('レポート以外の出力を禁止する指示がボールド強調されている', () => {
+    expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain(
+      '**Do not include ANY explanations, preamble, or commentary**',
+    );
+  });
+
+  it('レポート以外の出力を禁止する追加の強調指示が含まれる', () => {
+    expect(REPORT_REWRITE_AGENT_INSTRUCTIONS).toContain(
+      '**IMPORTANT: Your entire response must be the report itself',
+    );
+  });
 });
 
 describe('buildReportRewriteUserPrompt', () => {

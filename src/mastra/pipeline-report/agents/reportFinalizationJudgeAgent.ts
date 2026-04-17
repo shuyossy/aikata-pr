@@ -9,10 +9,6 @@ import { createModelFromContext } from '../../shared/requestContext.js';
  * pipelineAnalysisWorkflowのreportFinalizationStepで構造化出力として利用する
  */
 export const reportFinalizationJudgementSchema = z.object({
-  hasMissingJobs: z.boolean().describe('true if any target jobs are missing from the report'),
-  missingJobReasons: z
-    .array(z.string())
-    .describe('Actionable reasons for missing jobs; empty array when hasMissingJobs is false'),
   finalizationNeeded: z
     .boolean()
     .describe('true if sort order is wrong or user refinement instructions need to be applied'),
@@ -38,8 +34,6 @@ You MUST return a single JSON object that conforms to the following schema, and 
 
 \`\`\`
 {
-  "hasMissingJobs": boolean,
-  "missingJobReasons": [ string, ... ],
   "finalizationNeeded": boolean,
   "finalizationActions": [ string, ... ]
 }
@@ -49,17 +43,13 @@ You MUST return a single JSON object that conforms to the following schema, and 
 
 Apply every rule below.
 
-1. **Target job coverage**: Every target job in the provided list MUST appear in the report with its own per-job block. If a job is missing, set \`hasMissingJobs\` to \`true\` and add a reason to \`missingJobReasons\` describing which job is missing and what needs to be added.
+1. **Job section ordering**: Job sections should be ordered by (1) AI assessment severity, with the most severe/problematic jobs first, then (2) stage execution order within the same severity level. If the stage execution order is provided in the user message, use it as reference. If the sections are clearly out of order, set \`finalizationNeeded\` to \`true\` and add a description of the ordering issue to \`finalizationActions\`.
 
-2. **Job section ordering**: Job sections should be ordered by (1) AI assessment severity, with the most severe/problematic jobs first, then (2) stage execution order within the same severity level. If the stage execution order is provided in the user message, use it as reference. If the sections are clearly out of order, set \`finalizationNeeded\` to \`true\` and add a description of the ordering issue to \`finalizationActions\`.
-
-3. **User refinement instructions**: If user-specified report refinement instructions are provided in the first user message, check whether they have been applied to the current report. If they have NOT been applied, set \`finalizationNeeded\` to \`true\` and add a description of what refinement still needs to be done to \`finalizationActions\`.
+2. **User refinement instructions**: If user-specified report refinement instructions are provided in the first user message, check whether they have been applied to the current report. If they have NOT been applied, set \`finalizationNeeded\` to \`true\` and add a description of what refinement still needs to be done to \`finalizationActions\`.
 
 ## Decision Rules
 
-- \`hasMissingJobs\` MUST be \`true\` if and only if \`missingJobReasons\` is non-empty.
 - \`finalizationNeeded\` MUST be \`true\` if and only if \`finalizationActions\` is non-empty.
-- When \`hasMissingJobs\` is \`true\`, provide precise, actionable descriptions so the analysis agent can add the missing jobs.
 - When \`finalizationNeeded\` is \`true\`, provide precise descriptions so the rewrite agent can fix the issues.`;
 
 /**

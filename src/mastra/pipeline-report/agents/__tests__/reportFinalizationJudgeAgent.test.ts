@@ -16,10 +16,6 @@ describe('REPORT_FINALIZATION_JUDGE_INSTRUCTIONS', () => {
     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/JSON only/i);
   });
 
-  it('hasMissingJobs の出力フィールド説明が含まれる', () => {
-    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('hasMissingJobs');
-  });
-
   it('finalizationNeeded の出力フィールド説明が含まれる', () => {
     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('finalizationNeeded');
   });
@@ -28,17 +24,8 @@ describe('REPORT_FINALIZATION_JUDGE_INSTRUCTIONS', () => {
     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('finalizationActions');
   });
 
-  it('missingJobReasons の出力フィールド説明が含まれる', () => {
-    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toContain('missingJobReasons');
-  });
-
   it('2つのuserメッセージで入力を受け取ることが明示される', () => {
     expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/two user messages/i);
-  });
-
-  it('対象ジョブ網羅の判定ルールが含まれる', () => {
-    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/target job/i);
-    expect(REPORT_FINALIZATION_JUDGE_INSTRUCTIONS).toMatch(/missing/i);
   });
 
   it('ジョブセクション順序に関する判定ルールが含まれる', () => {
@@ -56,38 +43,17 @@ describe('REPORT_FINALIZATION_JUDGE_INSTRUCTIONS', () => {
 });
 
 describe('reportFinalizationJudgementSchema', () => {
-  it('hasMissingJobs=false, finalizationNeeded=false かつ配列が空の入力をパースできる', () => {
+  it('finalizationNeeded=false かつ配列が空の入力をパースできる', () => {
     const parsed = reportFinalizationJudgementSchema.parse({
-      hasMissingJobs: false,
-      missingJobReasons: [],
       finalizationNeeded: false,
       finalizationActions: [],
     });
-    expect(parsed.hasMissingJobs).toBe(false);
-    expect(parsed.missingJobReasons).toEqual([]);
     expect(parsed.finalizationNeeded).toBe(false);
     expect(parsed.finalizationActions).toEqual([]);
   });
 
-  it('hasMissingJobs=true かつ missingJobReasons に理由が含まれる入力をパースできる', () => {
-    const parsed = reportFinalizationJudgementSchema.parse({
-      hasMissingJobs: true,
-      missingJobReasons: [
-        "Job #101 'build' has no block in the report",
-        "Job #102 'deploy' is missing from the report",
-      ],
-      finalizationNeeded: false,
-      finalizationActions: [],
-    });
-    expect(parsed.hasMissingJobs).toBe(true);
-    expect(parsed.missingJobReasons).toHaveLength(2);
-    expect(parsed.missingJobReasons[0]).toContain('build');
-  });
-
   it('finalizationNeeded=true かつ finalizationActions に理由が含まれる入力をパースできる', () => {
     const parsed = reportFinalizationJudgementSchema.parse({
-      hasMissingJobs: false,
-      missingJobReasons: [],
       finalizationNeeded: true,
       finalizationActions: [
         'Job sections are not ordered by assessment severity',
@@ -98,19 +64,8 @@ describe('reportFinalizationJudgementSchema', () => {
     expect(parsed.finalizationActions).toHaveLength(2);
   });
 
-  it('missingJobReasons が欠けている入力はパースに失敗する', () => {
-    const result = reportFinalizationJudgementSchema.safeParse({
-      hasMissingJobs: false,
-      finalizationNeeded: false,
-      finalizationActions: [],
-    });
-    expect(result.success).toBe(false);
-  });
-
   it('finalizationActions が欠けている入力はパースに失敗する', () => {
     const result = reportFinalizationJudgementSchema.safeParse({
-      hasMissingJobs: false,
-      missingJobReasons: [],
       finalizationNeeded: false,
     });
     expect(result.success).toBe(false);
@@ -118,8 +73,6 @@ describe('reportFinalizationJudgementSchema', () => {
 
   it('各フィールドにdescribeが設定されている', () => {
     const shape = reportFinalizationJudgementSchema.shape;
-    expect(shape.hasMissingJobs.description).toBeDefined();
-    expect(shape.missingJobReasons.description).toBeDefined();
     expect(shape.finalizationNeeded.description).toBeDefined();
     expect(shape.finalizationActions.description).toBeDefined();
   });

@@ -111,6 +111,7 @@ node dist/index.js server                                       # APIサーバ�
 - 関数の引数は特別な理由がない限りオプショナルは避けること（バグの温床になるため）
 - 新機能（AIレビュー以外のジョブ）を追加する場合は `docs/archtecture/feature-extension.md` を参照すること
   - CLIはサブコマンド方式（`node dist/index.js <feature> [options]`）で動作するので、新機能のCLI実装は `src/cli/<feature>/` に配置し `CliFeatureModule` をエクスポートして `src/cli/dispatch.ts` の `defaultFeatures` に追加する
+- GitLabはv16を想定すること
 
 # PBI
 @PBI.md

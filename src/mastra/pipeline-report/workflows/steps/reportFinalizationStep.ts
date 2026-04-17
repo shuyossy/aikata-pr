@@ -40,66 +40,12 @@ export interface ReportFinalizationStepConfig {
 export interface ReportFinalizationStepResult {
   /** 判定/書き換え後のレポート本文 */
   reportContent: string;
-  /** レポートが完成しているか（hasMissingJobs=false かつ finalization 完了/不要） */
+  /** レポートが完成しているか（finalization 完了/不要） */
   isComplete: boolean;
-  /** 対象ジョブがレポートに欠落しているか */
-  hasMissingJobs: boolean;
-  /** hasMissingJobs=true のとき、次回 analysis 呼び出しに渡すフィードバックプロンプト */
-  feedbackPrompt: string | null;
   /** rewrite agent によるレポート書き換えが実行されたか */
   finalizationApplied: boolean;
   /** 最後の judge 結果（失敗時の診断に使える） */
   lastJudgement: ReportFinalizationJudgement | null;
-}
-
-/**
- * ジョブ欠落時に pipelineAnalysisAgent に渡す再実行フィードバックを組み立てる
- * missingJobReasons のみをフィードバックとして返す（finalizationActions は rewrite agent 側で処理する）
- */
-export function buildMissingJobsFeedbackPrompt(judgement: ReportFinalizationJudgement): string {
-  const parts: string[] = [];
-
-  parts.push('## Completeness Review Feedback');
-  parts.push('');
-  parts.push(
-    'The QA judge has reviewed the current report file and found missing jobs. You MUST add every missing job listed below before ending your turn.',
-  );
-  parts.push('');
-
-  parts.push('### Missing Jobs');
-  parts.push('');
-  for (const reason of judgement.missingJobReasons) {
-    parts.push(`- ${reason}`);
-  }
-  parts.push('');
-
-  parts.push(
-    'After fixing these issues, run get-report one more time to confirm every target job has a block and the report is fully complete. Do NOT remove content that is already correct.',
-  );
-
-  return parts.join('\n');
-}
-
-/**
- * レポート現物＋判定フィードバックを結合した再実行プロンプトを構築する
- *
- * Agent が get-report ツールを呼ばなくてもレポートの現状を即座に把握できるよう、
- * レポート全文をプロンプト先頭に埋め込む。
- */
-export function buildFeedbackWithReportPrompt(
-  currentReportContent: string,
-  feedbackPrompt: string,
-): string {
-  return `## Current Report Progress
-Below is the current state of the report file. Use this as reference to understand what has been completed and what still needs work.
-
-\`\`\`markdown
-${currentReportContent}
-\`\`\`
-
----
-
-${feedbackPrompt}`;
 }
 
 /**
@@ -228,10 +174,9 @@ async function callRewriteAgent(params: {
  * 処理フロー:
  * 1. resultFilePath を読む
  * 2. judge agent で判定結果を取得
- * 3. hasMissingJobs=true → feedbackPrompt を返す（analysis agent が修正）
- * 4. finalizationNeeded=true かつ hasMissingJobs=false → rewrite agent でレポートを書き換え
- * 5. 両方 false → isComplete=true で返す
- * 6. agent がエラーになった場合は warning ログ + isComplete=false, feedbackPrompt=null を返す
+ * 3. finalizationNeeded=false → isComplete=true で返す
+ * 4. finalizationNeeded=true → rewrite agent でレポートを書き換え
+ * 5. agent がエラーになった場合は warning ログ + isComplete=false を返す
  */
 export async function reportFinalizationStep(
   config: ReportFinalizationStepConfig,
@@ -261,47 +206,23 @@ export async function reportFinalizationStep(
     return {
       reportContent: currentReport,
       isComplete: false,
-      hasMissingJobs: false,
-      feedbackPrompt: null,
       finalizationApplied: false,
       lastJudgement: null,
     };
   }
 
-  // 3. ジョブ欠落なし かつ 最終化不要 → 完成
-  if (!judgement.hasMissingJobs && !judgement.finalizationNeeded) {
+  // 3. 最終化不要 → 完成
+  if (!judgement.finalizationNeeded) {
     logger.info('Pipeline-report finalization verified: no issues found');
     return {
       reportContent: currentReport,
       isComplete: true,
-      hasMissingJobs: false,
-      feedbackPrompt: null,
       finalizationApplied: false,
       lastJudgement: judgement,
     };
   }
 
-  // 4. ジョブ欠落あり → フィードバックプロンプトを構築して analysis agent に再実行させる
-  if (judgement.hasMissingJobs) {
-    logger.info(
-      {
-        missingJobReasons: judgement.missingJobReasons.length,
-        finalizationActions: judgement.finalizationActions.length,
-      },
-      'Pipeline-report has missing jobs; feedback generated for analysis agent',
-    );
-    const feedbackPrompt = buildMissingJobsFeedbackPrompt(judgement);
-    return {
-      reportContent: currentReport,
-      isComplete: false,
-      hasMissingJobs: true,
-      feedbackPrompt,
-      finalizationApplied: false,
-      lastJudgement: judgement,
-    };
-  }
-
-  // 5. 最終化のみ必要（ジョブ欠落なし） → rewrite agent でレポートを書き換える
+  // 4. 最終化が必要 → rewrite agent でレポートを書き換える
   logger.info(
     { finalizationActions: judgement.finalizationActions.length },
     'Pipeline-report needs finalization; calling rewrite agent',
@@ -323,8 +244,6 @@ export async function reportFinalizationStep(
     return {
       reportContent: rewrittenReport,
       isComplete: true,
-      hasMissingJobs: false,
-      feedbackPrompt: null,
       finalizationApplied: true,
       lastJudgement: judgement,
     };
@@ -333,8 +252,6 @@ export async function reportFinalizationStep(
     return {
       reportContent: currentReport,
       isComplete: false,
-      hasMissingJobs: false,
-      feedbackPrompt: null,
       finalizationApplied: false,
       lastJudgement: judgement,
     };

@@ -6,10 +6,7 @@ import { z } from 'zod';
 import type { PipelineAnalysisAgentRequestContext } from '../requestContext.js';
 import type { TargetJobSummary } from '../types.js';
 import { executeAnalysisStep } from './steps/executeAnalysisStep.js';
-import {
-  reportFinalizationStep,
-  buildFeedbackWithReportPrompt,
-} from './steps/reportFinalizationStep.js';
+import { reportFinalizationStep } from './steps/reportFinalizationStep.js';
 import { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
 import { getLogger } from '../../../lib/logger.js';
@@ -115,8 +112,6 @@ const loopStateSchema = z.object({
   threadId: z.string(),
   /** 判定が isComplete=true で完了したか */
   isComplete: z.boolean(),
-  /** 不完全時の feedback プロンプト（judge 失敗時 null → ループ脱出扱い） */
-  feedbackPrompt: z.string().nullable(),
   /** 累積コンテキスト長リカバリー回数 */
   contextLengthRecoveries: z.number(),
   /** 実行済み verify 回数（completenessRetries 出力値は max(0, これ - 1)） */
@@ -141,7 +136,6 @@ const prepareStep = createStep({
       prompt: inputData.initialUserPrompt,
       threadId: randomUUID(),
       isComplete: false,
-      feedbackPrompt: null,
       contextLengthRecoveries: 0,
       completenessRetries: 0,
     };
@@ -180,7 +174,7 @@ const analyzeAndVerifyStep = createStep({
       currentPrompt: inputData.prompt,
       threadId: inputData.threadId,
       initialUserPromptForRecovery: initData.initialUserPrompt,
-      feedbackPromptForRecovery: inputData.feedbackPrompt,
+      feedbackPromptForRecovery: null,
       extraGenerateOptions: {
         maxSteps: 50,
         prepareStep: buildPrepareStepForImageInjection(typedContext),
@@ -195,7 +189,6 @@ const analyzeAndVerifyStep = createStep({
         prompt: inputData.prompt,
         threadId: analysis.finalThreadId,
         isComplete: true,
-        feedbackPrompt: null,
         contextLengthRecoveries:
           inputData.contextLengthRecoveries + analysis.contextLengthRecoveries,
         completenessRetries: 0,
@@ -210,28 +203,10 @@ const analyzeAndVerifyStep = createStep({
       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     });
 
-    // 4. 次イテレーションの状態を構築
-    let nextPrompt = inputData.prompt;
-    let nextFeedbackPrompt: string | null = null;
-
-    if (verify.hasMissingJobs && verify.feedbackPrompt) {
-      // ジョブ欠落時のみ analysis agent に再実行を要求
-      nextFeedbackPrompt = verify.feedbackPrompt;
-      nextPrompt = buildFeedbackWithReportPrompt(verify.reportContent, verify.feedbackPrompt);
-      logger.info(
-        {
-          attempt: inputData.completenessRetries + 1,
-          missingJobReasons: verify.lastJudgement?.missingJobReasons?.length ?? 0,
-        },
-        'Pipeline-report has missing jobs; will rerun analysis with feedback',
-      );
-    }
-
     return {
-      prompt: nextPrompt,
+      prompt: inputData.prompt,
       threadId: analysis.finalThreadId,
       isComplete: verify.isComplete,
-      feedbackPrompt: nextFeedbackPrompt,
       contextLengthRecoveries: inputData.contextLengthRecoveries + analysis.contextLengthRecoveries,
       completenessRetries: inputData.completenessRetries + 1,
     };
@@ -276,18 +251,11 @@ export const pipelineAnalysisWorkflow = createWorkflow({
 
 pipelineAnalysisWorkflow
   .then(prepareStep)
-  .dountil(analyzeAndVerifyStep, async ({ inputData, getInitData }) => {
-    const initData = getInitData<typeof pipelineAnalysisWorkflow>();
+  .dountil(analyzeAndVerifyStep, async ({ inputData }) => {
     // 脱出条件:
-    // - isComplete: 判定完了
-    // - feedbackPrompt === null かつ isComplete === false: judge 失敗で打ち切り
-    // - completenessRetries >= maxCompletenessRetries + 1: 再実行上限到達
-    //   （初回の実行は「再実行」ではないため +1）
-    return (
-      inputData.isComplete ||
-      (inputData.feedbackPrompt === null && inputData.completenessRetries > 0) ||
-      inputData.completenessRetries >= initData.maxCompletenessRetries + 1
-    );
+    // - isComplete: 判定完了（finalization 不要、または rewrite agent による書き換え完了）
+    // - completenessRetries > 0: 1回実行済みなら脱出（ジョブ欠落チェック廃止によりリトライ不要）
+    return inputData.isComplete || inputData.completenessRetries > 0;
   })
   .then(finalizeStep)
   .commit();
