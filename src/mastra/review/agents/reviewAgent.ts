@@ -8,6 +8,8 @@ import { storeReviewResultTool } from '../tools/storeReviewResult.js';
 import { getReviewResultsTool } from '../tools/getReviewResults.js';
 import { readImageTool } from '../tools/readImage.js';
 import { getDiffDetailTool } from '../tools/getDiffDetail.js';
+import { storeSuggestTool } from '../tools/storeSuggest.js';
+import { getSuggestsTool } from '../tools/getSuggests.js';
 import { containsImageFiles } from '../../../lib/imageFormat.js';
 import { buildUserPromptTemplate } from '../../../application/shared/prompt/index.js';
 import { WORKSPACE_TOOLS_CONFIG } from '../../shared/workspaceToolsConfig.js';
@@ -15,37 +17,20 @@ import { WORKSPACE_TOOLS_CONFIG } from '../../shared/workspaceToolsConfig.js';
 // 後方互換のため shared から re-export
 export { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
 
-// レビューエージェントのツールセット型（readImage, getDiffDetailは条件付き登録）
+// レビューエージェントのツールセット型（readImage, getDiffDetail, suggest系は条件付き登録）
 type ReviewAgentToolSet = {
   storeReviewResult: typeof storeReviewResultTool;
   getReviewResults: typeof getReviewResultsTool;
   readImage?: typeof readImageTool;
   getDiffDetail?: typeof getDiffDetailTool;
+  storeSuggest?: typeof storeSuggestTool;
+  getSuggests?: typeof getSuggestsTool;
 };
 
 // 基本ツール（常に登録）
 const baseReviewAgentTools: ReviewAgentToolSet = {
   storeReviewResult: storeReviewResultTool,
   getReviewResults: getReviewResultsTool,
-};
-
-// 画像対応ツール（画像ファイルがある場合のみ登録）
-const reviewAgentToolsWithImage: ReviewAgentToolSet = {
-  ...baseReviewAgentTools,
-  readImage: readImageTool,
-};
-
-// diff圧縮対応ツール（diff圧縮が有効な場合のみ登録）
-const reviewAgentToolsWithDiffDetail: ReviewAgentToolSet = {
-  ...baseReviewAgentTools,
-  getDiffDetail: getDiffDetailTool,
-};
-
-// 画像 + diff圧縮対応ツール
-const reviewAgentToolsWithImageAndDiffDetail: ReviewAgentToolSet = {
-  ...baseReviewAgentTools,
-  readImage: readImageTool,
-  getDiffDetail: getDiffDetailTool,
 };
 
 /**
@@ -68,7 +53,14 @@ export function buildInstructions(
     ? `## User-Specified Review Instructions (HIGHEST PRIORITY)\n\nThe following instructions were provided by the user as review requirements. You MUST follow these instructions with the highest priority.\n\n${ctx.additionalInstructions}\n\n`
     : '';
 
-  return `You are an expert MR (Merge Request) code review specialist. You will receive an MR diff, the project folder tree, and a set of check items. Your job is to evaluate each check item against the MR and provide a rating and comment.
+  const suggestEnabled = ctx.suggestEnabledRatingLabels.length > 0;
+  const suggestLabelsText = ctx.suggestEnabledRatingLabels.join(', ');
+
+  const suggestRoleSuffix = suggestEnabled
+    ? ` Additionally, for check items rated [${suggestLabelsText}], you MUST generate concrete code suggestions using the storeSuggest tool.`
+    : '';
+
+  return `You are an expert MR (Merge Request) code review specialist. You will receive an MR diff, the project folder tree, and a set of check items. Your job is to evaluate each check item against the MR and provide a rating and comment.${suggestRoleSuffix}
 
 Always reason and think in English. When writing review comments, you MUST write them in ${ctx.commentLanguage}.
 
@@ -161,6 +153,14 @@ If the output shows "[output truncated: ...]", use the reported line counts and 
 
 `
       : ''
+  }${
+    suggestEnabled
+      ? `### Suggestion Tools
+- storeSuggest: Store a code suggestion. Parameters: checkItemId, filePath, originalCode (exact code from the new side of the diff), suggestedCode (replacement), comment (explanation in ${ctx.commentLanguage})
+- getSuggests: Retrieve all suggestions (prior and current) to check for duplicates and verify completeness
+
+`
+      : ''
   }### Workspace Tools
 You have access to workspace tools for investigating the project codebase. The project folder tree provided in the user message is the map of this repository — use it to decide which files or directories to open with these tools:
 - File reading: Examine source files beyond what the diff shows
@@ -168,12 +168,38 @@ You have access to workspace tools for investigating the project codebase. The p
 - File search: Find code patterns across the codebase
 - Sandbox commands: Run git commands, grep, or other CLI tools
 The workspace root is the project repository root directory.
+${
+  suggestEnabled
+    ? `
+## Code Suggestion Guidelines
 
-## Completion Requirements
+For check items that receive a rating of [${suggestLabelsText}], you MUST generate concrete code suggestions using the storeSuggest tool.
+
+### How to create suggestions
+1. Identify the specific code in the diff that needs improvement
+2. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
+3. Write the improved code in suggestedCode
+4. Provide a clear explanation in comment
+
+### Important rules
+- You may create multiple suggestions per check item
+- Do NOT duplicate suggestions that already exist (check with getSuggests)
+- originalCode must exactly match the code in the diff (whitespace-sensitive)
+- Include sufficient context lines in originalCode to avoid ambiguity
+
+`
+    : ''
+}## Completion Requirements
 
 1. You MUST review and store results for ALL check items listed above.
 2. After storing all results, call getReviewResults to verify completeness.
-3. Do NOT finish until ALL check items have been reviewed and stored.`;
+3. Do NOT finish until ALL check items have been reviewed and stored.${
+    suggestEnabled
+      ? `
+4. After storing all review results, generate suggestions for items rated [${suggestLabelsText}] using storeSuggest.
+5. Call getSuggests to verify all suggestions are stored.`
+      : ''
+  }`;
 }
 
 /**
@@ -193,6 +219,7 @@ export function buildUserPrompt(requestContext: RequestContext<ReviewAgentReques
     folderTree: ctx.folderTree,
     priorReviewContext: ctx.priorReviewContext,
     checkItemCount: ctx.checkItems.length,
+    activeSuggests: ctx.activeSuggests,
   });
 }
 
@@ -266,13 +293,22 @@ export const reviewAgent = new Agent<
   },
   tools: ({ requestContext }) => {
     const ctx = requestContext.all as ReviewAgentRequestContext;
-    const hasImages = containsImageFiles(ctx.folderTree);
-    const hasDiffCompression = ctx.diffCompressed;
+    const suggestEnabled = ctx.suggestEnabledRatingLabels.length > 0;
 
-    if (hasImages && hasDiffCompression) return reviewAgentToolsWithImageAndDiffDetail;
-    if (hasImages) return reviewAgentToolsWithImage;
-    if (hasDiffCompression) return reviewAgentToolsWithDiffDetail;
-    return baseReviewAgentTools;
+    // 基本ツールに条件に応じてツールを追加する
+    let toolSet: ReviewAgentToolSet = { ...baseReviewAgentTools };
+
+    if (containsImageFiles(ctx.folderTree)) {
+      toolSet = { ...toolSet, readImage: readImageTool };
+    }
+    if (ctx.diffCompressed) {
+      toolSet = { ...toolSet, getDiffDetail: getDiffDetailTool };
+    }
+    if (suggestEnabled) {
+      toolSet = { ...toolSet, storeSuggest: storeSuggestTool, getSuggests: getSuggestsTool };
+    }
+
+    return toolSet;
   },
   workspace: ({ requestContext }) => {
     const ctx = requestContext?.all as ReviewAgentRequestContext | undefined;

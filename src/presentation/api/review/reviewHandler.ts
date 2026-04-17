@@ -282,6 +282,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
           commentLanguage: request.options?.commentLanguage ?? 'Japanese',
           openaiReasoningEffort: deps.openaiReasoningEffort,
           maxContextLength: deps.maxContextLength,
+          suggestEnabledRatingLabels: reviewSettings.suggestEnabledRatingLabels,
         });
 
         // 11. ReviewApiResponse形式でレビュー結果を構築
@@ -296,6 +297,22 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
           })),
           commitHash: reviewResult.commitHash,
           commitMessage: reviewResult.commitMessage,
+          suggestions: reviewResult.suggestions.map((s) => ({
+            checkItemContent: s.suggestion.checkItemContent,
+            filePath: s.suggestion.filePath,
+            originalCode: s.suggestion.originalCode,
+            suggestedCode: s.suggestion.suggestedCode,
+            comment: s.suggestion.comment,
+            newLine: s.newLine,
+            linesAbove: s.linesAbove,
+            linesBelow: s.linesBelow,
+            oldPath: s.oldPath,
+            newPath: s.newPath,
+          })),
+          suggestDiscussionIdsToResolve: reviewResult.suggestsToResolve,
+          baseSha: reviewResult.baseSha,
+          headSha: reviewResult.headSha,
+          startSha: reviewResult.startSha,
         };
 
         // 12. SSE: 結果送信（コメント投稿・品質ゲート評価はCLI側の責務）

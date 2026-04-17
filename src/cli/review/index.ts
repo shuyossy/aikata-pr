@@ -13,6 +13,8 @@ import { ReviewExecutionService } from '../../application/review/reviewExecution
 import { CommentPostingService } from '../../application/review/commentPosting/index.js';
 import { ReviewResult } from '../../domain/review/reviewResult/index.js';
 import { Rating } from '../../domain/review/rating/index.js';
+import { Suggestion } from '../../domain/review/suggestion/index.js';
+import { ResolvedSuggestion } from '../../domain/review/suggestion/index.js';
 import { GitLabApiClient } from '../../infrastructure/adapter/httpClient/index.js';
 import {
   GitLabMrGateway,
@@ -149,6 +151,25 @@ export async function run(args: string[]): Promise<void> {
           const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
           const commentService = new CommentPostingService(mrDiscussionGateway);
 
+          // APIレスポンスのsuggestionsをResolvedSuggestionに変換
+          const resolvedSuggestions = apiResult.suggestions.map(
+            (s) =>
+              new ResolvedSuggestion({
+                suggestion: new Suggestion({
+                  checkItemContent: s.checkItemContent,
+                  filePath: s.filePath,
+                  originalCode: s.originalCode,
+                  suggestedCode: s.suggestedCode,
+                  comment: s.comment,
+                }),
+                newLine: s.newLine,
+                linesAbove: s.linesAbove,
+                linesBelow: s.linesBelow,
+                oldPath: s.oldPath,
+                newPath: s.newPath,
+              }),
+          );
+
           await commentService.execute({
             projectId: validated.projectId,
             mrIid: validated.mrIid,
@@ -158,6 +179,11 @@ export async function run(args: string[]): Promise<void> {
             commitMessage: apiResult.commitMessage,
             hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
             qualityGateResult,
+            suggestions: resolvedSuggestions,
+            suggestDiscussionIdsToResolve: apiResult.suggestDiscussionIdsToResolve,
+            baseSha: apiResult.baseSha,
+            headSha: apiResult.headSha,
+            startSha: apiResult.startSha,
           });
         }
 
@@ -257,6 +283,11 @@ export async function run(args: string[]): Promise<void> {
           commitMessage: reviewResult.commitMessage,
           hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
           qualityGateResult,
+          suggestions: reviewResult.suggestions,
+          suggestDiscussionIdsToResolve: reviewResult.suggestsToResolve,
+          baseSha: reviewResult.baseSha,
+          headSha: reviewResult.headSha,
+          startSha: reviewResult.startSha,
         });
       }
 

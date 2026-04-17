@@ -6,7 +6,11 @@ import type {
 } from '../../../shared/port/workflow/index.js';
 import type { ReviewExecutionCommand } from '../ReviewExecutionCommand.js';
 import type { MrGateway } from '../../../shared/port/gateway/index.js';
-import type { MrDiscussionGateway, MrComment } from '../../../shared/port/gateway/index.js';
+import type {
+  MrDiscussionGateway,
+  MrComment,
+  SuggestDiscussion,
+} from '../../../shared/port/gateway/index.js';
 import type { ProjectTreeGateway } from '../../../shared/port/gateway/index.js';
 import { MrContext } from '../../../../domain/review/mrContext/index.js';
 import { CheckItem } from '../../../../domain/review/checkItem/index.js';
@@ -67,6 +71,7 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
     commentLanguage: 'Japanese',
     openaiReasoningEffort: undefined,
     maxContextLength: undefined,
+    suggestEnabledRatingLabels: ['C'],
     ...overrides,
   };
 }
@@ -90,6 +95,7 @@ function createWorkflowResult(overrides?: Partial<ReviewWorkflowResult>): Review
         isError: false,
       },
     ],
+    suggestions: [],
     ...overrides,
   };
 }
@@ -406,6 +412,7 @@ describe('ReviewExecutionService', () => {
           errorMessage: 'AI processing timeout',
         },
       ],
+      suggestions: [],
     };
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
@@ -442,6 +449,7 @@ describe('ReviewExecutionService', () => {
           errorMessage: 'Timeout',
         },
       ],
+      suggestions: [],
     };
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
@@ -622,6 +630,7 @@ describe('ReviewExecutionService', () => {
           isError: false,
         },
       ],
+      suggestions: [],
     };
 
     vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
@@ -899,6 +908,7 @@ describe('ReviewExecutionService', () => {
             isError: false,
           },
         ],
+        suggestions: [],
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
@@ -1016,6 +1026,7 @@ describe('ReviewExecutionService', () => {
             errorMessage: 'Timeout again',
           },
         ],
+        suggestions: [],
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
@@ -1072,6 +1083,7 @@ describe('ReviewExecutionService', () => {
             isError: false,
           },
         ],
+        suggestions: [],
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
@@ -1170,6 +1182,7 @@ describe('ReviewExecutionService', () => {
             errorMessage: 'Timeout again',
           },
         ],
+        suggestions: [],
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
@@ -1235,6 +1248,7 @@ describe('ReviewExecutionService', () => {
             isError: false,
           },
         ],
+        suggestions: [],
       };
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
@@ -1337,6 +1351,376 @@ describe('ReviewExecutionService', () => {
         'テストカバレッジ',
         'コードの可読性',
       ]);
+    });
+  });
+
+  describe('suggest関連', () => {
+    it('getSuggestDiscussionsがexecute内で呼び出される', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      await service.execute(command);
+
+      expect(mrDiscussionGateway.getSuggestDiscussions).toHaveBeenCalledWith('project-1', '42');
+    });
+
+    it('activeSuggestsフィルタリング: hasChangedSinceNote=trueのものは除外される', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      const suggestDiscussions: SuggestDiscussion[] = [
+        {
+          discussionId: 'disc-1',
+          checkItemContent: 'コードの可読性',
+          filePath: 'src/app.ts',
+          originalCode: 'old code',
+          suggestedCode: 'new code',
+          hasChangedSinceNote: true, // 変更済み → 除外
+        },
+        {
+          discussionId: 'disc-2',
+          checkItemContent: 'テストカバレッジ',
+          filePath: 'src/test.ts',
+          originalCode: 'old test',
+          suggestedCode: 'new test',
+          hasChangedSinceNote: false, // 未変更 → アクティブ
+        },
+      ];
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      await service.execute(command);
+
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      // hasChangedSinceNote=falseかつチェックリストに含まれる項目のみがactiveSuggestsに残る
+      expect(runCall.activeSuggests).toHaveLength(1);
+      expect(runCall.activeSuggests![0].checkItemContent).toBe('テストカバレッジ');
+      expect(runCall.activeSuggests![0].filePath).toBe('src/test.ts');
+      expect(runCall.activeSuggests![0].originalCode).toBe('old test');
+      expect(runCall.activeSuggests![0].suggestedCode).toBe('new test');
+    });
+
+    it('activeSuggestsフィルタリング: 現在のチェックリストに含まれないcheckItemContentは除外される', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      const suggestDiscussions: SuggestDiscussion[] = [
+        {
+          discussionId: 'disc-1',
+          checkItemContent: '存在しない項目', // チェックリストに含まれない
+          filePath: 'src/app.ts',
+          originalCode: 'old code',
+          suggestedCode: 'new code',
+          hasChangedSinceNote: false,
+        },
+      ];
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      await service.execute(command);
+
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.activeSuggests).toHaveLength(0);
+    });
+
+    it('suggestsToResolve: hasChangedSinceNote=trueまたはチェックリストに含まれないものが対象になる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      const suggestDiscussions: SuggestDiscussion[] = [
+        {
+          discussionId: 'disc-1',
+          checkItemContent: 'コードの可読性',
+          filePath: 'src/app.ts',
+          originalCode: 'old code',
+          suggestedCode: 'new code',
+          hasChangedSinceNote: true, // 変更済み → resolve対象
+        },
+        {
+          discussionId: 'disc-2',
+          checkItemContent: 'テストカバレッジ',
+          filePath: 'src/test.ts',
+          originalCode: 'old test',
+          suggestedCode: 'new test',
+          hasChangedSinceNote: false, // 未変更かつチェックリストに含まれる → アクティブ
+        },
+        {
+          discussionId: 'disc-3',
+          checkItemContent: '削除された項目',
+          filePath: 'src/old.ts',
+          originalCode: 'deleted code',
+          suggestedCode: 'suggested code',
+          hasChangedSinceNote: false, // 未変更だがチェックリストに含まれない → resolve対象
+        },
+      ];
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      const result = await service.execute(command);
+
+      // suggestsToResolveのdiscussionIdが返却される
+      expect(result.suggestsToResolve).toEqual(['disc-1', 'disc-3']);
+    });
+
+    it('DtoにbaseSha, headSha, startShaが含まれる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext({
+        baseSha: 'test-base-sha',
+        headSha: 'test-head-sha',
+        startSha: 'test-start-sha',
+      });
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      const result = await service.execute(command);
+
+      expect(result.baseSha).toBe('test-base-sha');
+      expect(result.headSha).toBe('test-head-sha');
+      expect(result.startSha).toBe('test-start-sha');
+    });
+
+    it('Dtoにsuggestionsが空配列で含まれる（ワークフロー結果のsuggestionsが空の場合）', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult({ suggestions: [] });
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      const result = await service.execute(command);
+
+      expect(result.suggestions).toEqual([]);
+    });
+
+    it('ワークフローパラメータにsuggest関連フィールドが含まれる', async () => {
+      const command = createCommand({ suggestEnabledRatingLabels: ['B', 'C'] });
+      const mrContext = createMrContext({ diff: 'full diff content' });
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      await service.execute(command);
+
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.suggestEnabledRatingLabels).toEqual(['B', 'C']);
+      expect(runCall.activeSuggests).toEqual([]);
+      expect(runCall.suggestResultFilePath).toMatch(/aikata-suggest-/);
+      expect(runCall.fullMrDiff).toBe('full diff content');
+    });
+
+    it('suggestEnabledRatingLabelsが空配列の場合、activeSuggestsはnullになる', async () => {
+      const command = createCommand({ suggestEnabledRatingLabels: [] });
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      await service.execute(command);
+
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.suggestEnabledRatingLabels).toEqual([]);
+      expect(runCall.activeSuggests).toBeNull();
+    });
+
+    it('リトライ実行時もsuggest関連フィールドがワークフローパラメータに含まれる', async () => {
+      const ratings = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+        new Rating('C', '満たしていない'),
+      ];
+      const command = createCommand({ suggestEnabledRatingLabels: ['C'] });
+      const mrContext = createMrContext({ commitHash: 'same-hash', diff: 'full diff' });
+
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: '',
+            ratingDefinition: '',
+            comment: 'error',
+            isError: true,
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'OK',
+            isError: false,
+          },
+        ],
+        suggestions: [],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      await service.execute(command);
+
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.suggestEnabledRatingLabels).toEqual(['C']);
+      expect(runCall.fullMrDiff).toBe('full diff');
+      expect(runCall.suggestResultFilePath).toMatch(/aikata-suggest-/);
+    });
+
+    it('ワークフローがsuggestionsを返す場合、DtoのsuggestionsにResolvedSuggestionとして含まれる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'コードの可読性',
+            ratingLabel: 'C',
+            ratingDefinition: '満たしていない',
+            comment: '改善が必要',
+            isError: false,
+          },
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+            isError: false,
+          },
+        ],
+        suggestions: [
+          {
+            checkItemContent: 'コードの可読性',
+            filePath: 'src/app.ts',
+            originalCode: 'console.log(err)',
+            suggestedCode: 'logger.error(err)',
+            comment: 'loggerを使用してください',
+            newLine: 10,
+            linesAbove: 0,
+            linesBelow: 0,
+            oldPath: 'src/app.ts',
+            newPath: 'src/app.ts',
+          },
+        ],
+      };
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      const result = await service.execute(command);
+
+      expect(result.suggestions).toHaveLength(1);
+      expect(result.suggestions[0].suggestion.checkItemContent).toBe('コードの可読性');
+      expect(result.suggestions[0].suggestion.filePath).toBe('src/app.ts');
+      expect(result.suggestions[0].suggestion.originalCode).toBe('console.log(err)');
+      expect(result.suggestions[0].suggestion.suggestedCode).toBe('logger.error(err)');
+      expect(result.suggestions[0].suggestion.comment).toBe('loggerを使用してください');
+      expect(result.suggestions[0].newLine).toBe(10);
+      expect(result.suggestions[0].linesAbove).toBe(0);
+      expect(result.suggestions[0].linesBelow).toBe(0);
+      expect(result.suggestions[0].oldPath).toBe('src/app.ts');
+      expect(result.suggestions[0].newPath).toBe('src/app.ts');
+    });
+
+    it('リトライ実行時（全項目成功で再レビュー不要）もDtoにsuggest関連フィールドが含まれる', async () => {
+      const ratings = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+        new Rating('C', '満たしていない'),
+      ];
+      const command = createCommand();
+      const mrContext = createMrContext({
+        commitHash: 'same-hash',
+        baseSha: 'b-sha',
+        headSha: 'h-sha',
+        startSha: 's-sha',
+      });
+
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'OK',
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
+
+      const result = await service.execute(command);
+
+      // workflowは実行されない
+      expect(workflowRunner.run).not.toHaveBeenCalled();
+
+      // Dtoにsuggest関連フィールドが含まれる
+      expect(result.suggestions).toEqual([]);
+      expect(result.baseSha).toBe('b-sha');
+      expect(result.headSha).toBe('h-sha');
+      expect(result.startSha).toBe('s-sha');
+    });
+
+    it('suggestResultファイルのクリーンアップが実行される', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      await service.execute(command);
+
+      // suggestResultFilePathが一時ファイルとして生成されたことを確認（ワークフローパラメータから）
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
+      expect(runCall.suggestResultFilePath).toBeDefined();
+      expect(runCall.suggestResultFilePath).toContain('aikata-suggest-');
     });
   });
 });

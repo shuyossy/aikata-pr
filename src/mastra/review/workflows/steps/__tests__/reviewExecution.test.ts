@@ -84,6 +84,11 @@ function createTestRequestContext(
     ['allDiffFilePaths', null],
     ['diffCompressed', false],
     ['folderTreeRemovedByCompression', false],
+    ['suggestEnabledRatingLabels', []],
+    ['suggestResultFilePath', ''],
+    ['fullMrDiff', ''],
+    ['activeSuggests', null],
+    ['suggestionLineResolver', null],
   ]);
 }
 

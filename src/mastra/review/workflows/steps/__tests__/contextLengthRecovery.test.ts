@@ -120,6 +120,15 @@ function createTestRequestContext(
     ['skillsPaths', []],
     ['folderTree', 'src/'],
     ['openaiReasoningEffort', undefined],
+    ['omittedFileDiffs', null],
+    ['allDiffFilePaths', null],
+    ['diffCompressed', false],
+    ['folderTreeRemovedByCompression', false],
+    ['suggestEnabledRatingLabels', []],
+    ['suggestResultFilePath', ''],
+    ['fullMrDiff', ''],
+    ['activeSuggests', null],
+    ['suggestionLineResolver', null],
   ]);
 }
 

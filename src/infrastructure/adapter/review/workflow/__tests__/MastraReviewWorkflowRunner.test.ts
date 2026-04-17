@@ -6,7 +6,7 @@ import { MastraReviewWorkflowRunner } from '../MastraReviewWorkflowRunner.js';
 const { mockStart, mockGetWorkflow } = vi.hoisted(() => {
   const mockStart = vi.fn().mockResolvedValue({
     status: 'success',
-    result: { results: [] },
+    result: { results: [], suggestions: [] },
   });
   const mockCreateRun = vi.fn().mockResolvedValue({ start: mockStart });
   const mockGetWorkflow = vi.fn().mockReturnValue({ createRun: mockCreateRun });
@@ -57,6 +57,10 @@ function createParams(overrides?: Partial<ReviewWorkflowParams>): ReviewWorkflow
     allDiffFilePaths: null,
     diffCompressed: false,
     folderTreeRemovedByCompression: false,
+    suggestEnabledRatingLabels: ['C'],
+    activeSuggests: null,
+    suggestResultFilePath: '/tmp/suggest-result.json',
+    fullMrDiff: '+ added line',
     ...overrides,
   };
 }
@@ -136,6 +140,12 @@ describe('MastraReviewWorkflowRunner', () => {
     expect(inputData).not.toHaveProperty('aiModelName');
     expect(inputData).not.toHaveProperty('projectDir');
     expect(inputData).not.toHaveProperty('openaiReasoningEffort');
+
+    // suggest関連フィールドがInputDataに含まれること
+    expect(inputData.suggestEnabledRatingLabels).toEqual(['C']);
+    expect(inputData.activeSuggests).toBeNull();
+    expect(inputData.suggestResultFilePath).toBe('/tmp/suggest-result.json');
+    expect(inputData.fullMrDiff).toBe('+ added line');
   });
 
   it('openaiReasoningEffort指定時にRequestContextに含まれること', async () => {

@@ -6,6 +6,7 @@ export interface SuggestDiscussion {
   discussionId: string;
   checkItemContent: string;
   filePath: string;
+  originalCode: string;
   suggestedCode: string;
   hasChangedSinceNote: boolean;
 }

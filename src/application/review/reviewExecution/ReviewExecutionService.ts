@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { MrGateway } from '../../shared/port/gateway/index.js';
 import type { MrDiscussionGateway } from '../../shared/port/gateway/index.js';
 import type { ProjectTreeGateway } from '../../shared/port/gateway/index.js';
+import type { SuggestDiscussion } from '../../shared/port/gateway/index.js';
 import type {
   ReviewWorkflowParams,
   ReviewWorkflowResult,
@@ -14,6 +15,8 @@ import type { ReviewExecutionCommand } from './ReviewExecutionCommand.js';
 import type { ReviewExecutionDto } from './ReviewExecutionDto.js';
 import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
 import { Rating } from '../../../domain/review/rating/index.js';
+import { Suggestion } from '../../../domain/review/suggestion/index.js';
+import { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
 import type { MrContext } from '../../../domain/review/mrContext/index.js';
 import { compressDiffIfNeeded } from '../../shared/diffCompression/index.js';
 import type { TokenCounter } from '../../shared/port/tokenCounter/index.js';
@@ -35,6 +38,20 @@ interface PriorContext {
 }
 
 /**
+ * suggest関連のコンテキスト
+ */
+interface SuggestContext {
+  activeSuggests: Array<{
+    checkItemContent: string;
+    filePath: string;
+    originalCode: string;
+    suggestedCode: string;
+    comment: string;
+  }> | null;
+  suggestsToResolveIds: string[];
+}
+
+/**
  * AIレビュー実行専用サービス
  * MRコンテキスト取得→Workflow実行→レビュー結果返却を担当する
  * コメント投稿や品質ゲート評価は含まない
@@ -49,11 +66,15 @@ export class ReviewExecutionService {
   ) {}
 
   async execute(command: ReviewExecutionCommand): Promise<ReviewExecutionDto> {
-    const [mrContext, comments, folderTree] = await Promise.all([
+    const [mrContext, comments, suggestDiscussions, folderTree] = await Promise.all([
       this.mrGateway.getMrContext(command.projectId, command.mrIid),
       this.mrDiscussionGateway.getReviewDiscussions(command.projectId, command.mrIid),
+      this.mrDiscussionGateway.getSuggestDiscussions(command.projectId, command.mrIid),
       this.projectTreeGateway.getTree(command.projectDir, { maxDepth: command.treeMaxDepth }),
     ]);
+
+    // suggest関連のコンテキストを構築
+    const suggestContext = this.buildSuggestContext(command, suggestDiscussions);
 
     const priorContext = await this.buildPriorContext(command, comments, mrContext.commitHash);
 
@@ -63,9 +84,9 @@ export class ReviewExecutionService {
       priorContext.priorCommitHash === mrContext.commitHash;
 
     if (isRetry) {
-      return this.executeRetryReview(command, mrContext, priorContext, folderTree);
+      return this.executeRetryReview(command, mrContext, priorContext, folderTree, suggestContext);
     }
-    return this.executeFullReview(command, mrContext, priorContext, folderTree);
+    return this.executeFullReview(command, mrContext, priorContext, folderTree, suggestContext);
   }
 
   /**
@@ -76,10 +97,15 @@ export class ReviewExecutionService {
     mrContext: MrContext,
     priorContext: PriorContext,
     folderTree: string,
+    suggestContext: SuggestContext,
   ): Promise<ReviewExecutionDto> {
     const resultFilePath = join(
       os.tmpdir(),
       `aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
+    );
+    const suggestResultFilePath = join(
+      os.tmpdir(),
+      `aikata-suggest-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
     );
 
     // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
@@ -93,6 +119,8 @@ export class ReviewExecutionService {
           mrContext,
           compression.effectiveFolderTree,
           resultFilePath,
+          suggestResultFilePath,
+          suggestContext,
         ),
         mrDiff: compression.effectiveDiff,
         priorReviewResults: priorContext.priorReviewResults,
@@ -105,14 +133,21 @@ export class ReviewExecutionService {
       });
 
       const results = this.convertToReviewResults(workflowResult, command);
+      const suggestions = this.convertToResolvedSuggestions(workflowResult);
 
       return {
         results,
         commitHash: mrContext.commitHash,
         commitMessage: mrContext.commitMessage,
+        suggestions,
+        suggestsToResolve: suggestContext.suggestsToResolveIds,
+        baseSha: mrContext.baseSha,
+        headSha: mrContext.headSha,
+        startSha: mrContext.startSha,
       };
     } finally {
       this.cleanupTempFiles(resultFilePath);
+      this.cleanupTempFiles(suggestResultFilePath);
     }
   }
 
@@ -125,6 +160,7 @@ export class ReviewExecutionService {
     mrContext: MrContext,
     priorContext: PriorContext,
     folderTree: string,
+    suggestContext: SuggestContext,
   ): Promise<ReviewExecutionDto> {
     // 前回成功結果をReviewResult[]に変換（保持する）
     const keptResults = (priorContext.priorReviewResults ?? []).map((r) => {
@@ -149,6 +185,11 @@ export class ReviewExecutionService {
         results: keptResults,
         commitHash: mrContext.commitHash,
         commitMessage: mrContext.commitMessage,
+        suggestions: [],
+        suggestsToResolve: suggestContext.suggestsToResolveIds,
+        baseSha: mrContext.baseSha,
+        headSha: mrContext.headSha,
+        startSha: mrContext.startSha,
       };
     }
 
@@ -156,6 +197,10 @@ export class ReviewExecutionService {
     const resultFilePath = join(
       os.tmpdir(),
       `aikata-review-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
+    );
+    const suggestResultFilePath = join(
+      os.tmpdir(),
+      `aikata-suggest-${command.projectId}-${command.mrIid}-${Date.now()}.json`,
     );
 
     // diff圧縮（MAX_CONTEXT_LENGTH指定時のみ）
@@ -169,6 +214,8 @@ export class ReviewExecutionService {
           mrContext,
           compression.effectiveFolderTree,
           resultFilePath,
+          suggestResultFilePath,
+          suggestContext,
         ),
         mrDiff: compression.effectiveDiff,
         // リトライ時はprior context不要（同じdiff）
@@ -182,6 +229,7 @@ export class ReviewExecutionService {
       });
 
       const newResults = this.convertToReviewResults(workflowResult, command);
+      const suggestions = this.convertToResolvedSuggestions(workflowResult);
 
       // マージ（チェックリスト順）
       const mergedResults = command.checklist.items.map((item) => {
@@ -196,9 +244,15 @@ export class ReviewExecutionService {
         results: mergedResults,
         commitHash: mrContext.commitHash,
         commitMessage: mrContext.commitMessage,
+        suggestions,
+        suggestsToResolve: suggestContext.suggestsToResolveIds,
+        baseSha: mrContext.baseSha,
+        headSha: mrContext.headSha,
+        startSha: mrContext.startSha,
       };
     } finally {
       this.cleanupTempFiles(resultFilePath);
+      this.cleanupTempFiles(suggestResultFilePath);
     }
   }
 
@@ -212,6 +266,8 @@ export class ReviewExecutionService {
     mrContext: MrContext,
     folderTree: string,
     resultFilePath: string,
+    suggestResultFilePath: string,
+    suggestContext: SuggestContext,
   ): Omit<
     ReviewWorkflowParams,
     | 'checkItemContents'
@@ -248,6 +304,10 @@ export class ReviewExecutionService {
       folderTree,
       commentLanguage: command.commentLanguage,
       openaiReasoningEffort: command.openaiReasoningEffort,
+      suggestEnabledRatingLabels: command.suggestEnabledRatingLabels,
+      activeSuggests: suggestContext.activeSuggests,
+      suggestResultFilePath,
+      fullMrDiff: mrContext.diff,
     };
   }
 
@@ -443,6 +503,70 @@ export class ReviewExecutionService {
         r.comment,
       );
     });
+  }
+
+  /**
+   * suggest関連のコンテキストを構築する
+   * suggestEnabledRatingLabelsが空の場合はsuggest無効としてactiveSuggestsをnullにする
+   */
+  private buildSuggestContext(
+    command: ReviewExecutionCommand,
+    suggestDiscussions: SuggestDiscussion[],
+  ): SuggestContext {
+    // suggest無効の場合
+    if (command.suggestEnabledRatingLabels.length === 0) {
+      return {
+        activeSuggests: null,
+        suggestsToResolveIds: suggestDiscussions.map((s) => s.discussionId),
+      };
+    }
+
+    const currentCheckItemContents = command.checklist.items.map((i) => i.content);
+
+    // アクティブなsuggest: hasChangedSinceNote=falseかつ現在のチェックリストに含まれる
+    const activeSuggests = suggestDiscussions.filter(
+      (s) => !s.hasChangedSinceNote && currentCheckItemContents.includes(s.checkItemContent),
+    );
+
+    // resolve対象: アクティブでないもの
+    const activeIds = new Set(activeSuggests.map((s) => s.discussionId));
+    const suggestsToResolveIds = suggestDiscussions
+      .filter((s) => !activeIds.has(s.discussionId))
+      .map((s) => s.discussionId);
+
+    return {
+      activeSuggests: activeSuggests.map((s) => ({
+        checkItemContent: s.checkItemContent,
+        filePath: s.filePath,
+        originalCode: s.originalCode,
+        suggestedCode: s.suggestedCode,
+        comment: '', // SuggestDiscussionにはcommentフィールドがないため空文字
+      })),
+      suggestsToResolveIds,
+    };
+  }
+
+  /**
+   * ワークフロー結果のsuggestionsをResolvedSuggestionに変換する
+   */
+  private convertToResolvedSuggestions(workflowResult: ReviewWorkflowResult): ResolvedSuggestion[] {
+    return workflowResult.suggestions.map(
+      (s) =>
+        new ResolvedSuggestion({
+          suggestion: new Suggestion({
+            checkItemContent: s.checkItemContent,
+            filePath: s.filePath,
+            originalCode: s.originalCode,
+            suggestedCode: s.suggestedCode,
+            comment: s.comment,
+          }),
+          newLine: s.newLine,
+          linesAbove: s.linesAbove,
+          linesBelow: s.linesBelow,
+          oldPath: s.oldPath,
+          newPath: s.newPath,
+        }),
+    );
   }
 
   /**

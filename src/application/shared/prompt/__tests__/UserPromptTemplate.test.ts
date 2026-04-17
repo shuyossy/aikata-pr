@@ -143,4 +143,111 @@ describe('buildUserPromptTemplate', () => {
 
     expect(result).not.toContain('Project Folder Tree');
   });
+
+  it('activeSuggestsがある場合、Active Suggestionsセクションが含まれる', () => {
+    const params = createTestParams({
+      activeSuggests: [
+        {
+          checkItemContent: 'security check',
+          filePath: 'src/auth.ts',
+          originalCode: 'const password = input;',
+          suggestedCode: 'const password = sanitize(input);',
+          comment: 'Input should be sanitized',
+        },
+      ],
+    });
+
+    const result = buildUserPromptTemplate(params);
+
+    expect(result).toContain('Active Suggestions from Prior Reviews');
+    expect(result).toContain('src/auth.ts');
+    expect(result).toContain('security check');
+    expect(result).toContain('const password = input;');
+    expect(result).toContain('const password = sanitize(input);');
+    expect(result).toContain('Do NOT generate suggestions with the same filePath and originalCode');
+  });
+
+  it('activeSuggestsがnullの場合、Active Suggestionsセクションが含まれない', () => {
+    const params = createTestParams({
+      activeSuggests: null,
+    });
+
+    const result = buildUserPromptTemplate(params);
+
+    expect(result).not.toContain('Active Suggestions from Prior Reviews');
+  });
+
+  it('activeSuggestsが空配列の場合、Active Suggestionsセクションが含まれない', () => {
+    const params = createTestParams({
+      activeSuggests: [],
+    });
+
+    const result = buildUserPromptTemplate(params);
+
+    expect(result).not.toContain('Active Suggestions from Prior Reviews');
+  });
+
+  it('activeSuggestsが未指定(undefined)の場合、Active Suggestionsセクションが含まれない', () => {
+    const params = createTestParams();
+    // activeSuggestsプロパティを指定しない
+
+    const result = buildUserPromptTemplate(params);
+
+    expect(result).not.toContain('Active Suggestions from Prior Reviews');
+  });
+
+  it('複数のactiveSuggestsがある場合、全てが含まれる', () => {
+    const params = createTestParams({
+      activeSuggests: [
+        {
+          checkItemContent: 'check1',
+          filePath: 'src/a.ts',
+          originalCode: 'code1',
+          suggestedCode: 'fix1',
+          comment: 'comment1',
+        },
+        {
+          checkItemContent: 'check2',
+          filePath: 'src/b.ts',
+          originalCode: 'code2',
+          suggestedCode: 'fix2',
+          comment: 'comment2',
+        },
+      ],
+    });
+
+    const result = buildUserPromptTemplate(params);
+
+    expect(result).toContain('src/a.ts');
+    expect(result).toContain('src/b.ts');
+    expect(result).toContain('code1');
+    expect(result).toContain('code2');
+  });
+
+  it('activeSuggestsセクションはpriorReviewセクションの後に配置される', () => {
+    const params = createTestParams({
+      priorReviewContext: {
+        results: [{ checkItemContent: 'check1', ratingLabel: 'B', comment: 'ok' }],
+        commitMessages: ['fix: something'],
+        diffSincePrior: '+ new line',
+      },
+      activeSuggests: [
+        {
+          checkItemContent: 'check1',
+          filePath: 'src/a.ts',
+          originalCode: 'code1',
+          suggestedCode: 'fix1',
+          comment: 'comment1',
+        },
+      ],
+    });
+
+    const result = buildUserPromptTemplate(params);
+
+    const priorIndex = result.indexOf('Prior Review Context');
+    const suggestsIndex = result.indexOf('Active Suggestions from Prior Reviews');
+    expect(priorIndex).toBeGreaterThan(-1);
+    expect(suggestsIndex).toBeGreaterThan(-1);
+    expect(suggestsIndex).toBeGreaterThan(priorIndex);
+  });
 });

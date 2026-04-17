@@ -88,6 +88,7 @@ export function buildApiReviewRequest(
         definition: r.definition,
       })),
       hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
+      suggestEnabledRatingLabels: reviewSettings.suggestEnabledRatingLabels,
       qualityGate: {
         failureCriteria: reviewSettings.qualityGate.failureCriteria.map((c) => ({
           ratingLabel: c.ratingLabel,
@@ -132,5 +133,6 @@ export function buildLocalReviewCommand(
     commentLanguage: options.commentLanguage,
     openaiReasoningEffort,
     maxContextLength,
+    suggestEnabledRatingLabels: reviewSettings.suggestEnabledRatingLabels,
   };
 }

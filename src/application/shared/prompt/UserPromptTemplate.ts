@@ -12,6 +12,14 @@ export interface PriorReviewInfo {
   diffSincePrior: string;
 }
 
+export interface ActiveSuggestInfo {
+  checkItemContent: string;
+  filePath: string;
+  originalCode: string;
+  suggestedCode: string;
+  comment: string;
+}
+
 export interface UserPromptParams {
   mrTitle: string;
   mrDescription: string;
@@ -21,6 +29,7 @@ export interface UserPromptParams {
   folderTree: string;
   priorReviewContext: PriorReviewInfo | null;
   checkItemCount: number;
+  activeSuggests?: ActiveSuggestInfo[] | null;
 }
 
 export function buildUserPromptTemplate(params: UserPromptParams): string {
@@ -62,6 +71,26 @@ ${params.folderTree}
 `
     : '';
 
+  let activeSuggestsSection = '';
+  if (params.activeSuggests && params.activeSuggests.length > 0) {
+    const suggestList = params.activeSuggests
+      .map(
+        (s) =>
+          `- File: ${s.filePath}\n  Check Item: ${s.checkItemContent}\n  Original Code:\n  \`\`\`\n${s.originalCode}\n  \`\`\`\n  Suggested Code:\n  \`\`\`\n${s.suggestedCode}\n  \`\`\``,
+      )
+      .join('\n\n');
+
+    activeSuggestsSection = `
+## Active Suggestions from Prior Reviews
+
+The following suggestions from prior reviews are still active.
+Do NOT generate suggestions with the same filePath and originalCode.
+
+${suggestList}
+
+`;
+  }
+
   return `## Merge Request Information
 
 - Title: ${params.mrTitle}
@@ -74,8 +103,7 @@ ${folderTreeSection}
 \`\`\`
 ${params.mrDiff}
 \`\`\`
-${priorReviewSection}
----
+${priorReviewSection}${activeSuggestsSection}---
 
 Review all ${params.checkItemCount} check items following the reasoning framework in your instructions. Store each result using the storeReviewResult tool.`;
 }

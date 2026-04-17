@@ -108,4 +108,22 @@ export class GitLabApiClient {
     }
     return response.json() as Promise<T>;
   }
+
+  /**
+   * PUTリクエストを送信する
+   */
+  async put<T>(path: string, body: unknown): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'PUT',
+      headers: {
+        'PRIVATE-TOKEN': this.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+    }
+    return response.json() as Promise<T>;
+  }
 }

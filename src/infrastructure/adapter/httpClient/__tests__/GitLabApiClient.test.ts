@@ -234,6 +234,43 @@ describe('GitLabApiClient', () => {
     });
   });
 
+  describe('put', () => {
+    it('PUTリクエストでbodyがJSON送信される', async () => {
+      const requestBody = { resolved: true };
+      const responseData = { id: 'disc-1', resolved: true };
+      mockFetch.mockResolvedValueOnce(createOkResponse(responseData));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      const result = await client.put(
+        '/projects/1/merge_requests/1/discussions/disc-1',
+        requestBody,
+      );
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://gitlab.example.com/api/v4/projects/1/merge_requests/1/discussions/disc-1',
+        {
+          method: 'PUT',
+          headers: {
+            'PRIVATE-TOKEN': 'test-token',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        },
+      );
+      expect(result).toEqual(responseData);
+    });
+
+    it('PUTリクエストでHTTPエラーの場合、エラーがスローされる', async () => {
+      mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+      await expect(
+        client.put('/projects/1/merge_requests/1/discussions/disc-1', { resolved: true }),
+      ).rejects.toThrow('GitLab API error: 500 Internal Server Error');
+    });
+  });
+
   describe('getAll', () => {
     // ヘルパー: ページネーション付きレスポンスを生成
     const createPageResponse = (body: unknown, nextUrl?: string) => ({

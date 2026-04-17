@@ -36,6 +36,16 @@ export interface ReviewWorkflowParams {
   allDiffFilePaths: string[] | null;
   diffCompressed: boolean;
   folderTreeRemovedByCompression: boolean;
+  suggestEnabledRatingLabels: string[];
+  activeSuggests: Array<{
+    checkItemContent: string;
+    filePath: string;
+    originalCode: string;
+    suggestedCode: string;
+    comment: string;
+  }> | null;
+  suggestResultFilePath: string;
+  fullMrDiff: string;
 }
 
 /**
@@ -49,6 +59,18 @@ export interface ReviewWorkflowResult {
     comment: string;
     isError: boolean;
     errorMessage?: string;
+  }>;
+  suggestions: Array<{
+    checkItemContent: string;
+    filePath: string;
+    originalCode: string;
+    suggestedCode: string;
+    comment: string;
+    newLine: number;
+    linesAbove: number;
+    linesBelow: number;
+    oldPath: string;
+    newPath: string;
   }>;
 }
 

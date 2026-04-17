@@ -1,4 +1,5 @@
 import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
+import type { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
 
 /**
  * ReviewExecutionServiceの出力DTO
@@ -8,4 +9,9 @@ export interface ReviewExecutionDto {
   results: ReviewResult[];
   commitHash: string;
   commitMessage: string;
+  suggestions: ResolvedSuggestion[];
+  suggestsToResolve: string[];
+  baseSha: string;
+  headSha: string;
+  startSha: string;
 }

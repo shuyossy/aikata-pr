@@ -14,6 +14,7 @@ export interface ReviewApiRequest {
     commentFormat?: string;
     ratings?: Array<{ label: string; definition: string }>;
     hiddenRatingLabels?: string[];
+    suggestEnabledRatingLabels?: string[];
     qualityGate?: {
       failureCriteria?: Array<{ ratingLabel: string; threshold: number }>;
     };
@@ -39,6 +40,27 @@ export interface ReviewApiResponse {
   }>;
   commitHash: string;
   commitMessage: string;
+  /** 変更提案一覧（APIサーバーからの応答に含まれる） */
+  suggestions: Array<{
+    checkItemContent: string;
+    filePath: string;
+    originalCode: string;
+    suggestedCode: string;
+    comment: string;
+    newLine: number;
+    linesAbove: number;
+    linesBelow: number;
+    oldPath: string;
+    newPath: string;
+  }>;
+  /** 解決すべき旧suggestディスカッションID */
+  suggestDiscussionIdsToResolve: string[];
+  /** MRのdiff_refs.base_sha */
+  baseSha: string;
+  /** MRのdiff_refs.head_sha */
+  headSha: string;
+  /** MRのdiff_refs.start_sha */
+  startSha: string;
 }
 
 /**

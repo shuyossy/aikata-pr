@@ -4,7 +4,13 @@ import type {
   SuggestDiscussion,
   DiffPosition,
 } from '../../../../application/shared/port/gateway/index.js';
+import { SuggestCommentParser } from '../../../../application/shared/comment/SuggestCommentParser.js';
 import type { GitLabApiClient } from '../../httpClient/index.js';
+
+/**
+ * system noteに含まれる「diff変更済み」を示すキーワード
+ */
+const CHANGED_KEYWORDS = ['changed this line', 'changed this', 'compare changes'];
 
 /**
  * GitLab APIから返却されるノート情報の型定義
@@ -13,6 +19,7 @@ interface GitLabNote {
   id: number;
   body: string;
   created_at: string;
+  system: boolean;
 }
 
 /**
@@ -68,42 +75,84 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
 
   /**
    * MRのAIKATA-PRによるsuggest discussion一覧を取得する
-   * 実装はTask 7で行う
+   * suggestマーカー付きのディスカッションのみを抽出し、メタデータをパースして返す
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async getSuggestDiscussions(projectId: string, mrIid: string): Promise<SuggestDiscussion[]> {
-    return [];
+    const discussions = await this.client.getAll<GitLabDiscussion>(
+      `/projects/${projectId}/merge_requests/${mrIid}/discussions`,
+    );
+
+    const results: SuggestDiscussion[] = [];
+
+    for (const discussion of discussions) {
+      if (discussion.notes.length === 0) {
+        continue;
+      }
+
+      const firstNote = discussion.notes[0];
+
+      // SuggestCommentParserでメタデータを抽出（マーカー判定含む）
+      const suggestData = SuggestCommentParser.parse(firstNote.body);
+      if (!suggestData) {
+        continue;
+      }
+
+      // system noteに変更キーワードが含まれているか確認
+      const hasChangedSinceNote = this.hasChangedSystemNote(discussion.notes);
+
+      results.push({
+        discussionId: discussion.id,
+        checkItemContent: suggestData.checkItemContent,
+        filePath: suggestData.filePath,
+        originalCode: suggestData.originalCode,
+        suggestedCode: suggestData.suggestedCode,
+        hasChangedSinceNote,
+      });
+    }
+
+    return results;
   }
 
   /**
    * MRにsuggest用のdiff discussionを投稿する
-   * 実装はTask 7で行う
    */
   async postSuggestDiscussion(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     projectId: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     mrIid: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     body: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     position: DiffPosition,
   ): Promise<void> {
-    // 実装はTask 7で行う
+    await this.client.post(`/projects/${projectId}/merge_requests/${mrIid}/discussions`, {
+      body,
+      position: {
+        position_type: 'text',
+        base_sha: position.baseSha,
+        head_sha: position.headSha,
+        start_sha: position.startSha,
+        old_path: position.oldPath,
+        new_path: position.newPath,
+        new_line: position.newLine,
+      },
+    });
   }
 
   /**
    * MRのディスカッションをresolveする
-   * 実装はTask 7で行う
    */
-  async resolveDiscussion(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    projectId: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    mrIid: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    discussionId: string,
-  ): Promise<void> {
-    // 実装はTask 7で行う
+  async resolveDiscussion(projectId: string, mrIid: string, discussionId: string): Promise<void> {
+    await this.client.put(
+      `/projects/${projectId}/merge_requests/${mrIid}/discussions/${discussionId}`,
+      { resolved: true },
+    );
+  }
+
+  /**
+   * ディスカッション内のnote群にdiff変更を示すsystem noteが含まれるか判定する
+   */
+  private hasChangedSystemNote(notes: GitLabNote[]): boolean {
+    return notes.some(
+      (note) =>
+        note.system === true && CHANGED_KEYWORDS.some((keyword) => note.body.includes(keyword)),
+    );
   }
 }

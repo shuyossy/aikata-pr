@@ -59,6 +59,11 @@ function createDefaultReviewResult(): ReviewExecutionDto {
     ],
     commitHash: 'abc123',
     commitMessage: 'Test commit',
+    suggestions: [],
+    suggestsToResolve: [],
+    baseSha: 'base-sha',
+    headSha: 'head-sha',
+    startSha: 'start-sha',
   };
 }
 
@@ -609,6 +614,11 @@ describe('reviewRoute', () => {
             results: [ReviewResult.error(new CheckItem('Check item 1'), 'AI error occurred')],
             commitHash: 'abc123',
             commitMessage: 'Test commit',
+            suggestions: [],
+            suggestsToResolve: [],
+            baseSha: 'base-sha',
+            headSha: 'head-sha',
+            startSha: 'start-sha',
           }),
         },
       });
@@ -924,6 +934,11 @@ describe('reviewRoute', () => {
             ],
             commitHash: 'abc123',
             commitMessage: 'Test commit',
+            suggestions: [],
+            suggestsToResolve: [],
+            baseSha: 'base-sha',
+            headSha: 'head-sha',
+            startSha: 'start-sha',
           }),
         },
       });

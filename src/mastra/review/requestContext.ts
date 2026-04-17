@@ -1,6 +1,7 @@
 import type { WorkflowRequestContext } from '../shared/requestContext.js';
 import type { IndexedCheckItem } from './indexedCheckItem.js';
 import type { PendingImageData } from './tools/readImage.js';
+import type { SuggestionLineResolver } from '../../application/shared/port/suggestion/index.js';
 
 /**
  * ChecklistSplitAgent用RequestContext型（モデル設定のみ）
@@ -38,6 +39,22 @@ export interface ReviewAgentRequestContext extends WorkflowRequestContext {
   diffCompressed: boolean;
   /** フォルダツリーのファイルが除去されたかどうか（systemプロンプトへの指示追加用） */
   folderTreeRemovedByCompression: boolean;
+  /** suggest有効対象の評定ラベル配列（空配列の場合はsuggest無効） */
+  suggestEnabledRatingLabels: string[];
+  /** suggest結果ファイルパス */
+  suggestResultFilePath: string;
+  /** MRの完全なdiff（suggest行番号解決用） */
+  fullMrDiff: string;
+  /** 以前のレビューで有効なsuggest一覧 */
+  activeSuggests: Array<{
+    checkItemContent: string;
+    filePath: string;
+    originalCode: string;
+    suggestedCode: string;
+    comment: string;
+  }> | null;
+  /** diff解析によるsuggest行番号リゾルバ */
+  suggestionLineResolver: SuggestionLineResolver | null;
 }
 
 /**

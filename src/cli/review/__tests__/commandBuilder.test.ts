@@ -297,6 +297,40 @@ describe('buildApiReviewRequest', () => {
     expect(result.options?.skillsPaths).toEqual(['/my/skills.yaml']);
   });
 
+  it('suggestEnabledRatingLabelsがReviewSettingsからAPIリクエストに設定されること', () => {
+    const validated = {
+      userId: 'u',
+      projectId: 'p',
+      mrIid: '1',
+      gitlabToken: 't',
+      checklistPath: '/c',
+    };
+    const checklist = createChecklist();
+    const reviewSettings = createReviewSettings({ suggestEnabledRatingLabels: ['B', 'C'] });
+    const options = createCliOptions();
+
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
+
+    expect(result.reviewSettings?.suggestEnabledRatingLabels).toEqual(['B', 'C']);
+  });
+
+  it('suggestEnabledRatingLabelsが空配列の場合そのまま空配列でAPIリクエストに設定されること', () => {
+    const validated = {
+      userId: 'u',
+      projectId: 'p',
+      mrIid: '1',
+      gitlabToken: 't',
+      checklistPath: '/c',
+    };
+    const checklist = createChecklist();
+    const reviewSettings = createReviewSettings({ suggestEnabledRatingLabels: [] });
+    const options = createCliOptions();
+
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
+
+    expect(result.reviewSettings?.suggestEnabledRatingLabels).toEqual([]);
+  });
+
   it('userIdがvalidated由来でAPIリクエストに設定されること', () => {
     const validated = {
       userId: 'alice',
@@ -360,6 +394,7 @@ describe('buildLocalReviewCommand', () => {
     expect(result.commentLanguage).toBe('English');
     expect(result.openaiReasoningEffort).toBe('high');
     expect(result.maxContextLength).toBe(50000);
+    expect(result.suggestEnabledRatingLabels).toEqual(['C']);
   });
 
   it('treeMaxDepth未指定時にundefinedとなること', () => {
@@ -438,6 +473,60 @@ describe('buildLocalReviewCommand', () => {
     );
 
     expect(result.skillsPaths).toEqual([]);
+  });
+
+  it('suggestEnabledRatingLabelsがreviewSettingsから正しく設定されること', () => {
+    const validated = {
+      userId: 'u',
+      projectId: 'p',
+      mrIid: '1',
+      gitlabToken: 't',
+      checklistPath: '/c',
+      aiApiKey: 'k',
+      aiApiEndpointUrl: 'https://e',
+      aiModelName: 'm',
+    };
+    const reviewSettings = createReviewSettings({ suggestEnabledRatingLabels: ['B', 'C'] });
+
+    const result = buildLocalReviewCommand(
+      validated,
+      createChecklist(),
+      reviewSettings,
+      createCliOptions(),
+      '/dir',
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    expect(result.suggestEnabledRatingLabels).toEqual(['B', 'C']);
+  });
+
+  it('suggestEnabledRatingLabelsが空配列の場合そのまま空配列となること', () => {
+    const validated = {
+      userId: 'u',
+      projectId: 'p',
+      mrIid: '1',
+      gitlabToken: 't',
+      checklistPath: '/c',
+      aiApiKey: 'k',
+      aiApiEndpointUrl: 'https://e',
+      aiModelName: 'm',
+    };
+    const reviewSettings = createReviewSettings({ suggestEnabledRatingLabels: [] });
+
+    const result = buildLocalReviewCommand(
+      validated,
+      createChecklist(),
+      reviewSettings,
+      createCliOptions(),
+      '/dir',
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    expect(result.suggestEnabledRatingLabels).toEqual([]);
   });
 
   it('openaiReasoningEffort未指定時にundefinedとなること', () => {

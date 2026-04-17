@@ -45,6 +45,11 @@ function createTestContext(
     allDiffFilePaths: null,
     diffCompressed: false,
     folderTreeRemovedByCompression: false,
+    suggestEnabledRatingLabels: [],
+    suggestResultFilePath: '',
+    fullMrDiff: '',
+    activeSuggests: null,
+    suggestionLineResolver: null,
     ...overrides,
   };
 }
@@ -83,6 +88,11 @@ function createTestRequestContext(
     ['allDiffFilePaths', ctx.allDiffFilePaths],
     ['diffCompressed', ctx.diffCompressed],
     ['folderTreeRemovedByCompression', ctx.folderTreeRemovedByCompression],
+    ['suggestEnabledRatingLabels', ctx.suggestEnabledRatingLabels],
+    ['suggestResultFilePath', ctx.suggestResultFilePath],
+    ['fullMrDiff', ctx.fullMrDiff],
+    ['activeSuggests', ctx.activeSuggests],
+    ['suggestionLineResolver', ctx.suggestionLineResolver],
   ]);
 }
 
@@ -344,6 +354,79 @@ describe('buildInstructions', () => {
 
     expect(result).not.toContain('Diff Compression Notice');
   });
+
+  it('suggestEnabledRatingLabelsが非空の場合、冒頭にsuggest役割が含まれる', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: ['C', 'D'],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('for check items rated [C, D]');
+    expect(result).toContain('storeSuggest tool');
+  });
+
+  it('suggestEnabledRatingLabelsが空の場合、suggest関連セクションが含まれない', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: [],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).not.toContain('Code Suggestion Guidelines');
+    expect(result).not.toContain('Suggestion Tools');
+    expect(result).not.toContain('storeSuggest');
+    expect(result).not.toContain('getSuggests');
+  });
+
+  it('suggest有効時にCode Suggestion Guidelinesセクションが含まれる', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: ['C'],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('## Code Suggestion Guidelines');
+    expect(result).toContain('storeSuggest tool');
+    expect(result).toContain('originalCode must exactly match');
+    expect(result).toContain('Do NOT duplicate suggestions');
+  });
+
+  it('suggest有効時にSuggestion Toolsセクションが含まれる', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: ['C'],
+      commentLanguage: 'English',
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('### Suggestion Tools');
+    expect(result).toContain('storeSuggest:');
+    expect(result).toContain('getSuggests:');
+    expect(result).toContain('explanation in English');
+  });
+
+  it('suggest有効時にCompletion Requirementsにsuggest手順が追加される', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: ['C'],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('4. After storing all review results, generate suggestions');
+    expect(result).toContain('5. Call getSuggests to verify');
+  });
+
+  it('suggest無効時にCompletion Requirementsにsuggest手順が含まれない', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: [],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).not.toContain('4. After storing all review results');
+    expect(result).not.toContain('5. Call getSuggests');
+  });
 });
 
 describe('buildUserPrompt', () => {
@@ -382,6 +465,49 @@ describe('buildUserPrompt', () => {
     const result = buildUserPrompt(requestContext);
 
     expect(result).not.toContain('/tmp/test-results.json');
+  });
+
+  it('activeSuggestsがある場合、Active Suggestionsセクションが含まれる', () => {
+    const requestContext = createTestRequestContext({
+      activeSuggests: [
+        {
+          checkItemContent: 'security check',
+          filePath: 'src/auth.ts',
+          originalCode: 'const password = input;',
+          suggestedCode: 'const password = sanitize(input);',
+          comment: 'Input should be sanitized',
+        },
+      ],
+      checkItems: [{ id: 1, content: 'item1' }],
+    });
+
+    const result = buildUserPrompt(requestContext);
+
+    expect(result).toContain('Active Suggestions from Prior Reviews');
+    expect(result).toContain('src/auth.ts');
+    expect(result).toContain('const password = input;');
+    expect(result).toContain('const password = sanitize(input);');
+    expect(result).toContain('Do NOT generate suggestions with the same filePath and originalCode');
+  });
+
+  it('activeSuggestsがnullの場合、Active Suggestionsセクションが含まれない', () => {
+    const requestContext = createTestRequestContext({
+      activeSuggests: null,
+    });
+
+    const result = buildUserPrompt(requestContext);
+
+    expect(result).not.toContain('Active Suggestions from Prior Reviews');
+  });
+
+  it('activeSuggestsが空配列の場合、Active Suggestionsセクションが含まれない', () => {
+    const requestContext = createTestRequestContext({
+      activeSuggests: [],
+    });
+
+    const result = buildUserPrompt(requestContext);
+
+    expect(result).not.toContain('Active Suggestions from Prior Reviews');
   });
 });
 

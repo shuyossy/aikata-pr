@@ -61,6 +61,10 @@ function createWorkflowInput(overrides: Record<string, unknown> = {}) {
     allDiffFilePaths: null,
     diffCompressed: false,
     folderTreeRemovedByCompression: false,
+    suggestEnabledRatingLabels: [],
+    activeSuggests: null,
+    suggestResultFilePath: '',
+    fullMrDiff: '+ added line',
     ...overrides,
   };
 }
@@ -87,6 +91,18 @@ function writeResultsToFile(
  */
 function getSuccessResult(result: { status: string; [key: string]: unknown }): {
   results: Array<{ checkItemContent: string; isError: boolean; errorMessage?: string }>;
+  suggestions: Array<{
+    checkItemContent: string;
+    filePath: string;
+    originalCode: string;
+    suggestedCode: string;
+    comment: string;
+    newLine: number;
+    linesAbove: number;
+    linesBelow: number;
+    oldPath: string;
+    newPath: string;
+  }>;
 } {
   if (result.status !== 'success') {
     throw new Error(`Expected success but got ${result.status}`);
@@ -95,6 +111,18 @@ function getSuccessResult(result: { status: string; [key: string]: unknown }): {
     result as unknown as {
       result: {
         results: Array<{ checkItemContent: string; isError: boolean; errorMessage?: string }>;
+        suggestions: Array<{
+          checkItemContent: string;
+          filePath: string;
+          originalCode: string;
+          suggestedCode: string;
+          comment: string;
+          newLine: number;
+          linesAbove: number;
+          linesBelow: number;
+          oldPath: string;
+          newPath: string;
+        }>;
       };
     }
   ).result;
@@ -159,10 +187,12 @@ describe('reviewWorkflow 結合テスト', () => {
   });
 
   it('concurrentReviewCount=nullでend-to-end実行できる（分割なし）', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
     const inputData = createWorkflowInput({
       checkItemContents: ['security check', 'performance check'],
       concurrentReviewCount: null,
       resultFilePath,
+      suggestResultFilePath,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -177,6 +207,8 @@ describe('reviewWorkflow 結合テスト', () => {
     const output = getSuccessResult(result);
     expect(output.results).toHaveLength(2);
     expect(output.results.every((r) => !r.isError)).toBe(true);
+    // suggestが空配列で返ること
+    expect(output.suggestions).toEqual([]);
 
     // 全項目がレビューされていること
     const reviewedContents = output.results.map((r) => r.checkItemContent).sort();
@@ -187,10 +219,12 @@ describe('reviewWorkflow 結合テスト', () => {
   });
 
   it('concurrentReviewCount=1でend-to-end実行できる', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
     const inputData = createWorkflowInput({
       checkItemContents: ['security check', 'performance check'],
       concurrentReviewCount: 1,
       resultFilePath,
+      suggestResultFilePath,
     });
 
     // ReviewAgentのgenerate()を設定: 各呼び出しで結果を結果ファイルに書き込む
@@ -230,13 +264,17 @@ describe('reviewWorkflow 結合テスト', () => {
     // 両方の項目がレビューされていること
     const reviewedContents = output.results.map((r) => r.checkItemContent).sort();
     expect(reviewedContents).toEqual(['performance check', 'security check']);
+    // suggestが空配列で返ること
+    expect(output.suggestions).toEqual([]);
   });
 
   it('concurrentReviewCount=2でforeachが正しく並列実行される', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
     const inputData = createWorkflowInput({
       checkItemContents: ['item1', 'item2', 'item3', 'item4'],
       concurrentReviewCount: 2,
       resultFilePath,
+      suggestResultFilePath,
     });
 
     // ChecklistSplitAgentはID番号でグループを返す
@@ -265,13 +303,17 @@ describe('reviewWorkflow 結合テスト', () => {
     // 全項目がレビューされていること
     const reviewedContents = output.results.map((r) => r.checkItemContent).sort();
     expect(reviewedContents).toEqual(['item1', 'item2', 'item3', 'item4']);
+    // suggestが空配列で返ること
+    expect(output.suggestions).toEqual([]);
   });
 
   it('Agent失敗時にエラー結果が返される', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
     const inputData = createWorkflowInput({
       checkItemContents: ['check1'],
       concurrentReviewCount: 1,
       resultFilePath,
+      suggestResultFilePath,
     });
 
     // ReviewAgentがエラーをスロー
@@ -288,9 +330,12 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(output.results[0].isError).toBe(true);
     // 通常ErrorはAPICallErrorではないためunknownに分類され、定型メッセージが返される
     expect(output.results[0].errorMessage).toBe('予期せぬエラー（実行ログを確認してください）');
+    // suggestが空配列で返ること
+    expect(output.suggestions).toEqual([]);
   });
 
   it('RequestContextの値がAgent呼び出しに渡される', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
     const inputData = createWorkflowInput({
       checkItemContents: ['check1'],
       concurrentReviewCount: 1,
@@ -313,6 +358,18 @@ describe('reviewWorkflow 結合テスト', () => {
       allDiffFilePaths: ['file.ts', 'other.ts'],
       diffCompressed: true,
       folderTreeRemovedByCompression: true,
+      suggestEnabledRatingLabels: ['C'],
+      activeSuggests: [
+        {
+          checkItemContent: 'check1',
+          filePath: 'src/index.ts',
+          originalCode: 'old code',
+          suggestedCode: 'new code',
+          comment: 'Fix this',
+        },
+      ],
+      suggestResultFilePath,
+      fullMrDiff: '+ full diff line',
     });
 
     vi.mocked(reviewAgentInstance.generate).mockImplementation(async () => {
@@ -386,13 +443,40 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(allDiffFilePaths).toBeInstanceOf(Set);
     expect(allDiffFilePaths.has('file.ts')).toBe(true);
     expect(allDiffFilePaths.has('other.ts')).toBe(true);
+
+    // suggest関連フィールド
+    expect(options.requestContext.get('suggestEnabledRatingLabels')).toEqual(['C']);
+    // suggestResultFilePathはグループごとにユニークなサフィックスが付与される
+    const actualSuggestResultFilePath = options.requestContext.get(
+      'suggestResultFilePath',
+    ) as string;
+    expect(actualSuggestResultFilePath).toContain(suggestResultFilePath);
+    expect(actualSuggestResultFilePath).toContain('-group-');
+    expect(options.requestContext.get('fullMrDiff')).toBe('+ full diff line');
+    // activeSuggestsは現在のグループのチェック項目のみにフィルタされる
+    const actualActiveSuggests = options.requestContext.get('activeSuggests') as Array<{
+      checkItemContent: string;
+    }>;
+    expect(actualActiveSuggests).toEqual([
+      {
+        checkItemContent: 'check1',
+        filePath: 'src/index.ts',
+        originalCode: 'old code',
+        suggestedCode: 'new code',
+        comment: 'Fix this',
+      },
+    ]);
+    // suggestionLineResolverが設定されていること
+    expect(options.requestContext.get('suggestionLineResolver')).toBeDefined();
   });
 
   it('priorReviewResultsがある場合にpriorReviewContextが正しく組み立てられる', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
     const inputData = createWorkflowInput({
       checkItemContents: ['check1'],
       concurrentReviewCount: 1,
       resultFilePath,
+      suggestResultFilePath,
       priorReviewResults: [
         {
           checkItemContent: 'check1',
@@ -444,10 +528,12 @@ describe('reviewWorkflow 結合テスト', () => {
   });
 
   it('複数グループに分割される場合、各Agentは自グループのチェック項目に対応する過去結果のみ受け取る', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
     const inputData = createWorkflowInput({
       checkItemContents: ['item1', 'item2', 'item3', 'item4'],
       concurrentReviewCount: 2,
       resultFilePath,
+      suggestResultFilePath,
       priorReviewResults: [
         {
           checkItemContent: 'item1',
@@ -532,10 +618,12 @@ describe('reviewWorkflow 結合テスト', () => {
   });
 
   it('errorMessageフィールドがある場合に結果に含まれる', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
     const inputData = createWorkflowInput({
       checkItemContents: ['check1'],
       concurrentReviewCount: 1,
       resultFilePath,
+      suggestResultFilePath,
     });
 
     vi.mocked(reviewAgentInstance.generate).mockImplementation(async () => {
@@ -563,5 +651,153 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(output.results).toHaveLength(1);
     expect(output.results[0].isError).toBe(true);
     expect(output.results[0].errorMessage).toBe('Tool execution failed');
+    // suggestが空配列で返ること
+    expect(output.suggestions).toEqual([]);
+  });
+
+  it('suggest結果ファイルが存在する場合にsuggestionsが収集される', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
+    const inputData = createWorkflowInput({
+      checkItemContents: ['security check'],
+      concurrentReviewCount: 1,
+      resultFilePath,
+      suggestResultFilePath,
+      suggestEnabledRatingLabels: ['C'],
+      fullMrDiff:
+        '--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1,3 +1,3 @@\n line1\n-old code\n+new code\n line3',
+    });
+
+    // ReviewAgentのgenerate()をモック: レビュー結果を書き込み、さらにsuggest結果ファイルも書き込む
+    const mockGenerateWithSuggest = async (_prompt: unknown, options: unknown) => {
+      // レビュー結果の書き込み
+      writeResultsToFile(resultFilePath, [
+        {
+          checkItemId: 1,
+          ratingLabel: 'C',
+          ratingDefinition: 'Does not satisfy requirements',
+          comment: 'Needs improvement',
+          isError: false,
+        },
+      ]);
+
+      // suggest結果ファイルの書き込み（実際のsuggestResultFilePathはグループ固有のサフィックス付き）
+      const opts = options as { requestContext: RequestContext };
+      const actualSuggestFilePath = opts.requestContext.get('suggestResultFilePath') as string;
+      const suggestions = [
+        {
+          checkItemId: 1,
+          checkItemContent: 'security check',
+          filePath: 'src/index.ts',
+          originalCode: 'old code',
+          suggestedCode: 'fixed code',
+          comment: 'Fix security issue',
+          newLine: 2,
+          linesAbove: 0,
+          linesBelow: 0,
+          oldPath: 'src/index.ts',
+          newPath: 'src/index.ts',
+        },
+      ];
+      fs.writeFileSync(actualSuggestFilePath, JSON.stringify(suggestions), 'utf-8');
+
+      return {};
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(mockGenerateWithSuggest as any);
+
+    const requestContext = createWorkflowRequestContext();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
+    const result = await run.start({ inputData, requestContext });
+
+    expect(result.status).toBe('success');
+    const output = getSuccessResult(result);
+    expect(output.results).toHaveLength(1);
+    expect(output.suggestions).toHaveLength(1);
+    expect(output.suggestions[0]).toEqual({
+      checkItemContent: 'security check',
+      filePath: 'src/index.ts',
+      originalCode: 'old code',
+      suggestedCode: 'fixed code',
+      comment: 'Fix security issue',
+      newLine: 2,
+      linesAbove: 0,
+      linesBelow: 0,
+      oldPath: 'src/index.ts',
+      newPath: 'src/index.ts',
+    });
+  });
+
+  it('複数グループに分割される場合、activeSuggestsはグループのチェック項目のみにフィルタされる', async () => {
+    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
+    const inputData = createWorkflowInput({
+      checkItemContents: ['item1', 'item2', 'item3', 'item4'],
+      concurrentReviewCount: 2,
+      resultFilePath,
+      suggestResultFilePath,
+      suggestEnabledRatingLabels: ['C'],
+      activeSuggests: [
+        {
+          checkItemContent: 'item1',
+          filePath: 'src/a.ts',
+          originalCode: 'old1',
+          suggestedCode: 'new1',
+          comment: 'Fix 1',
+        },
+        {
+          checkItemContent: 'item3',
+          filePath: 'src/b.ts',
+          originalCode: 'old3',
+          suggestedCode: 'new3',
+          comment: 'Fix 3',
+        },
+      ],
+      fullMrDiff: '+ diff',
+    });
+
+    // ChecklistSplitAgentはID番号でグループを返す
+    vi.mocked(checklistSplitAgentInstance.generate).mockResolvedValue({
+      object: {
+        groups: [
+          [1, 2],
+          [3, 4],
+        ],
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(reviewAgentInstance.generate).mockImplementation(mockGenerateWithFileWrite as any);
+
+    const requestContext = createWorkflowRequestContext();
+    const workflow = mastra.getWorkflow('reviewWorkflow');
+    const run = await workflow.createRun();
+    const result = await run.start({ inputData, requestContext });
+
+    expect(result.status).toBe('success');
+
+    // 各Agent呼び出しのactiveSuggestsを検証
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const calls = vi.mocked(reviewAgentInstance.generate).mock.calls as any[][];
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+
+    for (const call of calls) {
+      const opts = call[1] as { requestContext: RequestContext };
+      const checkItems = opts.requestContext.get('checkItems') as Array<{
+        id: number;
+        content: string;
+      }>;
+      const activeSuggests = opts.requestContext.get('activeSuggests') as Array<{
+        checkItemContent: string;
+      }> | null;
+
+      if (activeSuggests && activeSuggests.length > 0) {
+        const groupContents = checkItems.map((i) => i.content);
+        // activeSuggestsは自グループのチェック項目のみであること
+        for (const s of activeSuggests) {
+          expect(groupContents).toContain(s.checkItemContent);
+        }
+      }
+    }
   });
 });

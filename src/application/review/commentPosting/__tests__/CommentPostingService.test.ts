@@ -5,8 +5,9 @@ import type { MrDiscussionGateway } from '../../../shared/port/gateway/MrDiscuss
 import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
 import { Rating } from '../../../../domain/review/rating/index.js';
 import { CheckItem } from '../../../../domain/review/checkItem/index.js';
-import { CommentFormatter } from '../../../shared/comment/index.js';
+import { CommentFormatter, SuggestCommentFormatter } from '../../../shared/comment/index.js';
 import type { QualityGateResult } from '../../../../domain/review/qualityGate/index.js';
+import { ResolvedSuggestion, Suggestion } from '../../../../domain/review/suggestion/index.js';
 
 describe('CommentPostingService', () => {
   let mrDiscussionGateway: MrDiscussionGateway;
@@ -66,6 +67,11 @@ describe('CommentPostingService', () => {
     commitMessage: 'feat: add new feature',
     hiddenRatingLabels: [],
     qualityGateResult: passedQualityGateResult,
+    suggestions: [],
+    suggestDiscussionIdsToResolve: [],
+    baseSha: 'base-sha-000',
+    headSha: 'head-sha-111',
+    startSha: 'start-sha-222',
     ...overrides,
   });
 
@@ -208,5 +214,181 @@ describe('CommentPostingService', () => {
       '55',
       expect.any(String),
     );
+  });
+
+  describe('suggest投稿・解決', () => {
+    /**
+     * テスト用のResolvedSuggestionを生成する
+     */
+    const createResolvedSuggestion = (
+      overrides: Partial<{
+        checkItemContent: string;
+        filePath: string;
+        originalCode: string;
+        suggestedCode: string;
+        comment: string;
+        newLine: number;
+        linesAbove: number;
+        linesBelow: number;
+        oldPath: string;
+        newPath: string;
+      }> = {},
+    ): ResolvedSuggestion => {
+      const defaults = {
+        checkItemContent: 'コードの可読性',
+        filePath: 'src/main.ts',
+        originalCode: 'const x = 1;',
+        suggestedCode: 'const x = 2;',
+        comment: '値を修正してください',
+        newLine: 10,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/main.ts',
+        newPath: 'src/main.ts',
+      };
+      const merged = { ...defaults, ...overrides };
+      return new ResolvedSuggestion({
+        suggestion: new Suggestion({
+          checkItemContent: merged.checkItemContent,
+          filePath: merged.filePath,
+          originalCode: merged.originalCode,
+          suggestedCode: merged.suggestedCode,
+          comment: merged.comment,
+        }),
+        newLine: merged.newLine,
+        linesAbove: merged.linesAbove,
+        linesBelow: merged.linesBelow,
+        oldPath: merged.oldPath,
+        newPath: merged.newPath,
+      });
+    };
+
+    it('suggestDiscussionIdsToResolveの各IDに対してresolveDiscussionが呼ばれること', async () => {
+      const command = createCommand({
+        suggestDiscussionIdsToResolve: ['disc-1', 'disc-2', 'disc-3'],
+      });
+
+      await service.execute(command);
+
+      expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledTimes(3);
+      expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenNthCalledWith(
+        1,
+        '123',
+        '42',
+        'disc-1',
+      );
+      expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenNthCalledWith(
+        2,
+        '123',
+        '42',
+        'disc-2',
+      );
+      expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenNthCalledWith(
+        3,
+        '123',
+        '42',
+        'disc-3',
+      );
+    });
+
+    it('suggestionsの各要素に対してpostSuggestDiscussionが正しい引数で呼ばれること', async () => {
+      const suggestion1 = createResolvedSuggestion({
+        checkItemContent: '可読性',
+        filePath: 'src/a.ts',
+        originalCode: 'let a = 1;',
+        suggestedCode: 'const a = 1;',
+        comment: 'letではなくconstを使ってください',
+        newLine: 5,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/a.ts',
+        newPath: 'src/a.ts',
+      });
+      const suggestion2 = createResolvedSuggestion({
+        checkItemContent: 'パフォーマンス',
+        filePath: 'src/b.ts',
+        originalCode: 'arr.forEach(fn);',
+        suggestedCode: 'for (const item of arr) { fn(item); }',
+        comment: 'forEachの代わりにfor...ofを使ってください',
+        newLine: 20,
+        linesAbove: 1,
+        linesBelow: 2,
+        oldPath: 'src/b-old.ts',
+        newPath: 'src/b.ts',
+      });
+
+      const command = createCommand({
+        suggestions: [suggestion1, suggestion2],
+        baseSha: 'base-aaa',
+        headSha: 'head-bbb',
+        startSha: 'start-ccc',
+      });
+
+      await service.execute(command);
+
+      expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenCalledTimes(2);
+
+      const expectedBody1 = SuggestCommentFormatter.format(suggestion1);
+      expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenNthCalledWith(
+        1,
+        '123',
+        '42',
+        expectedBody1,
+        {
+          baseSha: 'base-aaa',
+          headSha: 'head-bbb',
+          startSha: 'start-ccc',
+          oldPath: 'src/a.ts',
+          newPath: 'src/a.ts',
+          newLine: 5,
+        },
+      );
+
+      const expectedBody2 = SuggestCommentFormatter.format(suggestion2);
+      expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenNthCalledWith(
+        2,
+        '123',
+        '42',
+        expectedBody2,
+        {
+          baseSha: 'base-aaa',
+          headSha: 'head-bbb',
+          startSha: 'start-ccc',
+          oldPath: 'src/b-old.ts',
+          newPath: 'src/b.ts',
+          newLine: 20,
+        },
+      );
+    });
+
+    it('suggestionsとsuggestDiscussionIdsToResolveが空の場合はsuggest関連メソッドが呼ばれないこと', async () => {
+      const command = createCommand({
+        suggestions: [],
+        suggestDiscussionIdsToResolve: [],
+      });
+
+      await service.execute(command);
+
+      expect(mrDiscussionGateway.resolveDiscussion).not.toHaveBeenCalled();
+      expect(mrDiscussionGateway.postSuggestDiscussion).not.toHaveBeenCalled();
+    });
+
+    it('既存のレビュー投稿ロジックとsuggest投稿が両方正しく動作すること', async () => {
+      const suggestion = createResolvedSuggestion();
+      const command = createCommand({
+        suggestions: [suggestion],
+        suggestDiscussionIdsToResolve: ['old-disc-1'],
+      });
+
+      await service.execute(command);
+
+      // 既存のレビューコメント投稿が行われていること
+      expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledOnce();
+      // 旧suggestのresolveが行われていること
+      expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledWith('123', '42', 'old-disc-1');
+      // 新suggestの投稿が行われていること
+      expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenCalledOnce();
+    });
   });
 });

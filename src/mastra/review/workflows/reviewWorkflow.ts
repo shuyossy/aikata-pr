@@ -1,12 +1,15 @@
 import { createWorkflow, createStep } from '@mastra/core/workflows';
 import { RequestContext } from '@mastra/core/request-context';
 import { z } from 'zod';
+import * as fs from 'node:fs';
 import { splitChecklist } from './steps/checklistSplit.js';
 import { executeReview } from './steps/reviewExecution.js';
 import { IndexedChecklist } from '../indexedCheckItem.js';
+import { readStoredSuggestions } from '../suggestTypes.js';
 import type { ReviewAgentRequestContext } from '../requestContext.js';
 import type { WorkflowRequestContext } from '../../shared/requestContext.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
+import { DiffBasedSuggestionLineResolver } from '../../../infrastructure/adapter/review/suggestion/index.js';
 
 /**
  * IndexedCheckItemのZodスキーマ（ワークフロー内部用）
@@ -27,6 +30,22 @@ const workflowResultItemSchema = z.object({
   comment: z.string(),
   isError: z.boolean(),
   errorMessage: z.string().optional(),
+});
+
+/**
+ * ワークフロー出力用のsuggestスキーマ
+ */
+const workflowSuggestionItemSchema = z.object({
+  checkItemContent: z.string(),
+  filePath: z.string(),
+  originalCode: z.string(),
+  suggestedCode: z.string(),
+  comment: z.string(),
+  newLine: z.number(),
+  linesAbove: z.number(),
+  linesBelow: z.number(),
+  oldPath: z.string(),
+  newPath: z.string(),
 });
 
 /**
@@ -70,6 +89,20 @@ const workflowInputSchema = z.object({
   allDiffFilePaths: z.array(z.string()).nullable(),
   diffCompressed: z.boolean(),
   folderTreeRemovedByCompression: z.boolean(),
+  suggestEnabledRatingLabels: z.array(z.string()),
+  activeSuggests: z
+    .array(
+      z.object({
+        checkItemContent: z.string(),
+        filePath: z.string(),
+        originalCode: z.string(),
+        suggestedCode: z.string(),
+        comment: z.string(),
+      }),
+    )
+    .nullable(),
+  suggestResultFilePath: z.string(),
+  fullMrDiff: z.string(),
 });
 
 /**
@@ -77,6 +110,7 @@ const workflowInputSchema = z.object({
  */
 const workflowOutputSchema = z.object({
   results: z.array(workflowResultItemSchema),
+  suggestions: z.array(workflowSuggestionItemSchema),
 });
 
 /**
@@ -140,6 +174,7 @@ const reviewExecutionStep = createStep({
   }),
   outputSchema: z.object({
     results: z.array(workflowResultItemSchema),
+    suggestions: z.array(workflowSuggestionItemSchema),
   }),
   execute: async ({ inputData, getInitData, requestContext, mastra }) => {
     const initData = getInitData<typeof reviewWorkflow>();
@@ -154,6 +189,13 @@ const reviewExecutionStep = createStep({
       initData.priorReviewResults && initData.priorCommitMessages && initData.priorDiffSincePrior
         ? initData.priorReviewResults.filter((r) => currentGroupContents.has(r.checkItemContent))
         : null;
+
+    // グループごとにユニークなsuggest結果ファイルパスを生成
+    const suggestResultFilePath = `${initData.suggestResultFilePath}-group-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    // activeSuggestsを現在のグループのチェック項目のみにフィルタ
+    const groupActiveSuggests =
+      initData.activeSuggests?.filter((s) => currentGroupContents.has(s.checkItemContent)) ?? null;
 
     const agentRequestContext = new RequestContext<ReviewAgentRequestContext>([
       ['userId', workflowCtx.userId],
@@ -197,6 +239,11 @@ const reviewExecutionStep = createStep({
       ['allDiffFilePaths', initData.allDiffFilePaths ? new Set(initData.allDiffFilePaths) : null],
       ['diffCompressed', initData.diffCompressed],
       ['folderTreeRemovedByCompression', initData.folderTreeRemovedByCompression],
+      ['suggestEnabledRatingLabels', initData.suggestEnabledRatingLabels],
+      ['suggestResultFilePath', suggestResultFilePath],
+      ['fullMrDiff', initData.fullMrDiff],
+      ['activeSuggests', groupActiveSuggests],
+      ['suggestionLineResolver', new DiffBasedSuggestionLineResolver()],
     ]);
 
     const reviewAgent = mastra.getAgent('reviewAgent');
@@ -210,6 +257,21 @@ const reviewExecutionStep = createStep({
       rateLimitRetryConfig: DEFAULT_RATE_LIMIT_RETRY_CONFIG,
     });
 
+    // suggest結果ファイルからsuggest情報を読み込む
+    const storedSuggestions = readStoredSuggestions(suggestResultFilePath);
+
+    // suggest一時ファイルのクリーンアップ
+    try {
+      fs.unlinkSync(suggestResultFilePath);
+    } catch {
+      /* ファイルが存在しない場合は無視 */
+    }
+    try {
+      fs.rmdirSync(`${suggestResultFilePath}.lock`);
+    } catch {
+      /* ロックディレクトリが存在しない場合は無視 */
+    }
+
     return {
       results: results.map((r) => ({
         checkItemContent: r.checkItem.content,
@@ -218,6 +280,18 @@ const reviewExecutionStep = createStep({
         comment: r.comment,
         isError: r.isError,
         ...(r.errorMessage ? { errorMessage: r.errorMessage } : {}),
+      })),
+      suggestions: storedSuggestions.map((s) => ({
+        checkItemContent: s.checkItemContent,
+        filePath: s.filePath,
+        originalCode: s.originalCode,
+        suggestedCode: s.suggestedCode,
+        comment: s.comment,
+        newLine: s.newLine,
+        linesAbove: s.linesAbove,
+        linesBelow: s.linesBelow,
+        oldPath: s.oldPath,
+        newPath: s.newPath,
       })),
     };
   },
@@ -252,8 +326,9 @@ reviewWorkflow
   })
   .foreach(reviewExecutionStep, { concurrency: FOREACH_CONCURRENCY })
   .map(async ({ inputData }) => {
-    // 全グループのレビュー結果をフラット化
+    // 全グループのレビュー結果とsuggestをフラット化
     const allResults = inputData.flatMap((group) => group.results);
-    return { results: allResults };
+    const allSuggestions = inputData.flatMap((group) => group.suggestions);
+    return { results: allResults, suggestions: allSuggestions };
   })
   .commit();

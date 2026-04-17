@@ -7,3 +7,11 @@ export {
 } from './CommentFormatter.js';
 export { CommentParser } from './CommentParser.js';
 export type { ParsedReviewComment } from './CommentParser.js';
+export {
+  SuggestCommentFormatter,
+  SUGGEST_MARKER,
+  SUGGEST_DATA_PREFIX,
+  SUGGEST_DATA_SUFFIX,
+} from './SuggestCommentFormatter.js';
+export { SuggestCommentParser } from './SuggestCommentParser.js';
+export type { ParsedSuggestComment } from './SuggestCommentParser.js';
