@@ -51,7 +51,7 @@ export class ReviewExecutionService {
   async execute(command: ReviewExecutionCommand): Promise<ReviewExecutionDto> {
     const [mrContext, comments, folderTree] = await Promise.all([
       this.mrGateway.getMrContext(command.projectId, command.mrIid),
-      this.mrDiscussionGateway.getDiscussions(command.projectId, command.mrIid),
+      this.mrDiscussionGateway.getReviewDiscussions(command.projectId, command.mrIid),
       this.projectTreeGateway.getTree(command.projectDir, { maxDepth: command.treeMaxDepth }),
     ]);
 

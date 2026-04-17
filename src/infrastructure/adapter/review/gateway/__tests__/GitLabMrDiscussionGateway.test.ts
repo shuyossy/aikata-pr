@@ -25,7 +25,7 @@ describe('GitLabMrDiscussionGateway', () => {
     );
   });
 
-  describe('getDiscussions', () => {
+  describe('getReviewDiscussions', () => {
     it('Discussion一覧からnotes[0]を抽出してMrComment形式で返す', async () => {
       const discussionsResponse = [
         {
@@ -45,7 +45,7 @@ describe('GitLabMrDiscussionGateway', () => {
 
       mockClient.getAll.mockResolvedValueOnce(discussionsResponse);
 
-      const result = await gateway.getDiscussions('123', '42');
+      const result = await gateway.getReviewDiscussions('123', '42');
 
       // API呼び出しの検証
       expect(mockClient.getAll).toHaveBeenCalledWith('/projects/123/merge_requests/42/discussions');
@@ -73,7 +73,7 @@ describe('GitLabMrDiscussionGateway', () => {
 
       mockClient.getAll.mockResolvedValueOnce(discussionsResponse);
 
-      const result = await gateway.getDiscussions('456', '10');
+      const result = await gateway.getReviewDiscussions('456', '10');
 
       expect(result).toEqual([
         { id: 5, body: 'Valid discussion', createdAt: '2026-03-04T00:00:00Z' },
@@ -83,18 +83,18 @@ describe('GitLabMrDiscussionGateway', () => {
     it('Discussionが空の場合は空配列を返す', async () => {
       mockClient.getAll.mockResolvedValueOnce([]);
 
-      const result = await gateway.getDiscussions('789', '1');
+      const result = await gateway.getReviewDiscussions('789', '1');
 
       expect(mockClient.getAll).toHaveBeenCalledWith('/projects/789/merge_requests/1/discussions');
       expect(result).toEqual([]);
     });
   });
 
-  describe('postDiscussion', () => {
+  describe('postReviewDiscussion', () => {
     it('POSTリクエストを/discussionsエンドポイントに送信する', async () => {
       mockClient.post.mockResolvedValueOnce({ id: 'disc-new', notes: [{ id: 99 }] });
 
-      await gateway.postDiscussion('123', '42', 'New discussion');
+      await gateway.postReviewDiscussion('123', '42', 'New discussion');
 
       // API呼び出しの検証
       expect(mockClient.post).toHaveBeenCalledWith('/projects/123/merge_requests/42/discussions', {
@@ -105,7 +105,7 @@ describe('GitLabMrDiscussionGateway', () => {
     it('戻り値がvoidであること', async () => {
       mockClient.post.mockResolvedValueOnce({ id: 'disc-100' });
 
-      const result = await gateway.postDiscussion('789', '5', 'Another discussion');
+      const result = await gateway.postReviewDiscussion('789', '5', 'Another discussion');
 
       expect(result).toBeUndefined();
     });

@@ -14,9 +14,12 @@ describe('CommentPostingService', () => {
 
   beforeEach(() => {
     mrDiscussionGateway = {
-      getDiscussions: vi.fn(),
-      postDiscussion: vi.fn().mockResolvedValue(undefined),
+      getReviewDiscussions: vi.fn(),
+      postReviewDiscussion: vi.fn().mockResolvedValue(undefined),
       postNote: vi.fn().mockResolvedValue(undefined),
+      getSuggestDiscussions: vi.fn().mockResolvedValue([]),
+      postSuggestDiscussion: vi.fn().mockResolvedValue(undefined),
+      resolveDiscussion: vi.fn().mockResolvedValue(undefined),
     };
     service = new CommentPostingService(mrDiscussionGateway);
   });
@@ -75,7 +78,7 @@ describe('CommentPostingService', () => {
     // CommentFormatter.formatCommentが呼ばれたことを確認
     expect(formatSpy).toHaveBeenCalledOnce();
     // postDiscussionが呼ばれたことを確認（非表示なしの場合）
-    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+    expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledOnce();
     // 投稿されたbodyがformatCommentの戻り値であることを確認
     const expectedBody = CommentFormatter.formatComment(
       command.results,
@@ -85,7 +88,11 @@ describe('CommentPostingService', () => {
       command.hiddenRatingLabels,
       command.qualityGateResult,
     );
-    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledWith('123', '42', expectedBody);
+    expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledWith(
+      '123',
+      '42',
+      expectedBody,
+    );
 
     formatSpy.mockRestore();
   });
@@ -110,10 +117,10 @@ describe('CommentPostingService', () => {
     await service.execute(command);
 
     expect(mrDiscussionGateway.postNote).toHaveBeenCalledOnce();
-    expect(mrDiscussionGateway.postDiscussion).not.toHaveBeenCalled();
+    expect(mrDiscussionGateway.postReviewDiscussion).not.toHaveBeenCalled();
   });
 
-  it('非表示でない結果がある場合は postDiscussion が呼ばれること', async () => {
+  it('非表示でない結果がある場合は postReviewDiscussion が呼ばれること', async () => {
     const command = createCommand({
       results: [
         ReviewResult.success(
@@ -132,7 +139,7 @@ describe('CommentPostingService', () => {
 
     await service.execute(command);
 
-    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+    expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledOnce();
     expect(mrDiscussionGateway.postNote).not.toHaveBeenCalled();
   });
 
@@ -177,14 +184,14 @@ describe('CommentPostingService', () => {
     formatSpy.mockRestore();
   });
 
-  it('hiddenRatingLabelsが空の場合は postDiscussion が呼ばれること', async () => {
+  it('hiddenRatingLabelsが空の場合は postReviewDiscussion が呼ばれること', async () => {
     const command = createCommand({
       hiddenRatingLabels: [],
     });
 
     await service.execute(command);
 
-    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledOnce();
+    expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledOnce();
     expect(mrDiscussionGateway.postNote).not.toHaveBeenCalled();
   });
 
@@ -196,7 +203,7 @@ describe('CommentPostingService', () => {
 
     await service.execute(command);
 
-    expect(mrDiscussionGateway.postDiscussion).toHaveBeenCalledWith(
+    expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledWith(
       '789',
       '55',
       expect.any(String),

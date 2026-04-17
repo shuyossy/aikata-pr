@@ -29,7 +29,7 @@ export class CommentPostingService {
     if (ReviewResult.allAreHidden(command.results, command.hiddenRatingLabels)) {
       await this.mrDiscussionGateway.postNote(command.projectId, command.mrIid, body);
     } else {
-      await this.mrDiscussionGateway.postDiscussion(command.projectId, command.mrIid, body);
+      await this.mrDiscussionGateway.postReviewDiscussion(command.projectId, command.mrIid, body);
     }
   }
 }
