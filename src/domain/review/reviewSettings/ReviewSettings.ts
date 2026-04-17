@@ -2,13 +2,18 @@ import { Rating } from '../rating/index.js';
 import { QualityGate } from '../qualityGate/index.js';
 
 /** デフォルトのコメントフォーマット */
-const DEFAULT_COMMENT_FORMAT = '{comment}';
+const DEFAULT_COMMENT_FORMAT = `【評価理由・根拠】
+<具体的な評価理由や根拠を記載>
+
+【改善提案】
+<具体的な改善提案を記載>`;
 
 /** デフォルトの評定基準 */
 const DEFAULT_RATINGS = [
   new Rating('A', 'チェック項目の要件を完全に満たしている'),
   new Rating('B', '概ね満たしているが軽微な指摘がある'),
   new Rating('C', '要件を満たしていない'),
+  new Rating('-', 'チェック項目の要件がdiffの変更内容に該当しない、または評価不能'),
 ];
 
 /** ReviewSettingsのコンストラクタパラメータ */

@@ -39,8 +39,10 @@ describe('ReviewSettings', () => {
     const settings = ReviewSettings.default();
     expect(settings.additionalInstructions).toBe('');
     expect(settings.concurrentReviewCount).toBeNull();
-    expect(settings.commentFormat).not.toBe('');
-    expect(settings.ratings.length).toBe(3);
+    expect(settings.commentFormat).toContain('【評価理由・根拠】');
+    expect(settings.commentFormat).toContain('【改善提案】');
+    expect(settings.ratings.length).toBe(4);
+    expect(settings.ratings[3].label).toBe('-');
     expect(settings.hiddenRatingLabels).toEqual([]);
     expect(settings.qualityGate.failureCriteria).toEqual([]);
   });
