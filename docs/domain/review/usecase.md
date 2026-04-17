@@ -73,3 +73,37 @@
     - なし
   - 備考
     - 品質ゲート評価（QualityGate.evaluate）およびジョブの成否判定（全エラー時・品質ゲート抵触時のexit code 1）はreviewサブコマンドのエントリ（src/cli/review/index.ts）で実行される
+
+- サジェスト生成
+  - 識別子: ReviewExecutionService（既存サービスの拡張）
+  - 前提条件
+    - suggestEnabledRatingLabelsが空でないこと
+  - 入力: ReviewExecutionCommand（既存フィールド + suggestEnabledRatingLabels）
+  - 出力: ReviewExecutionDto（既存フィールド + suggestions）
+  - メインフロー
+    1. MRの既存ディスカッションからaikataマーカー付きのsuggest discussionを取得する
+    2. 有効なsuggest（unresolve & チェックリスト内 & diff未更新）と自動resolve対象を算出する
+    3. 有効なsuggestをあらかじめストアに登録する
+    4. レビューワークフロー実行時、suggestが有効な評定のチェック項目に対してAgentがstoreSuggestツールでsuggestを登録する
+    5. レビュー結果と共にsuggestを返却する
+  - 例外
+    - パターン1: suggestEnabledRatingLabelsにratingsに存在しないラベルが含まれる場合
+      - エラーをスロー
+  - 事後処理
+    - なし
+
+- サジェスト投稿
+  - 識別子: CommentPostingService（既存サービスの拡張）
+  - 前提条件
+    - suggestが存在すること
+  - 入力: CommentPostingCommand（既存フィールド + suggestions, suggestsToResolve, diff）
+  - 出力: void
+  - メインフロー
+    1. 自動resolve対象のsuggest discussionをresolveする
+    2. 各suggestのoriginalCodeをdiffから検索し、行番号を解決する（ResolvedSuggestion）
+    3. 解決済みsuggestをGitLab MRにdiff discussionとして投稿する
+  - 例外
+    - パターン1: 行番号解決に失敗した場合
+      - 当該suggestをスキップし、警告ログを出力する
+  - 事後処理
+    - なし

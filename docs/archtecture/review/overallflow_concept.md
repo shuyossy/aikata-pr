@@ -78,5 +78,31 @@ review 機能（AI MRレビュー）の処理フロー概要を以下に示す
 - その他のエラー: レビュー結果表に「予期せぬエラー（実行ログを確認してください）」を表示する
 - いずれの場合も、既にストア済みの成功結果は保持される（部分成功を失わない）
 
+## サジェスト処理フロー
+
+suggest有効時（suggestEnabledRatingLabelsが空でない場合）に以下の処理が追加される。
+
+### 事前処理（ReviewExecutionService）
+1. MRの既存ディスカッションからaikataマーカー付きのsuggest discussionを取得する（getSuggestDiscussions）
+2. 取得したsuggest discussionを以下に分類する:
+   - **activeSuggests**: unresolve & 現在のチェックリスト内 & diff未更新 → Agentに提供し、同じ内容のsuggest生成を抑止する
+   - **suggestsToResolve**: diff更新済みまたはチェックリスト外 → コメント投稿時に自動resolveする
+3. activeSuggestsをあらかじめsuggestストアに登録する
+
+### チェック実行時（reviewAgent）
+- suggest有効時にAgentに追加で与える情報:
+  - systemプロンプト: 指定評定のチェック項目に対して具体的なsuggestを生成する役割・注意文言、以前の有効なsuggestと重複しないこと、最終的にチェック結果とsuggest内容を確認すること
+  - userプロンプト: diffの内容
+  - tools:
+    - **getDiffDetail**: diff上の特定ファイル・行範囲の詳細を取得
+    - **storeSuggest**: suggest情報を登録（filePath, originalCode, suggestedCode, comment等をinput schemaで受け取り、バリデーション・重複チェックを実施）
+    - **getSuggests**: 登録済みsuggest一覧を取得（以前の有効なsuggest含む）
+
+### コメント投稿時（CommentPostingService）
+1. suggestsToResolveに該当するsuggest discussionをGitLab APIでresolveする
+2. 新規suggestのoriginalCodeをMR diffから検索し、行番号を解決する（ResolvedSuggestion）
+3. 解決済みsuggestをGitLab MRにdiff discussionとして投稿する（GitLabのsuggest記法を使用）
+4. 行番号解決に失敗したsuggestはスキップし、警告ログを出力する
+
 ## 実装方針
 1,2についてはmastra workflowで実装する

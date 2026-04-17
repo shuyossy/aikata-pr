@@ -156,3 +156,64 @@
   - 結果(アクション)
     - 要約Agentが画像を含むコンテキストを適切に要約し、レビュー継続を可能にする
   - 関連するユースケースorエンティティ: contextLengthRecovery, summarizationAgent
+
+- サジェスト有効化ルール
+  - 目的/背景
+    - 指定した評定結果だったチェック項目に対してコード変更提案（suggest）を生成するため
+  - 条件
+    - suggestEnabledRatingLabelsで有効化する評定ラベルを配列で指定する（デフォルト: ['C']）
+    - 空配列の場合はsuggestを無効にする
+    - suggestEnabledRatingLabelsの各ラベルはratingsに存在するラベルのみ指定可能（存在しないラベルが指定された場合はエラー）
+  - 結果(アクション)
+    - suggestが有効な場合、該当評定のチェック項目に対してAgentがsuggestを生成する
+  - 関連するユースケースorエンティティ: ReviewSettings, reviewAgent
+
+- サジェスト重複排除ルール
+  - 目的/背景
+    - 同一箇所に対する重複したsuggestを防止するため
+  - 条件
+    - 同一filePath + 同一originalCodeのsuggestは重複として拒否する
+    - 以前の有効なsuggestもあらかじめ登録されており、重複チェックの対象となる
+  - 結果(アクション)
+    - 重複するsuggestの登録を拒否し、エラーメッセージを返す
+  - 関連するユースケースorエンティティ: Suggestion, storeSuggestTool
+
+- サジェスト行数上限ルール
+  - 目的/背景
+    - GitLab APIの制約およびレビューの可読性を確保するため
+  - 条件
+    - originalCodeが201行を超える場合は登録を拒否する
+  - 結果(アクション)
+    - 行数超過のsuggestの登録を拒否し、エラーメッセージを返す
+  - 関連するユースケースorエンティティ: Suggestion, storeSuggestTool
+
+- 有効なサジェストの判定ルール
+  - 目的/背景
+    - 再レビュー時に以前のsuggestの有効性を判定し、重複投稿を防止するため
+  - 条件
+    - unresolveであること
+    - 現在のチェックリストに含まれるチェック項目のsuggestであること
+    - diff更新済みのsystem noteが存在しないこと（「changed this」「changed this line」「compare changes」を含むsystem noteで判定）
+  - 結果(アクション)
+    - 有効なsuggestはAgentに提供され、同じ内容のsuggestを生成しないよう指示される
+  - 関連するユースケースorエンティティ: SuggestDiscussion, ReviewExecutionService
+
+- サジェスト自動resolveルール
+  - 目的/背景
+    - 古いsuggestが残り続けることを防止するため
+  - 条件
+    - diff更新済みのsystem noteが存在するsuggest discussion
+    - 現在のチェックリストに含まれないチェック項目のsuggest discussion
+  - 結果(アクション)
+    - 該当するsuggest discussionを自動でresolveする
+  - 関連するユースケースorエンティティ: SuggestDiscussion, CommentPostingService
+
+- サジェスト行番号解決ルール
+  - 目的/背景
+    - Agentが生成したコード断片からGitLab APIのdiff discussion投稿に必要なposition情報を算出するため
+  - 条件
+    - suggestのoriginalCodeをMR diffから検索し、該当箇所の行番号を特定する
+  - 結果(アクション)
+    - ResolvedSuggestion（newLine, linesAbove, linesBelow, oldPath, newPath）を算出する
+    - 該当箇所が見つからない場合はエラーとして扱い、当該suggestをスキップする
+  - 関連するユースケースorエンティティ: ResolvedSuggestion, CommentPostingService

@@ -76,6 +76,7 @@
     - ratingsが空でないこと
     - hiddenRatingLabelsの各ラベルがratingsに存在すること
     - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること
+    - suggestEnabledRatingLabelsの各ラベルがratingsに存在すること
   - 属性
     - additionalInstructions (string)
     - concurrentReviewCount (number | null)
@@ -83,8 +84,10 @@
     - ratings (Rating[])
     - hiddenRatingLabels (string[])
     - qualityGate (QualityGate)
+    - suggestEnabledRatingLabels (string[]): suggestを有効にする評定ラベル（デフォルト: ['C']、空配列で無効）
   - 振る舞い
     - default(静的ファクトリ): デフォルト設定を生成
+    - isSuggestEnabled(): suggestEnabledRatingLabelsが空でないか判定
 
 - チェックリスト
   - 識別子: Checklist
@@ -109,6 +112,55 @@
     - targetBranch (string)
     - diff (string)
     - commitHash (string)
+  - 振る舞い
+    - なし
+
+- サジェスト
+  - 識別子: Suggestion
+  - 種類: 値オブジェクト
+  - 不変条件
+    - checkItemContentが空文字でないこと
+    - filePathが空文字でないこと
+    - originalCodeが空文字でないこと
+    - originalCodeが201行以下であること
+    - suggestedCodeが空文字でないこと
+  - 属性
+    - checkItemContent (string): 対象チェック項目の内容
+    - filePath (string): 対象ファイルパス
+    - originalCode (string): 変更前コード断片
+    - suggestedCode (string): 変更提案コード
+    - comment (string): 補足コメント
+  - 振る舞い
+    - isDuplicate(other: Suggestion): 同一filePath + 同一originalCodeの重複判定
+
+- 解決済みサジェスト
+  - 識別子: ResolvedSuggestion
+  - 種類: 値オブジェクト
+  - 不変条件
+    - suggestionが有効であること
+    - newLineが1以上であること
+  - 属性
+    - suggestion (Suggestion): 元のサジェスト
+    - newLine (number): diff上の行番号
+    - linesAbove (number): originalCodeの開始行より上のコンテキスト行数
+    - linesBelow (number): originalCodeの終了行より下のコンテキスト行数
+    - oldPath (string): 変更前ファイルパス
+    - newPath (string): 変更後ファイルパス
+  - 振る舞い
+    - なし
+
+- サジェストディスカッション
+  - 識別子: SuggestDiscussion
+  - 種類: 値オブジェクト
+  - 不変条件
+    - discussionIdが空文字でないこと
+  - 属性
+    - discussionId (string): GitLabディスカッションID
+    - checkItemContent (string): 対象チェック項目の内容
+    - filePath (string): 対象ファイルパス
+    - originalCode (string): 変更前コード断片
+    - suggestedCode (string): 変更提案コード
+    - hasChangedSinceNote (boolean): diff更新済みのsystem noteが存在するか
   - 振る舞い
     - なし
 
