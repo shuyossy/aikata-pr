@@ -37,13 +37,6 @@ export interface ReviewWorkflowParams {
   diffCompressed: boolean;
   folderTreeRemovedByCompression: boolean;
   suggestEnabledRatingLabels: string[];
-  activeSuggests: Array<{
-    checkItemContent: string;
-    filePath: string;
-    originalCode: string;
-    suggestedCode: string;
-    comment: string;
-  }> | null;
   suggestResultFilePath: string;
   fullMrDiff: string;
 }

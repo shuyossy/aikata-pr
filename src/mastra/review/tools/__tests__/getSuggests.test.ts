@@ -16,23 +16,11 @@ const defaultCheckItems: IndexedCheckItem[] = [
 ];
 
 /**
- * テスト用のactiveSuggestのデフォルト型
- */
-type ActiveSuggest = {
-  checkItemContent: string;
-  filePath: string;
-  originalCode: string;
-  suggestedCode: string;
-  comment: string;
-};
-
-/**
  * Mastra Toolのexecuteを型安全に呼び出すヘルパー
  */
 const executeGetSuggests = (
   options: {
     checkItems?: IndexedCheckItem[];
-    activeSuggests?: ActiveSuggest[] | null;
     suggestResultFilePath?: string | null;
   } = {},
 ): Promise<{
@@ -43,21 +31,15 @@ const executeGetSuggests = (
     originalCode: string;
     suggestedCode: string;
     comment: string;
-    source: 'prior' | 'current';
   }>;
 }> => {
   const executeFn = getSuggestsTool.execute;
   if (!executeFn) throw new Error('execute is not defined');
 
-  const {
-    checkItems = defaultCheckItems,
-    activeSuggests = null,
-    suggestResultFilePath = null,
-  } = options;
+  const { checkItems = defaultCheckItems, suggestResultFilePath = null } = options;
 
   const requestContext = new RequestContext([
     ['checkItems', checkItems],
-    ['activeSuggests', activeSuggests ?? undefined],
     ['suggestResultFilePath', suggestResultFilePath ?? undefined],
   ]);
 
@@ -86,7 +68,6 @@ describe('getSuggests', () => {
   it('suggestが存在しない場合は空配列を返す', async () => {
     const result = await executeGetSuggests({
       checkItems: defaultCheckItems,
-      activeSuggests: null,
       suggestResultFilePath: null,
     });
 
@@ -96,15 +77,6 @@ describe('getSuggests', () => {
   it('チェック項目が空の場合は空配列を返す', async () => {
     const result = await executeGetSuggests({
       checkItems: [],
-      activeSuggests: [
-        {
-          checkItemContent: 'セキュリティチェック',
-          filePath: 'src/app.ts',
-          originalCode: 'const x = 1;',
-          suggestedCode: 'const x = 2;',
-          comment: 'テスト',
-        },
-      ],
     });
 
     expect(result.suggestions).toEqual([]);
@@ -123,35 +95,7 @@ describe('getSuggests', () => {
     expect(result.suggestions).toEqual([]);
   });
 
-  it('prior active suggestsをsource: "prior"で返す', async () => {
-    const activeSuggests: ActiveSuggest[] = [
-      {
-        checkItemContent: 'セキュリティチェック',
-        filePath: 'src/app.ts',
-        originalCode: 'const secret = "password";',
-        suggestedCode: 'const secret = process.env.SECRET;',
-        comment: '環境変数を使用してください',
-      },
-    ];
-
-    const result = await executeGetSuggests({
-      checkItems: defaultCheckItems,
-      activeSuggests,
-    });
-
-    expect(result.suggestions).toHaveLength(1);
-    expect(result.suggestions[0]).toEqual({
-      checkItemId: 1,
-      checkItemContent: 'セキュリティチェック',
-      filePath: 'src/app.ts',
-      originalCode: 'const secret = "password";',
-      suggestedCode: 'const secret = process.env.SECRET;',
-      comment: '環境変数を使用してください',
-      source: 'prior',
-    });
-  });
-
-  it('現在のセッションのsuggestsをsource: "current"で返す', async () => {
+  it('現在のセッションのsuggestsを返す', async () => {
     createTmpDir();
 
     const storedSuggestions: StoredSuggestion[] = [
@@ -184,7 +128,6 @@ describe('getSuggests', () => {
       originalCode: 'dangerousFunc(input)',
       suggestedCode: 'safeFunc(input)',
       comment: '安全な関数を使用してください',
-      source: 'current',
     });
   });
 
@@ -194,25 +137,6 @@ describe('getSuggests', () => {
     // チェック項目1のみを割り当て
     const assignedCheckItems: IndexedCheckItem[] = [{ id: 1, content: 'セキュリティチェック' }];
 
-    // activeSuggestsに割り当て外のチェック項目も含む
-    const activeSuggests: ActiveSuggest[] = [
-      {
-        checkItemContent: 'セキュリティチェック',
-        filePath: 'src/app.ts',
-        originalCode: 'const secret = "password";',
-        suggestedCode: 'const secret = process.env.SECRET;',
-        comment: '対象のsuggest',
-      },
-      {
-        checkItemContent: 'パフォーマンスチェック',
-        filePath: 'src/server.ts',
-        originalCode: 'for (let i = 0; i < arr.length; i++)',
-        suggestedCode: 'for (const item of arr)',
-        comment: '対象外のsuggest',
-      },
-    ];
-
-    // currentにも割り当て外のチェック項目を含む
     const storedSuggestions: StoredSuggestion[] = [
       {
         checkItemId: 1,
@@ -220,7 +144,7 @@ describe('getSuggests', () => {
         filePath: 'src/utils.ts',
         originalCode: 'dangerousFunc(code)',
         suggestedCode: 'safeFunc(code)',
-        comment: '対象のcurrent suggest',
+        comment: '対象のsuggest',
         newLine: 5,
         linesAbove: 0,
         linesBelow: 0,
@@ -233,7 +157,7 @@ describe('getSuggests', () => {
         filePath: 'src/heavy.ts',
         originalCode: 'sleep(1000)',
         suggestedCode: 'await delay(1000)',
-        comment: '対象外のcurrent suggest',
+        comment: '対象外のsuggest',
         newLine: 20,
         linesAbove: 0,
         linesBelow: 0,
@@ -245,123 +169,31 @@ describe('getSuggests', () => {
 
     const result = await executeGetSuggests({
       checkItems: assignedCheckItems,
-      activeSuggests,
       suggestResultFilePath: suggestFilePath,
     });
 
-    // セキュリティチェックに該当する2件のみ返る
-    expect(result.suggestions).toHaveLength(2);
-    expect(result.suggestions.every((s) => s.checkItemContent === 'セキュリティチェック')).toBe(
-      true,
-    );
-    expect(result.suggestions[0].source).toBe('prior');
-    expect(result.suggestions[1].source).toBe('current');
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0].checkItemContent).toBe('セキュリティチェック');
   });
 
-  it('priorとcurrentのsuggestsを結合して返す', async () => {
-    createTmpDir();
-
-    const activeSuggests: ActiveSuggest[] = [
-      {
-        checkItemContent: 'セキュリティチェック',
-        filePath: 'src/app.ts',
-        originalCode: 'const secret = "password";',
-        suggestedCode: 'const secret = process.env.SECRET;',
-        comment: 'priorのsuggest',
-      },
-    ];
-
-    const storedSuggestions: StoredSuggestion[] = [
-      {
-        checkItemId: 2,
-        checkItemContent: 'パフォーマンスチェック',
-        filePath: 'src/server.ts',
-        originalCode: 'arr.forEach(x => process(x))',
-        suggestedCode: 'for (const x of arr) process(x)',
-        comment: 'currentのsuggest',
-        newLine: 15,
-        linesAbove: 0,
-        linesBelow: 0,
-        oldPath: 'src/server.ts',
-        newPath: 'src/server.ts',
-      },
-    ];
-    fs.writeFileSync(suggestFilePath, JSON.stringify(storedSuggestions), 'utf-8');
-
-    const result = await executeGetSuggests({
-      checkItems: defaultCheckItems,
-      activeSuggests,
-      suggestResultFilePath: suggestFilePath,
-    });
-
-    expect(result.suggestions).toHaveLength(2);
-
-    // priorが先に来る
-    expect(result.suggestions[0]).toEqual({
-      checkItemId: 1,
-      checkItemContent: 'セキュリティチェック',
-      filePath: 'src/app.ts',
-      originalCode: 'const secret = "password";',
-      suggestedCode: 'const secret = process.env.SECRET;',
-      comment: 'priorのsuggest',
-      source: 'prior',
-    });
-
-    // currentが後に来る
-    expect(result.suggestions[1]).toEqual({
-      checkItemId: 2,
-      checkItemContent: 'パフォーマンスチェック',
-      filePath: 'src/server.ts',
-      originalCode: 'arr.forEach(x => process(x))',
-      suggestedCode: 'for (const x of arr) process(x)',
-      comment: 'currentのsuggest',
-      source: 'current',
-    });
-  });
-
-  it('suggestResultFilePathが存在するがファイルが存在しない場合はpriorのみ返す', async () => {
+  it('suggestResultFilePathが存在するがファイルが存在しない場合は空配列を返す', async () => {
     createTmpDir();
     const nonExistentPath = path.join(tmpDir, 'non-existent.json');
 
-    const activeSuggests: ActiveSuggest[] = [
-      {
-        checkItemContent: 'セキュリティチェック',
-        filePath: 'src/app.ts',
-        originalCode: 'const x = 1;',
-        suggestedCode: 'const x = 2;',
-        comment: 'テスト',
-      },
-    ];
-
     const result = await executeGetSuggests({
       checkItems: defaultCheckItems,
-      activeSuggests,
       suggestResultFilePath: nonExistentPath,
     });
 
-    // ファイルが存在しなくてもreadStoredSuggestionsは空配列を返す
-    expect(result.suggestions).toHaveLength(1);
-    expect(result.suggestions[0].source).toBe('prior');
+    expect(result.suggestions).toEqual([]);
   });
 
-  it('suggestResultFilePathが未設定の場合はpriorのみ返す', async () => {
-    const activeSuggests: ActiveSuggest[] = [
-      {
-        checkItemContent: 'セキュリティチェック',
-        filePath: 'src/app.ts',
-        originalCode: 'const x = 1;',
-        suggestedCode: 'const x = 2;',
-        comment: 'テスト',
-      },
-    ];
-
+  it('suggestResultFilePathが未設定の場合は空配列を返す', async () => {
     const result = await executeGetSuggests({
       checkItems: defaultCheckItems,
-      activeSuggests,
       suggestResultFilePath: null,
     });
 
-    expect(result.suggestions).toHaveLength(1);
-    expect(result.suggestions[0].source).toBe('prior');
+    expect(result.suggestions).toEqual([]);
   });
 });

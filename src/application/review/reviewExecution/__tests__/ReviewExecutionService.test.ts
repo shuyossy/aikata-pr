@@ -21,6 +21,7 @@ import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
 import { QualityGate } from '../../../../domain/review/qualityGate/index.js';
 import { CommentFormatter } from '../../../shared/comment/index.js';
 import type { TokenCounter } from '../../../shared/port/tokenCounter/index.js';
+import type { SuggestionLineResolver } from '../../../shared/port/suggestion/index.js';
 
 // ヘルパー: テスト用のMrContextを生成
 function createMrContext(
@@ -138,6 +139,7 @@ describe('ReviewExecutionService', () => {
   let mrDiscussionGateway: MrDiscussionGateway;
   let workflowRunner: ReviewWorkflowRunner;
   let projectTreeGateway: ProjectTreeGateway;
+  let suggestionLineResolver: SuggestionLineResolver;
   let service: ReviewExecutionService;
 
   beforeEach(() => {
@@ -163,12 +165,16 @@ describe('ReviewExecutionService', () => {
     const tokenCounter: TokenCounter = {
       countTokens: vi.fn().mockReturnValue(100),
     };
+    suggestionLineResolver = {
+      resolve: vi.fn().mockReturnValue({ success: false, errorMessage: 'not found' }),
+    };
     service = new ReviewExecutionService(
       mrGateway,
       mrDiscussionGateway,
       workflowRunner,
       projectTreeGateway,
       tokenCounter,
+      suggestionLineResolver,
     );
   });
 
@@ -1369,7 +1375,7 @@ describe('ReviewExecutionService', () => {
       expect(mrDiscussionGateway.getSuggestDiscussions).toHaveBeenCalledWith('project-1', '42');
     });
 
-    it('activeSuggestsフィルタリング: hasChangedSinceNote=trueのものは除外される', async () => {
+    it('hasChangedSinceNote=trueの以前suggestは即座にresolve対象になる', async () => {
       const command = createCommand();
       const mrContext = createMrContext();
       const workflowResult = createWorkflowResult();
@@ -1382,16 +1388,7 @@ describe('ReviewExecutionService', () => {
           originalCode: 'old code',
           suggestedCode: 'new code',
           comment: 'コメント1',
-          hasChangedSinceNote: true, // 変更済み → 除外
-        },
-        {
-          discussionId: 'disc-2',
-          checkItemContent: 'テストカバレッジ',
-          filePath: 'src/test.ts',
-          originalCode: 'old test',
-          suggestedCode: 'new test',
-          comment: 'コメント2',
-          hasChangedSinceNote: false, // 未変更 → アクティブ
+          hasChangedSinceNote: true, // 変更済み → 即座にresolve
         },
       ];
 
@@ -1400,18 +1397,12 @@ describe('ReviewExecutionService', () => {
       vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
 
-      await service.execute(command);
+      const result = await service.execute(command);
 
-      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
-      // hasChangedSinceNote=falseかつチェックリストに含まれる項目のみがactiveSuggestsに残る
-      expect(runCall.activeSuggests).toHaveLength(1);
-      expect(runCall.activeSuggests![0].checkItemContent).toBe('テストカバレッジ');
-      expect(runCall.activeSuggests![0].filePath).toBe('src/test.ts');
-      expect(runCall.activeSuggests![0].originalCode).toBe('old test');
-      expect(runCall.activeSuggests![0].suggestedCode).toBe('new test');
+      expect(result.suggestsToResolve).toContain('disc-1');
     });
 
-    it('activeSuggestsフィルタリング: 現在のチェックリストに含まれないcheckItemContentは除外される', async () => {
+    it('チェックリストに含まれない以前suggestは即座にresolve対象になる', async () => {
       const command = createCommand();
       const mrContext = createMrContext();
       const workflowResult = createWorkflowResult();
@@ -1433,13 +1424,12 @@ describe('ReviewExecutionService', () => {
       vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
 
-      await service.execute(command);
+      const result = await service.execute(command);
 
-      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
-      expect(runCall.activeSuggests).toHaveLength(0);
+      expect(result.suggestsToResolve).toContain('disc-1');
     });
 
-    it('suggestsToResolve: hasChangedSinceNote=trueまたはチェックリストに含まれないものが対象になる', async () => {
+    it('suggestsToResolve: hasChangedSinceNote=trueまたはチェックリストに含まれないものが即座にresolve対象になる', async () => {
       const command = createCommand();
       const mrContext = createMrContext();
       const workflowResult = createWorkflowResult();
@@ -1452,7 +1442,7 @@ describe('ReviewExecutionService', () => {
           originalCode: 'old code',
           suggestedCode: 'new code',
           comment: 'コメント1',
-          hasChangedSinceNote: true, // 変更済み → resolve対象
+          hasChangedSinceNote: true, // 変更済み → 即座にresolve
         },
         {
           discussionId: 'disc-2',
@@ -1461,7 +1451,7 @@ describe('ReviewExecutionService', () => {
           originalCode: 'old test',
           suggestedCode: 'new test',
           comment: 'コメント2',
-          hasChangedSinceNote: false, // 未変更かつチェックリストに含まれる → アクティブ
+          hasChangedSinceNote: false, // 未変更かつチェックリストに含まれる → overlap判定対象
         },
         {
           discussionId: 'disc-3',
@@ -1470,7 +1460,7 @@ describe('ReviewExecutionService', () => {
           originalCode: 'deleted code',
           suggestedCode: 'suggested code',
           comment: 'コメント3',
-          hasChangedSinceNote: false, // 未変更だがチェックリストに含まれない → resolve対象
+          hasChangedSinceNote: false, // 未変更だがチェックリストに含まれない → 即座にresolve
         },
       ];
 
@@ -1481,8 +1471,180 @@ describe('ReviewExecutionService', () => {
 
       const result = await service.execute(command);
 
-      // suggestsToResolveのdiscussionIdが返却される
-      expect(result.suggestsToResolve).toEqual(['disc-1', 'disc-3']);
+      // disc-1とdisc-3は即座にresolve、disc-2はoverlap判定対象（行解決失敗→resolve）
+      expect(result.suggestsToResolve).toContain('disc-1');
+      expect(result.suggestsToResolve).toContain('disc-3');
+      // disc-2はsuggestionLineResolverがデフォルトで失敗するのでresolve対象
+      expect(result.suggestsToResolve).toContain('disc-2');
+    });
+
+    it('overlap判定: 新suggestと以前suggestの行範囲が重複する場合、以前suggestがresolve対象になる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'コードの可読性',
+            ratingLabel: 'C',
+            ratingDefinition: '満たしていない',
+            comment: '改善が必要',
+            isError: false,
+          },
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+            isError: false,
+          },
+        ],
+        suggestions: [
+          {
+            checkItemContent: 'コードの可読性',
+            filePath: 'src/app.ts',
+            originalCode: 'console.log(err)',
+            suggestedCode: 'logger.error(err)',
+            comment: 'loggerを使用してください',
+            newLine: 10,
+            linesAbove: 2,
+            linesBelow: 2,
+            oldPath: 'src/app.ts',
+            newPath: 'src/app.ts',
+          },
+        ],
+      };
+
+      const suggestDiscussions: SuggestDiscussion[] = [
+        {
+          discussionId: 'disc-prior',
+          checkItemContent: 'コードの可読性',
+          filePath: 'src/app.ts',
+          originalCode: 'old code at line 9',
+          suggestedCode: 'new code',
+          comment: '以前の提案',
+          hasChangedSinceNote: false,
+        },
+      ];
+
+      // 以前suggestの行解決: 行9-11（新suggestの8-12と重複）
+      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
+        success: true,
+        newLine: 10,
+        linesAbove: 1,
+        linesBelow: 1,
+        oldPath: 'src/app.ts',
+        newPath: 'src/app.ts',
+      });
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      const result = await service.execute(command);
+
+      expect(result.suggestsToResolve).toContain('disc-prior');
+    });
+
+    it('overlap判定: 新suggestと以前suggestの行範囲が重複しない場合、以前suggestはresolve対象にならない', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult: ReviewWorkflowResult = {
+        results: [
+          {
+            checkItemContent: 'コードの可読性',
+            ratingLabel: 'C',
+            ratingDefinition: '満たしていない',
+            comment: '改善が必要',
+            isError: false,
+          },
+          {
+            checkItemContent: 'テストカバレッジ',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+            isError: false,
+          },
+        ],
+        suggestions: [
+          {
+            checkItemContent: 'コードの可読性',
+            filePath: 'src/app.ts',
+            originalCode: 'console.log(err)',
+            suggestedCode: 'logger.error(err)',
+            comment: 'loggerを使用してください',
+            newLine: 50,
+            linesAbove: 0,
+            linesBelow: 0,
+            oldPath: 'src/app.ts',
+            newPath: 'src/app.ts',
+          },
+        ],
+      };
+
+      const suggestDiscussions: SuggestDiscussion[] = [
+        {
+          discussionId: 'disc-prior',
+          checkItemContent: 'コードの可読性',
+          filePath: 'src/app.ts',
+          originalCode: 'old code at line 10',
+          suggestedCode: 'new code',
+          comment: '以前の提案',
+          hasChangedSinceNote: false,
+        },
+      ];
+
+      // 以前suggestの行解決: 行10（新suggestの行50と重複しない）
+      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
+        success: true,
+        newLine: 10,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/app.ts',
+        newPath: 'src/app.ts',
+      });
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      const result = await service.execute(command);
+
+      expect(result.suggestsToResolve).not.toContain('disc-prior');
+    });
+
+    it('overlap判定: 以前suggestの行解決に失敗した場合はresolve対象になる', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext();
+      const workflowResult = createWorkflowResult();
+
+      const suggestDiscussions: SuggestDiscussion[] = [
+        {
+          discussionId: 'disc-prior',
+          checkItemContent: 'コードの可読性',
+          filePath: 'src/app.ts',
+          originalCode: 'old code',
+          suggestedCode: 'new code',
+          comment: '以前の提案',
+          hasChangedSinceNote: false,
+        },
+      ];
+
+      // 行解決失敗
+      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
+        success: false,
+        errorMessage: 'Code not found in diff',
+      });
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
+      vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
+
+      const result = await service.execute(command);
+
+      expect(result.suggestsToResolve).toContain('disc-prior');
     });
 
     it('DtoにbaseSha, headSha, startShaが含まれる', async () => {
@@ -1532,12 +1694,11 @@ describe('ReviewExecutionService', () => {
 
       const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
       expect(runCall.suggestEnabledRatingLabels).toEqual(['B', 'C']);
-      expect(runCall.activeSuggests).toEqual([]);
       expect(runCall.suggestResultFilePath).toMatch(/aikata-suggest-/);
       expect(runCall.fullMrDiff).toBe('full diff content');
     });
 
-    it('suggestEnabledRatingLabelsが空配列の場合、activeSuggestsはnullになる', async () => {
+    it('suggestEnabledRatingLabelsが空配列の場合、全ての以前suggestがresolve対象になる', async () => {
       const command = createCommand({
         suggestEnabledRatingLabels: [],
         reviewSettings: new ReviewSettings({
@@ -1557,15 +1718,26 @@ describe('ReviewExecutionService', () => {
       const mrContext = createMrContext();
       const workflowResult = createWorkflowResult();
 
+      const suggestDiscussions: SuggestDiscussion[] = [
+        {
+          discussionId: 'disc-1',
+          checkItemContent: 'コードの可読性',
+          filePath: 'src/app.ts',
+          originalCode: 'old code',
+          suggestedCode: 'new code',
+          comment: 'コメント',
+          hasChangedSinceNote: false,
+        },
+      ];
+
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
       vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
       vi.mocked(workflowRunner.run).mockResolvedValue(workflowResult);
 
-      await service.execute(command);
+      const result = await service.execute(command);
 
-      const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
-      expect(runCall.suggestEnabledRatingLabels).toEqual([]);
-      expect(runCall.activeSuggests).toBeNull();
+      expect(result.suggestsToResolve).toContain('disc-1');
     });
 
     it('リトライ実行時もsuggest関連フィールドがワークフローパラメータに含まれる', async () => {

@@ -90,17 +90,6 @@ const workflowInputSchema = z.object({
   diffCompressed: z.boolean(),
   folderTreeRemovedByCompression: z.boolean(),
   suggestEnabledRatingLabels: z.array(z.string()),
-  activeSuggests: z
-    .array(
-      z.object({
-        checkItemContent: z.string(),
-        filePath: z.string(),
-        originalCode: z.string(),
-        suggestedCode: z.string(),
-        comment: z.string(),
-      }),
-    )
-    .nullable(),
   suggestResultFilePath: z.string(),
   fullMrDiff: z.string(),
 });
@@ -193,10 +182,6 @@ const reviewExecutionStep = createStep({
     // グループごとにユニークなsuggest結果ファイルパスを生成
     const suggestResultFilePath = `${initData.suggestResultFilePath}-group-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    // activeSuggestsを現在のグループのチェック項目のみにフィルタ
-    const groupActiveSuggests =
-      initData.activeSuggests?.filter((s) => currentGroupContents.has(s.checkItemContent)) ?? null;
-
     const agentRequestContext = new RequestContext<ReviewAgentRequestContext>([
       ['userId', workflowCtx.userId],
       ['projectId', workflowCtx.projectId],
@@ -242,7 +227,6 @@ const reviewExecutionStep = createStep({
       ['suggestEnabledRatingLabels', initData.suggestEnabledRatingLabels],
       ['suggestResultFilePath', suggestResultFilePath],
       ['fullMrDiff', initData.fullMrDiff],
-      ['activeSuggests', groupActiveSuggests],
       ['suggestionLineResolver', new DiffBasedSuggestionLineResolver()],
     ]);
 

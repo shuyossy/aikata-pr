@@ -58,7 +58,6 @@ function createParams(overrides?: Partial<ReviewWorkflowParams>): ReviewWorkflow
     diffCompressed: false,
     folderTreeRemovedByCompression: false,
     suggestEnabledRatingLabels: ['C'],
-    activeSuggests: null,
     suggestResultFilePath: '/tmp/suggest-result.json',
     fullMrDiff: '+ added line',
     ...overrides,
@@ -143,7 +142,6 @@ describe('MastraReviewWorkflowRunner', () => {
 
     // suggest関連フィールドがInputDataに含まれること
     expect(inputData.suggestEnabledRatingLabels).toEqual(['C']);
-    expect(inputData.activeSuggests).toBeNull();
     expect(inputData.suggestResultFilePath).toBe('/tmp/suggest-result.json');
     expect(inputData.fullMrDiff).toBe('+ added line');
   });

@@ -75,7 +75,6 @@ const executeStoreSuggest = (
   suggestResultFilePath: string,
   options: {
     checkItems?: IndexedCheckItem[];
-    activeSuggests?: Array<{ filePath: string; originalCode: string }> | null;
     suggestionLineResolver?: SuggestionLineResolver | null;
     fullMrDiff?: string | null;
   } = {},
@@ -85,7 +84,6 @@ const executeStoreSuggest = (
 
   const {
     checkItems = defaultCheckItems,
-    activeSuggests = null,
     suggestionLineResolver = createSuccessResolver(),
     fullMrDiff = defaultMrDiff,
   } = options;
@@ -93,7 +91,6 @@ const executeStoreSuggest = (
   const requestContext = new RequestContext([
     ['suggestResultFilePath', suggestResultFilePath],
     ['checkItems', checkItems],
-    ['activeSuggests', activeSuggests ?? undefined],
     ['suggestionLineResolver', suggestionLineResolver ?? undefined],
     ['fullMrDiff', fullMrDiff ?? undefined],
   ]);
@@ -212,28 +209,6 @@ describe('storeSuggest', () => {
     );
 
     expect(result.success).toBe(true);
-  });
-
-  it('activeSuggestsと同じfilePath+originalCodeの場合は重複エラーが返される', async () => {
-    createTmpDir();
-    const activeSuggests = [{ filePath: 'src/app.ts', originalCode: 'const app = express();' }];
-
-    const result = await executeStoreSuggest(
-      {
-        checkItemId: 1,
-        filePath: 'src/app.ts',
-        originalCode: 'const app = express();',
-        suggestedCode: 'const app = express(); // new',
-        comment: '重複テスト',
-      },
-      suggestFilePath,
-      { activeSuggests },
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain('already exists from a prior review');
-    // ファイルが作成されていないことを確認
-    expect(fs.existsSync(suggestFilePath)).toBe(false);
   });
 
   it('現在のセッションで同じfilePath+originalCodeの場合は重複エラーが返される', async () => {

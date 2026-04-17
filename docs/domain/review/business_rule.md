@@ -170,10 +170,10 @@
 
 - サジェスト重複排除ルール
   - 目的/背景
-    - 同一箇所に対する重複したsuggestを防止するため
+    - 同一セッション内で同一箇所に対する重複したsuggestを防止するため
   - 条件
     - 同一filePath + 同一originalCodeのsuggestは重複として拒否する
-    - 以前の有効なsuggestもあらかじめ登録されており、重複チェックの対象となる
+    - 重複チェックは現在のセッション内のsuggestのみが対象（以前のsuggestはAgentに伝えない）
   - 結果(アクション)
     - 重複するsuggestの登録を拒否し、エラーメッセージを返す
   - 関連するユースケースorエンティティ: Suggestion, storeSuggestTool
@@ -187,26 +187,30 @@
     - 行数超過のsuggestの登録を拒否し、エラーメッセージを返す
   - 関連するユースケースorエンティティ: Suggestion, storeSuggestTool
 
-- 有効なサジェストの判定ルール
-  - 目的/背景
-    - 再レビュー時に以前のsuggestの有効性を判定し、重複投稿を防止するため
-  - 条件
-    - unresolveであること
-    - 現在のチェックリストに含まれるチェック項目のsuggestであること
-    - diff更新済みのsystem noteが存在しないこと（「changed this」「changed this line」「compare changes」を含むsystem noteで判定）
-  - 結果(アクション)
-    - 有効なsuggestはAgentに提供され、同じ内容のsuggestを生成しないよう指示される
-  - 関連するユースケースorエンティティ: SuggestDiscussion, ReviewExecutionService
-
 - サジェスト自動resolveルール
   - 目的/背景
-    - 古いsuggestが残り続けることを防止するため
-  - 条件
-    - diff更新済みのsystem noteが存在するsuggest discussion
-    - 現在のチェックリストに含まれないチェック項目のsuggest discussion
+    - 古いsuggestや新しいsuggestと重複するsuggestが残り続けることを防止するため
+  - 条件（以下のいずれかに該当するsuggest discussionが対象）
+    - diff更新済みのsystem noteが存在する（即座にresolve）
+    - 現在のチェックリストに含まれないチェック項目のsuggestである（即座にresolve）
+    - 新しいsuggestと行範囲が1行でも重複する（overlap判定によるresolve）
+    - 以前のsuggestの行番号解決に失敗した（コードがdiffに存在しない → resolve）
   - 結果(アクション)
     - 該当するsuggest discussionを自動でresolveする
-  - 関連するユースケースorエンティティ: SuggestDiscussion, CommentPostingService
+  - 関連するユースケースorエンティティ: SuggestDiscussion, ReviewExecutionService, SuggestOverlapResolver, CommentPostingService
+
+- サジェストoverlap判定ルール
+  - 目的/背景
+    - 以前のsuggestと新しいsuggestが同じ行範囲に対するものである場合、以前のsuggestをresolveして新しいsuggestに置き換えるため
+    - Agentには以前のsuggestを伝えず、最新のdiffに基づいて自由にsuggestを生成させる
+  - 条件
+    - 以前のsuggestのoriginalCodeをDiffBasedSuggestionLineResolverで行範囲に解決する
+    - 新suggestの行範囲（newLine - linesAbove 〜 newLine + linesBelow）と以前suggestの行範囲を比較する
+    - 同一ファイルで startA <= endB && startB <= endA の場合に重複と判定する
+  - 結果(アクション)
+    - 行範囲が重複する以前のsuggest discussionをresolve対象に追加する
+    - 行範囲が重複しない以前のsuggestはそのまま残す
+  - 関連するユースケースorエンティティ: SuggestOverlapResolver, ReviewExecutionService
 
 - サジェスト行番号解決ルール
   - 目的/背景

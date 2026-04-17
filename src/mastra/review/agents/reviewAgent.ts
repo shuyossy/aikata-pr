@@ -157,7 +157,7 @@ If the output shows "[output truncated: ...]", use the reported line counts and 
     suggestEnabled
       ? `### Suggestion Tools
 - storeSuggest: Store a code suggestion. Parameters: checkItemId, filePath, originalCode (exact code from the new side of the diff), suggestedCode (replacement), comment (explanation in ${ctx.commentLanguage})
-- getSuggests: Retrieve all suggestions (prior and current) to check for duplicates and verify completeness
+- getSuggests: Retrieve all suggestions stored in this session to check for duplicates and verify completeness
 
 `
       : ''
@@ -183,7 +183,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
 
 ### Important rules
 - You may create multiple suggestions per check item
-- Do NOT duplicate suggestions that already exist (check with getSuggests)
+- Do NOT duplicate suggestions within this session (check with getSuggests)
 - originalCode must exactly match the code in the diff (whitespace-sensitive)
 - Include sufficient context lines in originalCode to avoid ambiguity
 
@@ -219,7 +219,6 @@ export function buildUserPrompt(requestContext: RequestContext<ReviewAgentReques
     folderTree: ctx.folderTree,
     priorReviewContext: ctx.priorReviewContext,
     checkItemCount: ctx.checkItems.length,
-    activeSuggests: ctx.activeSuggests,
   });
 }
 

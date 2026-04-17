@@ -39,7 +39,7 @@ function releaseLock(lockPath: string): void {
 
 /**
  * コード変更提案をJSONファイルに保存するMastra Tool
- * suggestResultFilePath, checkItems, activeSuggests, suggestionLineResolver, fullMrDiffはRequestContextから取得する
+ * suggestResultFilePath, checkItems, suggestionLineResolver, fullMrDiffはRequestContextから取得する
  * 排他制御付きでファイルへの読み書きを行う
  */
 export const storeSuggestTool = createTool({
@@ -97,12 +97,6 @@ export const storeSuggestTool = createTool({
       };
     }
 
-    // 4. activeSuggestsとの重複チェック（以前のレビューで有効なsuggest）
-    const activeSuggests = context?.requestContext?.get('activeSuggests') as Array<{
-      filePath: string;
-      originalCode: string;
-    }> | null;
-
     // 入力からSuggestionドメインオブジェクトを生成して重複判定に使用
     const currentSuggestion = new Suggestion({
       checkItemContent: matchedItem.content,
@@ -111,14 +105,6 @@ export const storeSuggestTool = createTool({
       suggestedCode,
       comment,
     });
-
-    if (activeSuggests?.some((s) => currentSuggestion.isDuplicate(s))) {
-      return {
-        success: false,
-        message:
-          'A suggestion with the same filePath and originalCode already exists from a prior review. Use getSuggests to see existing suggestions.',
-      };
-    }
 
     const suggestResultFilePath = context?.requestContext?.get('suggestResultFilePath') as string;
     const lockPath = `${suggestResultFilePath}.lock`;

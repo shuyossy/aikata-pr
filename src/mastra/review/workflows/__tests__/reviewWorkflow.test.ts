@@ -62,7 +62,6 @@ function createWorkflowInput(overrides: Record<string, unknown> = {}) {
     diffCompressed: false,
     folderTreeRemovedByCompression: false,
     suggestEnabledRatingLabels: [],
-    activeSuggests: null,
     suggestResultFilePath: '',
     fullMrDiff: '+ added line',
     ...overrides,
@@ -359,15 +358,6 @@ describe('reviewWorkflow 結合テスト', () => {
       diffCompressed: true,
       folderTreeRemovedByCompression: true,
       suggestEnabledRatingLabels: ['C'],
-      activeSuggests: [
-        {
-          checkItemContent: 'check1',
-          filePath: 'src/index.ts',
-          originalCode: 'old code',
-          suggestedCode: 'new code',
-          comment: 'Fix this',
-        },
-      ],
       suggestResultFilePath,
       fullMrDiff: '+ full diff line',
     });
@@ -453,19 +443,6 @@ describe('reviewWorkflow 結合テスト', () => {
     expect(actualSuggestResultFilePath).toContain(suggestResultFilePath);
     expect(actualSuggestResultFilePath).toContain('-group-');
     expect(options.requestContext.get('fullMrDiff')).toBe('+ full diff line');
-    // activeSuggestsは現在のグループのチェック項目のみにフィルタされる
-    const actualActiveSuggests = options.requestContext.get('activeSuggests') as Array<{
-      checkItemContent: string;
-    }>;
-    expect(actualActiveSuggests).toEqual([
-      {
-        checkItemContent: 'check1',
-        filePath: 'src/index.ts',
-        originalCode: 'old code',
-        suggestedCode: 'new code',
-        comment: 'Fix this',
-      },
-    ]);
     // suggestionLineResolverが設定されていること
     expect(options.requestContext.get('suggestionLineResolver')).toBeDefined();
   });
@@ -726,78 +703,5 @@ describe('reviewWorkflow 結合テスト', () => {
       oldPath: 'src/index.ts',
       newPath: 'src/index.ts',
     });
-  });
-
-  it('複数グループに分割される場合、activeSuggestsはグループのチェック項目のみにフィルタされる', async () => {
-    const suggestResultFilePath = path.join(tmpDir, 'suggest-results.json');
-    const inputData = createWorkflowInput({
-      checkItemContents: ['item1', 'item2', 'item3', 'item4'],
-      concurrentReviewCount: 2,
-      resultFilePath,
-      suggestResultFilePath,
-      suggestEnabledRatingLabels: ['C'],
-      activeSuggests: [
-        {
-          checkItemContent: 'item1',
-          filePath: 'src/a.ts',
-          originalCode: 'old1',
-          suggestedCode: 'new1',
-          comment: 'Fix 1',
-        },
-        {
-          checkItemContent: 'item3',
-          filePath: 'src/b.ts',
-          originalCode: 'old3',
-          suggestedCode: 'new3',
-          comment: 'Fix 3',
-        },
-      ],
-      fullMrDiff: '+ diff',
-    });
-
-    // ChecklistSplitAgentはID番号でグループを返す
-    vi.mocked(checklistSplitAgentInstance.generate).mockResolvedValue({
-      object: {
-        groups: [
-          [1, 2],
-          [3, 4],
-        ],
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(reviewAgentInstance.generate).mockImplementation(mockGenerateWithFileWrite as any);
-
-    const requestContext = createWorkflowRequestContext();
-    const workflow = mastra.getWorkflow('reviewWorkflow');
-    const run = await workflow.createRun();
-    const result = await run.start({ inputData, requestContext });
-
-    expect(result.status).toBe('success');
-
-    // 各Agent呼び出しのactiveSuggestsを検証
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const calls = vi.mocked(reviewAgentInstance.generate).mock.calls as any[][];
-    expect(calls.length).toBeGreaterThanOrEqual(2);
-
-    for (const call of calls) {
-      const opts = call[1] as { requestContext: RequestContext };
-      const checkItems = opts.requestContext.get('checkItems') as Array<{
-        id: number;
-        content: string;
-      }>;
-      const activeSuggests = opts.requestContext.get('activeSuggests') as Array<{
-        checkItemContent: string;
-      }> | null;
-
-      if (activeSuggests && activeSuggests.length > 0) {
-        const groupContents = checkItems.map((i) => i.content);
-        // activeSuggestsは自グループのチェック項目のみであること
-        for (const s of activeSuggests) {
-          expect(groupContents).toContain(s.checkItemContent);
-        }
-      }
-    }
   });
 });

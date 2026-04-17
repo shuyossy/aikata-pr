@@ -48,7 +48,6 @@ function createTestContext(
     suggestEnabledRatingLabels: [],
     suggestResultFilePath: '',
     fullMrDiff: '',
-    activeSuggests: null,
     suggestionLineResolver: null,
     ...overrides,
   };
@@ -91,7 +90,6 @@ function createTestRequestContext(
     ['suggestEnabledRatingLabels', ctx.suggestEnabledRatingLabels],
     ['suggestResultFilePath', ctx.suggestResultFilePath],
     ['fullMrDiff', ctx.fullMrDiff],
-    ['activeSuggests', ctx.activeSuggests],
     ['suggestionLineResolver', ctx.suggestionLineResolver],
   ]);
 }
@@ -465,49 +463,6 @@ describe('buildUserPrompt', () => {
     const result = buildUserPrompt(requestContext);
 
     expect(result).not.toContain('/tmp/test-results.json');
-  });
-
-  it('activeSuggestsがある場合、Active Suggestionsセクションが含まれる', () => {
-    const requestContext = createTestRequestContext({
-      activeSuggests: [
-        {
-          checkItemContent: 'security check',
-          filePath: 'src/auth.ts',
-          originalCode: 'const password = input;',
-          suggestedCode: 'const password = sanitize(input);',
-          comment: 'Input should be sanitized',
-        },
-      ],
-      checkItems: [{ id: 1, content: 'item1' }],
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    expect(result).toContain('Active Suggestions from Prior Reviews');
-    expect(result).toContain('src/auth.ts');
-    expect(result).toContain('const password = input;');
-    expect(result).toContain('const password = sanitize(input);');
-    expect(result).toContain('Do NOT generate suggestions with the same filePath and originalCode');
-  });
-
-  it('activeSuggestsがnullの場合、Active Suggestionsセクションが含まれない', () => {
-    const requestContext = createTestRequestContext({
-      activeSuggests: null,
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    expect(result).not.toContain('Active Suggestions from Prior Reviews');
-  });
-
-  it('activeSuggestsが空配列の場合、Active Suggestionsセクションが含まれない', () => {
-    const requestContext = createTestRequestContext({
-      activeSuggests: [],
-    });
-
-    const result = buildUserPrompt(requestContext);
-
-    expect(result).not.toContain('Active Suggestions from Prior Reviews');
   });
 });
 

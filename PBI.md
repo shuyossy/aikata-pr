@@ -47,7 +47,11 @@
   - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
     - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
 - 指摘事項（in progressの場合のみ）
-  - 以前のsuggestがあった場合の挙動変更（以下が方針として正しいか正確に判断しかねるので、そもそも正しい対応なのかしっかり検討すること）
-    - 現状は以前のsuggestを優先的に残しているが、最新のMR diff基準で修正の更新が必要であれば、以前のsuggestは削除すべき
-      - 以前のsuggestは明示的にAgentに伝えない様にする
-      - Agentがレビューした結果、もし以前のsuggestに1行でも重なっていたら以前のsuggestを削除する様に変更した方が良いのではないか？
+  - 以前のsuggestがあった場合の挙動変更
+    - 以前のsuggestは明示的にAgentに伝えない様に変更した
+    - Agentがレビューした結果、もし以前のsuggestに1行でも重なっていたら以前のsuggestをresolveする様に変更した
+    - 変更内容:
+      - `SuggestOverlapResolver`（ドメインサービス）を新規作成し、行範囲の重複判定を実装
+      - `ReviewExecutionService`にoverlap判定ロジックを追加（ワークフロー実行後、投稿前に判定）
+      - `activeSuggests`をワークフロー・Agent・ツールのパイプラインから完全に削除
+      - 以前のsuggestの行解決には`DiffBasedSuggestionLineResolver`を再利用

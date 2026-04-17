@@ -12,6 +12,7 @@ import {
   LocalProjectTreeGateway,
 } from '../../../infrastructure/adapter/gateway/index.js';
 import { GitLabMrDiscussionGateway } from '../../../infrastructure/adapter/review/gateway/index.js';
+import { DiffBasedSuggestionLineResolver } from '../../../infrastructure/adapter/review/suggestion/index.js';
 import { ReviewSettings } from '../../../domain/review/reviewSettings/index.js';
 import { Rating } from '../../../domain/review/rating/index.js';
 import { QualityGate } from '../../../domain/review/qualityGate/index.js';
@@ -165,6 +166,7 @@ export class DefaultPerRequestServiceFactory implements PerRequestServiceFactory
       this.workflowRunner,
       treeGateway,
       new GptTokenCounter(),
+      new DiffBasedSuggestionLineResolver(),
     );
 
     return { mrInfoFetcher, reviewExecutor };

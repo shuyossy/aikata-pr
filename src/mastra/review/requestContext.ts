@@ -45,14 +45,6 @@ export interface ReviewAgentRequestContext extends WorkflowRequestContext {
   suggestResultFilePath: string;
   /** MRの完全なdiff（suggest行番号解決用） */
   fullMrDiff: string;
-  /** 以前のレビューで有効なsuggest一覧 */
-  activeSuggests: Array<{
-    checkItemContent: string;
-    filePath: string;
-    originalCode: string;
-    suggestedCode: string;
-    comment: string;
-  }> | null;
   /** diff解析によるsuggest行番号リゾルバ */
   suggestionLineResolver: SuggestionLineResolver | null;
 }

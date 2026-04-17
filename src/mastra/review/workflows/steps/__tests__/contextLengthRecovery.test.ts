@@ -127,7 +127,6 @@ function createTestRequestContext(
     ['suggestEnabledRatingLabels', []],
     ['suggestResultFilePath', ''],
     ['fullMrDiff', ''],
-    ['activeSuggests', null],
     ['suggestionLineResolver', null],
   ]);
 }

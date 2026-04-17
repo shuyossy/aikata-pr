@@ -17,9 +17,12 @@ import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
 import { Rating } from '../../../domain/review/rating/index.js';
 import { Suggestion } from '../../../domain/review/suggestion/index.js';
 import { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
+import { resolveOverlappingSuggests } from '../../../domain/review/suggestion/index.js';
+import type { PriorSuggestLineRange } from '../../../domain/review/suggestion/index.js';
 import type { MrContext } from '../../../domain/review/mrContext/index.js';
 import { compressDiffIfNeeded } from '../../shared/diffCompression/index.js';
 import type { TokenCounter } from '../../shared/port/tokenCounter/index.js';
+import type { SuggestionLineResolver } from '../../shared/port/suggestion/index.js';
 import { buildUserPromptTemplate } from '../../shared/prompt/index.js';
 
 /**
@@ -41,14 +44,10 @@ interface PriorContext {
  * suggest関連のコンテキスト
  */
 interface SuggestContext {
-  activeSuggests: Array<{
-    checkItemContent: string;
-    filePath: string;
-    originalCode: string;
-    suggestedCode: string;
-    comment: string;
-  }> | null;
-  suggestsToResolveIds: string[];
+  /** 即座にresolveするdiscussion ID（diffが変更された or checklistに含まれない） */
+  immediatelyResolveIds: string[];
+  /** overlap判定対象の以前のsuggest（diffが未変更 かつ checklistに含まれる） */
+  priorSuggestsForOverlapCheck: SuggestDiscussion[];
 }
 
 /**
@@ -63,6 +62,7 @@ export class ReviewExecutionService {
     private readonly workflowRunner: ReviewWorkflowRunner,
     private readonly projectTreeGateway: ProjectTreeGateway,
     private readonly tokenCounter: TokenCounter,
+    private readonly suggestionLineResolver: SuggestionLineResolver,
   ) {}
 
   async execute(command: ReviewExecutionCommand): Promise<ReviewExecutionDto> {
@@ -120,7 +120,6 @@ export class ReviewExecutionService {
           compression.effectiveFolderTree,
           resultFilePath,
           suggestResultFilePath,
-          suggestContext,
         ),
         mrDiff: compression.effectiveDiff,
         priorReviewResults: priorContext.priorReviewResults,
@@ -135,12 +134,19 @@ export class ReviewExecutionService {
       const results = this.convertToReviewResults(workflowResult, command);
       const suggestions = this.convertToResolvedSuggestions(workflowResult);
 
+      // overlap判定: 新suggestと以前のsuggestの行範囲を比較
+      const suggestsToResolve = this.buildFinalSuggestsToResolve(
+        suggestContext,
+        suggestions,
+        mrContext.diff,
+      );
+
       return {
         results,
         commitHash: mrContext.commitHash,
         commitMessage: mrContext.commitMessage,
         suggestions,
-        suggestsToResolve: suggestContext.suggestsToResolveIds,
+        suggestsToResolve,
         baseSha: mrContext.baseSha,
         headSha: mrContext.headSha,
         startSha: mrContext.startSha,
@@ -181,12 +187,17 @@ export class ReviewExecutionService {
 
     // 再レビュー対象なし → 前回結果をそのまま返却
     if (itemsToReview.length === 0) {
+      // suggestなしなのでoverlap判定は不要、immediatelyResolveIdsのみ
+      const suggestsToResolve = [
+        ...suggestContext.immediatelyResolveIds,
+        ...suggestContext.priorSuggestsForOverlapCheck.map((s) => s.discussionId),
+      ];
       return {
         results: keptResults,
         commitHash: mrContext.commitHash,
         commitMessage: mrContext.commitMessage,
         suggestions: [],
-        suggestsToResolve: suggestContext.suggestsToResolveIds,
+        suggestsToResolve,
         baseSha: mrContext.baseSha,
         headSha: mrContext.headSha,
         startSha: mrContext.startSha,
@@ -215,7 +226,6 @@ export class ReviewExecutionService {
           compression.effectiveFolderTree,
           resultFilePath,
           suggestResultFilePath,
-          suggestContext,
         ),
         mrDiff: compression.effectiveDiff,
         // リトライ時はprior context不要（同じdiff）
@@ -231,6 +241,13 @@ export class ReviewExecutionService {
       const newResults = this.convertToReviewResults(workflowResult, command);
       const suggestions = this.convertToResolvedSuggestions(workflowResult);
 
+      // overlap判定: 新suggestと以前のsuggestの行範囲を比較
+      const suggestsToResolve = this.buildFinalSuggestsToResolve(
+        suggestContext,
+        suggestions,
+        mrContext.diff,
+      );
+
       // マージ（チェックリスト順）
       const mergedResults = command.checklist.items.map((item) => {
         const kept = keptResults.find((r) => r.checkItem.content === item.content);
@@ -245,7 +262,7 @@ export class ReviewExecutionService {
         commitHash: mrContext.commitHash,
         commitMessage: mrContext.commitMessage,
         suggestions,
-        suggestsToResolve: suggestContext.suggestsToResolveIds,
+        suggestsToResolve,
         baseSha: mrContext.baseSha,
         headSha: mrContext.headSha,
         startSha: mrContext.startSha,
@@ -267,7 +284,6 @@ export class ReviewExecutionService {
     folderTree: string,
     resultFilePath: string,
     suggestResultFilePath: string,
-    suggestContext: SuggestContext,
   ): Omit<
     ReviewWorkflowParams,
     | 'checkItemContents'
@@ -305,7 +321,6 @@ export class ReviewExecutionService {
       commentLanguage: command.commentLanguage,
       openaiReasoningEffort: command.openaiReasoningEffort,
       suggestEnabledRatingLabels: command.suggestEnabledRatingLabels,
-      activeSuggests: suggestContext.activeSuggests,
       suggestResultFilePath,
       fullMrDiff: mrContext.diff,
     };
@@ -507,43 +522,93 @@ export class ReviewExecutionService {
 
   /**
    * suggest関連のコンテキストを構築する
-   * suggestEnabledRatingLabelsが空の場合はsuggest無効としてactiveSuggestsをnullにする
+   * suggestEnabledRatingLabelsが空の場合はsuggest無効として全て即座にresolve対象にする
    */
   private buildSuggestContext(
     command: ReviewExecutionCommand,
     suggestDiscussions: SuggestDiscussion[],
   ): SuggestContext {
-    // suggest無効の場合
+    // suggest無効の場合: 全て即座にresolve
     if (!command.reviewSettings.isSuggestEnabled()) {
       return {
-        activeSuggests: null,
-        suggestsToResolveIds: suggestDiscussions.map((s) => s.discussionId),
+        immediatelyResolveIds: suggestDiscussions.map((s) => s.discussionId),
+        priorSuggestsForOverlapCheck: [],
       };
     }
 
     const currentCheckItemContents = command.checklist.items.map((i) => i.content);
 
-    // アクティブなsuggest: hasChangedSinceNote=falseかつ現在のチェックリストに含まれる
-    const activeSuggests = suggestDiscussions.filter(
+    // overlap判定対象: hasChangedSinceNote=falseかつ現在のチェックリストに含まれる
+    const priorSuggestsForOverlapCheck = suggestDiscussions.filter(
       (s) => !s.hasChangedSinceNote && currentCheckItemContents.includes(s.checkItemContent),
     );
 
-    // resolve対象: アクティブでないもの
-    const activeIds = new Set(activeSuggests.map((s) => s.discussionId));
-    const suggestsToResolveIds = suggestDiscussions
-      .filter((s) => !activeIds.has(s.discussionId))
+    // 即座にresolve対象: overlap判定対象でないもの
+    const overlapCheckIds = new Set(priorSuggestsForOverlapCheck.map((s) => s.discussionId));
+    const immediatelyResolveIds = suggestDiscussions
+      .filter((s) => !overlapCheckIds.has(s.discussionId))
       .map((s) => s.discussionId);
 
     return {
-      activeSuggests: activeSuggests.map((s) => ({
-        checkItemContent: s.checkItemContent,
-        filePath: s.filePath,
-        originalCode: s.originalCode,
-        suggestedCode: s.suggestedCode,
-        comment: s.comment,
-      })),
-      suggestsToResolveIds,
+      immediatelyResolveIds,
+      priorSuggestsForOverlapCheck,
     };
+  }
+
+  /**
+   * 最終的なresolve対象のdiscussion IDリストを構築する
+   * immediatelyResolveIds + overlap判定で重複と判定されたもの + 行解決に失敗したもの
+   */
+  private buildFinalSuggestsToResolve(
+    suggestContext: SuggestContext,
+    newSuggestions: ResolvedSuggestion[],
+    mrDiff: string,
+  ): string[] {
+    const { immediatelyResolveIds, priorSuggestsForOverlapCheck } = suggestContext;
+
+    if (priorSuggestsForOverlapCheck.length === 0) {
+      return immediatelyResolveIds;
+    }
+
+    // 以前のsuggestの行範囲を解決する
+    const resolvedPriors: PriorSuggestLineRange[] = [];
+    const failedResolveIds: string[] = [];
+
+    for (const prior of priorSuggestsForOverlapCheck) {
+      const result = this.suggestionLineResolver.resolve(
+        prior.filePath,
+        prior.originalCode,
+        mrDiff,
+      );
+      if (
+        result.success &&
+        result.newLine !== undefined &&
+        result.linesAbove !== undefined &&
+        result.linesBelow !== undefined
+      ) {
+        resolvedPriors.push({
+          discussionId: prior.discussionId,
+          filePath: prior.filePath,
+          startLine: result.newLine - result.linesAbove,
+          endLine: result.newLine + result.linesBelow,
+        });
+      } else {
+        // 行解決失敗 = コードがdiffに存在しない → resolve対象
+        failedResolveIds.push(prior.discussionId);
+      }
+    }
+
+    // 新suggestの行範囲
+    const newSuggestRanges = newSuggestions.map((s) => ({
+      filePath: s.suggestion.filePath,
+      startLine: s.newLine - s.linesAbove,
+      endLine: s.newLine + s.linesBelow,
+    }));
+
+    // overlap判定
+    const overlappingIds = resolveOverlappingSuggests(resolvedPriors, newSuggestRanges);
+
+    return [...immediatelyResolveIds, ...failedResolveIds, ...overlappingIds];
   }
 
   /**
