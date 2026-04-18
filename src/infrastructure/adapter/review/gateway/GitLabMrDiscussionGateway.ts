@@ -138,6 +138,21 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
   }
 
   /**
+   * MRのディスカッションに返信ノートを追加する
+   */
+  async replyToDiscussion(
+    projectId: string,
+    mrIid: string,
+    discussionId: string,
+    body: string,
+  ): Promise<void> {
+    await this.client.post(
+      `/projects/${projectId}/merge_requests/${mrIid}/discussions/${discussionId}/notes`,
+      { body },
+    );
+  }
+
+  /**
    * MRのディスカッションをresolveする
    */
   async resolveDiscussion(projectId: string, mrIid: string, discussionId: string): Promise<void> {

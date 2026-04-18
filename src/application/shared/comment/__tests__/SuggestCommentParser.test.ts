@@ -95,5 +95,31 @@ describe('SuggestCommentParser', () => {
       const result = SuggestCommentParser.parse(body);
       expect(result).toBeNull();
     });
+
+    it('必須フィールド checkItemContent が欠落している場合にnullを返す', () => {
+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"filePath":"a.ts","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
+      const result = SuggestCommentParser.parse(body);
+      expect(result).toBeNull();
+    });
+
+    it('必須フィールド filePath が欠落している場合にnullを返す', () => {
+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
+      const result = SuggestCommentParser.parse(body);
+      expect(result).toBeNull();
+    });
+
+    it('必須フィールド suggestedCode が欠落している場合にnullを返す', () => {
+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts"}${SUGGEST_DATA_SUFFIX}\n残り`;
+      const result = SuggestCommentParser.parse(body);
+      expect(result).toBeNull();
+    });
+
+    it('オプショナルフィールド originalCode, comment が欠落している場合でもパースできる', () => {
+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
+      const result = SuggestCommentParser.parse(body);
+      expect(result).not.toBeNull();
+      expect(result!.originalCode).toBe('');
+      expect(result!.comment).toBe('');
+    });
   });
 });

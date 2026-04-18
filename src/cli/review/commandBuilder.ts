@@ -133,6 +133,5 @@ export function buildLocalReviewCommand(
     commentLanguage: options.commentLanguage,
     openaiReasoningEffort,
     maxContextLength,
-    suggestEnabledRatingLabels: reviewSettings.suggestEnabledRatingLabels,
   };
 }

@@ -50,6 +50,10 @@ export class SuggestCommentParser {
     try {
       const jsonStr = body.substring(dataStart + SUGGEST_DATA_PREFIX.length, dataEnd);
       const data = JSON.parse(jsonStr);
+      // 必須フィールドの存在チェック
+      if (!data.checkItemContent || !data.filePath || !data.suggestedCode) {
+        return null;
+      }
       return {
         checkItemContent: data.checkItemContent,
         filePath: data.filePath,

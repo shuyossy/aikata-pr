@@ -72,7 +72,7 @@ describe('MastraReviewWorkflowRunner', () => {
     runner = new MastraReviewWorkflowRunner();
   });
 
-  it('RequestContextに7フィールドが正しく設定されること', async () => {
+  it('RequestContextに7フィールド + suggestionLineResolverが正しく設定されること', async () => {
     const params = createParams();
 
     await runner.run(params);
@@ -91,6 +91,9 @@ describe('MastraReviewWorkflowRunner', () => {
     expect(ctx.get('aiModelName')).toBe('openai/o4-mini');
     expect(ctx.get('projectDir')).toBe('/test/project');
     expect(ctx.get('openaiReasoningEffort')).toBeUndefined();
+    // SuggestionLineResolverがRequestContext経由で注入されること
+    expect(ctx.get('suggestionLineResolver')).toBeDefined();
+    expect(ctx.get('suggestionLineResolver')).not.toBeNull();
   });
 
   it('InputDataにRequestContext以外の全フィールドが含まれること', async () => {

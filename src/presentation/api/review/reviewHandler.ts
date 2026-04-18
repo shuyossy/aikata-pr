@@ -284,7 +284,6 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
           commentLanguage: request.options?.commentLanguage ?? 'Japanese',
           openaiReasoningEffort: deps.openaiReasoningEffort,
           maxContextLength: deps.maxContextLength,
-          suggestEnabledRatingLabels: reviewSettings.suggestEnabledRatingLabels,
         });
 
         // 11. ReviewApiResponse形式でレビュー結果を構築
@@ -311,7 +310,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
             oldPath: s.oldPath,
             newPath: s.newPath,
           })),
-          suggestDiscussionIdsToResolve: reviewResult.suggestsToResolve,
+          suggestResolveEntries: reviewResult.suggestsToResolve,
           baseSha: reviewResult.baseSha,
           headSha: reviewResult.headSha,
           startSha: reviewResult.startSha,

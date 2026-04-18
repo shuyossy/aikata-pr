@@ -394,7 +394,7 @@ describe('buildLocalReviewCommand', () => {
     expect(result.commentLanguage).toBe('English');
     expect(result.openaiReasoningEffort).toBe('high');
     expect(result.maxContextLength).toBe(50000);
-    expect(result.suggestEnabledRatingLabels).toEqual(['C']);
+    expect(result.reviewSettings.suggestEnabledRatingLabels).toEqual(['C']);
   });
 
   it('treeMaxDepth未指定時にundefinedとなること', () => {
@@ -499,7 +499,7 @@ describe('buildLocalReviewCommand', () => {
       undefined,
     );
 
-    expect(result.suggestEnabledRatingLabels).toEqual(['B', 'C']);
+    expect(result.reviewSettings.suggestEnabledRatingLabels).toEqual(['B', 'C']);
   });
 
   it('suggestEnabledRatingLabelsが空配列の場合そのまま空配列となること', () => {
@@ -526,7 +526,7 @@ describe('buildLocalReviewCommand', () => {
       undefined,
     );
 
-    expect(result.suggestEnabledRatingLabels).toEqual([]);
+    expect(result.reviewSettings.suggestEnabledRatingLabels).toEqual([]);
   });
 
   it('openaiReasoningEffort未指定時にundefinedとなること', () => {

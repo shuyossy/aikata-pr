@@ -28,7 +28,7 @@ export type StoredSuggestion = z.infer<typeof storedSuggestionSchema>;
 export function readStoredSuggestions(filePath: string): StoredSuggestion[] {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    return JSON.parse(content) as StoredSuggestion[];
+    return z.array(storedSuggestionSchema).parse(JSON.parse(content));
   } catch (e: unknown) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       return [];

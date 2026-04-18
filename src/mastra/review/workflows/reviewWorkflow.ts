@@ -8,8 +8,16 @@ import { IndexedChecklist } from '../indexedCheckItem.js';
 import { readStoredSuggestions } from '../suggestTypes.js';
 import type { ReviewAgentRequestContext } from '../requestContext.js';
 import type { WorkflowRequestContext } from '../../shared/requestContext.js';
+import type { SuggestionLineResolver } from '../../../application/shared/port/suggestion/index.js';
 import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
-import { DiffBasedSuggestionLineResolver } from '../../../infrastructure/adapter/review/suggestion/index.js';
+
+/**
+ * reviewワークフロー用のRequestContext型
+ * WorkflowRequestContextにsuggest行番号リゾルバを追加
+ */
+interface ReviewWorkflowContext extends WorkflowRequestContext {
+  suggestionLineResolver: SuggestionLineResolver | null;
+}
 
 /**
  * IndexedCheckItemのZodスキーマ（ワークフロー内部用）
@@ -170,7 +178,7 @@ const reviewExecutionStep = createStep({
     const checkItems = inputData.items;
 
     // ReviewAgent用のRequestContextを組み立てる
-    const workflowCtx = requestContext.all as WorkflowRequestContext;
+    const workflowCtx = requestContext.all as ReviewWorkflowContext;
 
     // 過去のレビュー結果を現在のグループのチェック項目のみにフィルタ
     const currentGroupContents = new Set(checkItems.map((item) => item.content));
@@ -227,7 +235,7 @@ const reviewExecutionStep = createStep({
       ['suggestEnabledRatingLabels', initData.suggestEnabledRatingLabels],
       ['suggestResultFilePath', suggestResultFilePath],
       ['fullMrDiff', initData.fullMrDiff],
-      ['suggestionLineResolver', new DiffBasedSuggestionLineResolver()],
+      ['suggestionLineResolver', workflowCtx.suggestionLineResolver ?? null],
     ]);
 
     const reviewAgent = mastra.getAgent('reviewAgent');

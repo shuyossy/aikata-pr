@@ -34,12 +34,18 @@ export class CommentPostingService {
       await this.mrDiscussionGateway.postReviewDiscussion(command.projectId, command.mrIid, body);
     }
 
-    // 旧suggestディスカッションを解決
-    for (const discussionId of command.suggestDiscussionIdsToResolve) {
+    // 旧suggestディスカッションに理由を投稿してから解決
+    for (const entry of command.suggestResolveEntries) {
+      await this.mrDiscussionGateway.replyToDiscussion(
+        command.projectId,
+        command.mrIid,
+        entry.discussionId,
+        entry.reason,
+      );
       await this.mrDiscussionGateway.resolveDiscussion(
         command.projectId,
         command.mrIid,
-        discussionId,
+        entry.discussionId,
       );
     }
 

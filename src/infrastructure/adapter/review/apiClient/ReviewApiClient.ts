@@ -53,8 +53,8 @@ export interface ReviewApiResponse {
     oldPath: string;
     newPath: string;
   }>;
-  /** 解決すべき旧suggestディスカッションID */
-  suggestDiscussionIdsToResolve: string[];
+  /** 解決すべき旧suggestディスカッション */
+  suggestResolveEntries: Array<{ discussionId: string; reason: string }>;
   /** MRのdiff_refs.base_sha */
   baseSha: string;
   /** MRのdiff_refs.head_sha */

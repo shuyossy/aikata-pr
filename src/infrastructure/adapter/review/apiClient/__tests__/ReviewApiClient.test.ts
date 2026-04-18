@@ -72,7 +72,7 @@ describe('ReviewApiClient', () => {
     commitHash: 'abc123',
     commitMessage: 'feat: add feature',
     suggestions: [],
-    suggestDiscussionIdsToResolve: [],
+    suggestResolveEntries: [],
     baseSha: 'base000',
     headSha: 'head111',
     startSha: 'start222',

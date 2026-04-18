@@ -20,6 +20,7 @@ describe('CommentPostingService', () => {
       postNote: vi.fn().mockResolvedValue(undefined),
       getSuggestDiscussions: vi.fn().mockResolvedValue([]),
       postSuggestDiscussion: vi.fn().mockResolvedValue(undefined),
+      replyToDiscussion: vi.fn().mockResolvedValue(undefined),
       resolveDiscussion: vi.fn().mockResolvedValue(undefined),
     };
     service = new CommentPostingService(mrDiscussionGateway);
@@ -68,7 +69,7 @@ describe('CommentPostingService', () => {
     hiddenRatingLabels: [],
     qualityGateResult: passedQualityGateResult,
     suggestions: [],
-    suggestDiscussionIdsToResolve: [],
+    suggestResolveEntries: [],
     baseSha: 'base-sha-000',
     headSha: 'head-sha-111',
     startSha: 'start-sha-222',
@@ -263,13 +264,42 @@ describe('CommentPostingService', () => {
       });
     };
 
-    it('suggestDiscussionIdsToResolveの各IDに対してresolveDiscussionが呼ばれること', async () => {
+    it('suggestResolveEntriesの各エントリに対して理由投稿後にresolveDiscussionが呼ばれること', async () => {
       const command = createCommand({
-        suggestDiscussionIdsToResolve: ['disc-1', 'disc-2', 'disc-3'],
+        suggestResolveEntries: [
+          { discussionId: 'disc-1', reason: 'Diff updated.' },
+          { discussionId: 'disc-2', reason: 'Overlapping suggest.' },
+          { discussionId: 'disc-3', reason: 'Check item removed.' },
+        ],
       });
 
       await service.execute(command);
 
+      // 理由の投稿
+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenCalledTimes(3);
+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenNthCalledWith(
+        1,
+        '123',
+        '42',
+        'disc-1',
+        'Diff updated.',
+      );
+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenNthCalledWith(
+        2,
+        '123',
+        '42',
+        'disc-2',
+        'Overlapping suggest.',
+      );
+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenNthCalledWith(
+        3,
+        '123',
+        '42',
+        'disc-3',
+        'Check item removed.',
+      );
+
+      // resolve
       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledTimes(3);
       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenNthCalledWith(
         1,
@@ -361,14 +391,15 @@ describe('CommentPostingService', () => {
       );
     });
 
-    it('suggestionsとsuggestDiscussionIdsToResolveが空の場合はsuggest関連メソッドが呼ばれないこと', async () => {
+    it('suggestionsとsuggestResolveEntriesが空の場合はsuggest関連メソッドが呼ばれないこと', async () => {
       const command = createCommand({
         suggestions: [],
-        suggestDiscussionIdsToResolve: [],
+        suggestResolveEntries: [],
       });
 
       await service.execute(command);
 
+      expect(mrDiscussionGateway.replyToDiscussion).not.toHaveBeenCalled();
       expect(mrDiscussionGateway.resolveDiscussion).not.toHaveBeenCalled();
       expect(mrDiscussionGateway.postSuggestDiscussion).not.toHaveBeenCalled();
     });
@@ -377,13 +408,21 @@ describe('CommentPostingService', () => {
       const suggestion = createResolvedSuggestion();
       const command = createCommand({
         suggestions: [suggestion],
-        suggestDiscussionIdsToResolve: ['old-disc-1'],
+        suggestResolveEntries: [{ discussionId: 'old-disc-1', reason: 'Overlap.' }],
       });
 
       await service.execute(command);
 
       // 既存のレビューコメント投稿が行われていること
       expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledOnce();
+      // 旧suggestに理由が投稿されていること
+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenCalledOnce();
+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenCalledWith(
+        '123',
+        '42',
+        'old-disc-1',
+        'Overlap.',
+      );
       // 旧suggestのresolveが行われていること
       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledOnce();
       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledWith('123', '42', 'old-disc-1');

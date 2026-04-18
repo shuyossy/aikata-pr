@@ -2,6 +2,7 @@ import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
 import { Rating } from '../../../domain/review/rating/index.js';
 import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
 import type { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
+import type { SuggestResolveEntry } from '../reviewExecution/ReviewExecutionDto.js';
 
 /**
  * CommentPostingServiceの入力DTO
@@ -18,8 +19,8 @@ export interface CommentPostingCommand {
   qualityGateResult: QualityGateResult;
   /** 投稿する変更提案 */
   suggestions: ResolvedSuggestion[];
-  /** 解決すべき旧suggestディスカッションID */
-  suggestDiscussionIdsToResolve: string[];
+  /** 解決すべき旧suggestディスカッション */
+  suggestResolveEntries: SuggestResolveEntry[];
   /** MRのdiff_refs.base_sha */
   baseSha: string;
   /** MRのdiff_refs.head_sha */

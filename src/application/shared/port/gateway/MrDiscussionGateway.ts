@@ -27,5 +27,11 @@ export interface MrDiscussionGateway {
     body: string,
     position: DiffPosition,
   ): Promise<void>;
+  replyToDiscussion(
+    projectId: string,
+    mrIid: string,
+    discussionId: string,
+    body: string,
+  ): Promise<void>;
   resolveDiscussion(projectId: string, mrIid: string, discussionId: string): Promise<void>;
 }

@@ -72,7 +72,6 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
     commentLanguage: 'Japanese',
     openaiReasoningEffort: undefined,
     maxContextLength: undefined,
-    suggestEnabledRatingLabels: ['C'],
     ...overrides,
   };
 }
@@ -154,6 +153,7 @@ describe('ReviewExecutionService', () => {
       postNote: vi.fn(),
       getSuggestDiscussions: vi.fn().mockResolvedValue([]),
       postSuggestDiscussion: vi.fn().mockResolvedValue(undefined),
+      replyToDiscussion: vi.fn().mockResolvedValue(undefined),
       resolveDiscussion: vi.fn().mockResolvedValue(undefined),
     };
     workflowRunner = {
@@ -1360,6 +1360,13 @@ describe('ReviewExecutionService', () => {
     });
   });
 
+  /**
+   * suggestsToResolveからdiscussionIdの配列を抽出するヘルパー
+   */
+  function resolveIds(entries: Array<{ discussionId: string; reason: string }>): string[] {
+    return entries.map((e) => e.discussionId);
+  }
+
   describe('suggest関連', () => {
     it('getSuggestDiscussionsがexecute内で呼び出される', async () => {
       const command = createCommand();
@@ -1399,7 +1406,7 @@ describe('ReviewExecutionService', () => {
 
       const result = await service.execute(command);
 
-      expect(result.suggestsToResolve).toContain('disc-1');
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
     });
 
     it('チェックリストに含まれない以前suggestは即座にresolve対象になる', async () => {
@@ -1426,7 +1433,7 @@ describe('ReviewExecutionService', () => {
 
       const result = await service.execute(command);
 
-      expect(result.suggestsToResolve).toContain('disc-1');
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
     });
 
     it('suggestsToResolve: hasChangedSinceNote=trueまたはチェックリストに含まれないものが即座にresolve対象になる', async () => {
@@ -1472,10 +1479,10 @@ describe('ReviewExecutionService', () => {
       const result = await service.execute(command);
 
       // disc-1とdisc-3は即座にresolve、disc-2はoverlap判定対象（行解決失敗→resolve）
-      expect(result.suggestsToResolve).toContain('disc-1');
-      expect(result.suggestsToResolve).toContain('disc-3');
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-3');
       // disc-2はsuggestionLineResolverがデフォルトで失敗するのでresolve対象
-      expect(result.suggestsToResolve).toContain('disc-2');
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-2');
     });
 
     it('overlap判定: 新suggestと以前suggestの行範囲が重複する場合、以前suggestがresolve対象になる', async () => {
@@ -1543,7 +1550,7 @@ describe('ReviewExecutionService', () => {
 
       const result = await service.execute(command);
 
-      expect(result.suggestsToResolve).toContain('disc-prior');
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-prior');
     });
 
     it('overlap判定: 新suggestと以前suggestの行範囲が重複しない場合、以前suggestはresolve対象にならない', async () => {
@@ -1611,7 +1618,7 @@ describe('ReviewExecutionService', () => {
 
       const result = await service.execute(command);
 
-      expect(result.suggestsToResolve).not.toContain('disc-prior');
+      expect(resolveIds(result.suggestsToResolve)).not.toContain('disc-prior');
     });
 
     it('overlap判定: 以前suggestの行解決に失敗した場合はresolve対象になる', async () => {
@@ -1644,7 +1651,7 @@ describe('ReviewExecutionService', () => {
 
       const result = await service.execute(command);
 
-      expect(result.suggestsToResolve).toContain('disc-prior');
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-prior');
     });
 
     it('DtoにbaseSha, headSha, startShaが含まれる', async () => {
@@ -1682,7 +1689,21 @@ describe('ReviewExecutionService', () => {
     });
 
     it('ワークフローパラメータにsuggest関連フィールドが含まれる', async () => {
-      const command = createCommand({ suggestEnabledRatingLabels: ['B', 'C'] });
+      const command = createCommand({
+        reviewSettings: new ReviewSettings({
+          additionalInstructions: '',
+          concurrentReviewCount: null,
+          commentFormat: '{comment}',
+          ratings: [
+            new Rating('A', '完全に満たしている'),
+            new Rating('B', '概ね満たしている'),
+            new Rating('C', '満たしていない'),
+          ],
+          hiddenRatingLabels: [],
+          suggestEnabledRatingLabels: ['B', 'C'],
+          qualityGate: QualityGate.none(),
+        }),
+      });
       const mrContext = createMrContext({ diff: 'full diff content' });
       const workflowResult = createWorkflowResult();
 
@@ -1700,7 +1721,6 @@ describe('ReviewExecutionService', () => {
 
     it('suggestEnabledRatingLabelsが空配列の場合、全ての以前suggestがresolve対象になる', async () => {
       const command = createCommand({
-        suggestEnabledRatingLabels: [],
         reviewSettings: new ReviewSettings({
           additionalInstructions: '',
           concurrentReviewCount: null,
@@ -1737,7 +1757,7 @@ describe('ReviewExecutionService', () => {
 
       const result = await service.execute(command);
 
-      expect(result.suggestsToResolve).toContain('disc-1');
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
     });
 
     it('リトライ実行時もsuggest関連フィールドがワークフローパラメータに含まれる', async () => {
@@ -1746,7 +1766,7 @@ describe('ReviewExecutionService', () => {
         new Rating('B', '概ね満たしている'),
         new Rating('C', '満たしていない'),
       ];
-      const command = createCommand({ suggestEnabledRatingLabels: ['C'] });
+      const command = createCommand();
       const mrContext = createMrContext({ commitHash: 'same-hash', diff: 'full diff' });
 
       const priorComment = createAikataComment(
@@ -1897,6 +1917,71 @@ describe('ReviewExecutionService', () => {
       expect(result.baseSha).toBe('b-sha');
       expect(result.headSha).toBe('h-sha');
       expect(result.startSha).toBe('s-sha');
+    });
+
+    it('リトライ実行時（全項目成功で再レビュー不要）に有効なsuggestはresolveされないこと', async () => {
+      const ratings = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+        new Rating('C', '満たしていない'),
+      ];
+      const command = createCommand();
+      const mrContext = createMrContext({
+        commitHash: 'same-hash',
+      });
+
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '良い',
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'OK',
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      // 有効なsuggest（diffが未変更かつチェックリストに含まれる）
+      const suggestDiscussions: SuggestDiscussion[] = [
+        {
+          discussionId: 'disc-valid',
+          checkItemContent: 'コードの可読性',
+          filePath: 'src/app.ts',
+          originalCode: 'old code',
+          suggestedCode: 'new code',
+          comment: 'コメント',
+          hasChangedSinceNote: false,
+        },
+        {
+          discussionId: 'disc-changed',
+          checkItemContent: 'テストカバレッジ',
+          filePath: 'src/test.ts',
+          originalCode: 'old',
+          suggestedCode: 'new',
+          comment: 'c',
+          hasChangedSinceNote: true, // diff変更済み → resolve対象
+        },
+      ];
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
+
+      const result = await service.execute(command);
+
+      // disc-changed（diff変更済み）はresolve対象
+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-changed');
+      // disc-valid（有効なsuggest）はresolveされない
+      expect(resolveIds(result.suggestsToResolve)).not.toContain('disc-valid');
     });
 
     it('suggestResultファイルのクリーンアップが実行される', async () => {

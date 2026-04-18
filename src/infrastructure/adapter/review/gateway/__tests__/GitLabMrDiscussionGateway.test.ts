@@ -526,6 +526,27 @@ describe('GitLabMrDiscussionGateway', () => {
     });
   });
 
+  describe('replyToDiscussion', () => {
+    it('正しいエンドポイントとbodyでPOSTリクエストを送信する', async () => {
+      mockClient.post.mockResolvedValueOnce({ id: 100 });
+
+      await gateway.replyToDiscussion('123', '42', 'disc-reply-1', 'This is a reason.');
+
+      expect(mockClient.post).toHaveBeenCalledWith(
+        '/projects/123/merge_requests/42/discussions/disc-reply-1/notes',
+        { body: 'This is a reason.' },
+      );
+    });
+
+    it('戻り値がvoidであること', async () => {
+      mockClient.post.mockResolvedValueOnce({ id: 101 });
+
+      const result = await gateway.replyToDiscussion('789', '5', 'disc-reply-2', 'Reason text');
+
+      expect(result).toBeUndefined();
+    });
+  });
+
   describe('resolveDiscussion', () => {
     it('正しいエンドポイントとresolved: trueでPUTリクエストを送信する', async () => {
       mockClient.put.mockResolvedValueOnce({ id: 'disc-1', resolved: true });

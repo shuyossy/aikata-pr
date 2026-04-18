@@ -26,7 +26,7 @@
     - 既にそのdiffが後続の別コミットによって更新されていた場合は、自動でresolveする
       - 別コミットによって更新されているかどうかはsystem note内に「changed this」「chenged this line」「compare changes」などが含まれているかで判断可能
     - そのdiffがまだ更新されておらず、suggestが有効な場合はそのまま残す
-      - 同じsuggestが複数表示されると混乱の元になるので、Agentには現状で有効なsuggest以外のsuggestを生成させる様にする 
+      - ただし、今回のレビュー実行で新規作成されたsuggestと1行でも被っている場合は、その以前のsuggestを削除する
   - suggest有効時はレビュー実行Agentにsuggest情報の登録を可能にさせる
     - suggest有効時にレビュー実行Agentに追加して与えるべき情報
       - systemプロンプト
@@ -47,11 +47,4 @@
   - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
     - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
 - 指摘事項（in progressの場合のみ）
-  - 以前のsuggestがあった場合の挙動変更
-    - 以前のsuggestは明示的にAgentに伝えない様に変更した
-    - Agentがレビューした結果、もし以前のsuggestに1行でも重なっていたら以前のsuggestをresolveする様に変更した
-    - 変更内容:
-      - `SuggestOverlapResolver`（ドメインサービス）を新規作成し、行範囲の重複判定を実装
-      - `ReviewExecutionService`にoverlap判定ロジックを追加（ワークフロー実行後、投稿前に判定）
-      - `activeSuggests`をワークフロー・Agent・ツールのパイプラインから完全に削除
-      - 以前のsuggestの行解決には`DiffBasedSuggestionLineResolver`を再利用
+

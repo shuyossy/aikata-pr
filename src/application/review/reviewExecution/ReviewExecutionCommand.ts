@@ -21,5 +21,4 @@ export interface ReviewExecutionCommand {
   commentLanguage: string;
   openaiReasoningEffort: string | undefined;
   maxContextLength: number | undefined;
-  suggestEnabledRatingLabels: string[];
 }
