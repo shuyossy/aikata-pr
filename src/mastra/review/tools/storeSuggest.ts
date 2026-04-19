@@ -127,7 +127,7 @@ export const storeSuggestTool = createTool({
       if (!resolveResult.success) {
         return {
           success: false,
-          message: resolveResult.errorMessage,
+          message: `${resolveResult.errorMessage}\n\nYou SHOULD retry: review the diff carefully, copy the exact code, and call storeSuggest again.`,
         };
       }
 

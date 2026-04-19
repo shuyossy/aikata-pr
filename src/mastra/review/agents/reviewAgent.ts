@@ -186,6 +186,13 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
 - Do NOT duplicate suggestions within this session (check with getSuggests)
 - originalCode must exactly match the code in the diff (whitespace-sensitive)
 - Include sufficient context lines in originalCode to avoid ambiguity
+- Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
+
+### Error recovery for storeSuggest
+- If storeSuggest fails, carefully read the error message and retry with corrected input.
+- If the error mentions multiple matches, include more surrounding lines in originalCode.
+- Always retry at least once before giving up on a suggestion.
+- When retrying, try a shorter or different code snippet if the same one keeps failing.
 
 `
     : ''

@@ -65,9 +65,31 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
     const matches = this.findCodeMatches(newSideLineGroups, codeLines);
 
     if (matches.length === 0) {
+      // 完全一致失敗 → 全空白除去フォールバックを試行
+      const normalizedMatches = this.findCodeMatchesNormalized(newSideLineGroups, originalCode);
+
+      if (normalizedMatches.length === 1) {
+        const match = normalizedMatches[0]!;
+        return {
+          success: true,
+          newLine: match.startLine.newLineNum,
+          linesAbove: 0,
+          linesBelow: match.lineCount - 1,
+          oldPath: paths.oldPath,
+          newPath: paths.newPath,
+        };
+      }
+
+      if (normalizedMatches.length > 1) {
+        return {
+          success: false,
+          errorMessage: `Found ${normalizedMatches.length} matches (after ignoring whitespace) for the given code in '${filePath}'. Include more surrounding context lines in originalCode to uniquely identify the location.`,
+        };
+      }
+
       return {
         success: false,
-        errorMessage: `Code not found in diff for file '${filePath}'. Verify exact whitespace and that the code appears in the new side of the diff.`,
+        errorMessage: `Code not found in diff for file '${filePath}' even after ignoring all whitespace. Verify that the code appears in the new side of the diff.`,
       };
     }
 
@@ -252,6 +274,38 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
         }
         if (allMatch) {
           matches.push(group[i]!);
+        }
+      }
+    }
+
+    return matches;
+  }
+
+  /**
+   * 全空白・改行を除去してコード断片のマッチを検索するフォールバック
+   * スライディングウィンドウ方式で、diff側の連続行を結合しつつ空白除去して比較する
+   * ハンク境界を跨ぐマッチは行わない
+   */
+  private findCodeMatchesNormalized(
+    hunkGroups: NewSideLine[][],
+    originalCode: string,
+  ): { startLine: NewSideLine; lineCount: number }[] {
+    const matches: { startLine: NewSideLine; lineCount: number }[] = [];
+    const normalizedCode = originalCode.replace(/\s+/g, '');
+    if (!normalizedCode) return matches;
+
+    for (const group of hunkGroups) {
+      for (let startIdx = 0; startIdx < group.length; startIdx++) {
+        let accumulated = '';
+        for (let endIdx = startIdx; endIdx < group.length; endIdx++) {
+          accumulated += group[endIdx]!.content.replace(/\s+/g, '');
+          if (accumulated === normalizedCode) {
+            matches.push({ startLine: group[startIdx]!, lineCount: endIdx - startIdx + 1 });
+            break;
+          }
+          if (accumulated.length > normalizedCode.length) {
+            break;
+          }
         }
       }
     }

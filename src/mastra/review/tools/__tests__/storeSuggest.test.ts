@@ -358,6 +358,28 @@ describe('storeSuggest', () => {
     expect(stored[1].checkItemContent).toBe('パフォーマンスチェック');
   });
 
+  it('行番号解決失敗時のメッセージにリトライ誘導文言が含まれる', async () => {
+    createTmpDir();
+    const errorResolver = createErrorResolver(
+      "Code not found in diff for file 'src/app.ts' even after ignoring all whitespace.",
+    );
+
+    const result = await executeStoreSuggest(
+      {
+        checkItemId: 1,
+        filePath: 'src/app.ts',
+        originalCode: 'nonexistent code',
+        suggestedCode: 'fixed code',
+        comment: 'テスト',
+      },
+      suggestFilePath,
+      { suggestionLineResolver: errorResolver },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('You SHOULD retry');
+  });
+
   it('resolverまたはfullMrDiffが未設定の場合エラーが返される', async () => {
     createTmpDir();
 

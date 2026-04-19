@@ -351,4 +351,166 @@ diff --git a/src/utils.ts b/src/utils.ts
       expect(result.success).toBe(false);
     });
   });
+
+  describe('全空白除去フォールバックマッチ', () => {
+    it('先頭空白が異なるoriginalCodeでフォールバック成功する（単一行）', () => {
+      // diffでは "const b = 3;" だが、agentが "  const b = 3;" を指定
+      const result = resolver.resolve('src/index.ts', '  const b = 3;', simpleDiff);
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 2,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/index.ts',
+        newPath: 'src/index.ts',
+      });
+    });
+
+    it('先頭空白が異なるoriginalCodeでフォールバック成功する（複数行）', () => {
+      // diffでは各行にインデントなしだが、agentが4スペースインデントで指定
+      const result = resolver.resolve(
+        'src/index.ts',
+        '    const a = 1;\n    const b = 3;\n    const c = 4;',
+        simpleDiff,
+      );
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 1,
+        linesAbove: 0,
+        linesBelow: 2,
+        oldPath: 'src/index.ts',
+        newPath: 'src/index.ts',
+      });
+    });
+
+    it('タブvs空白の差異でフォールバック成功する', () => {
+      // diffでは "const b = 3;" だが、agentがタブでインデント
+      const result = resolver.resolve('src/index.ts', '\tconst b = 3;', simpleDiff);
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 2,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/index.ts',
+        newPath: 'src/index.ts',
+      });
+    });
+
+    it('内部空白差異でフォールバック成功する', () => {
+      // diffでは "const b = 3;" だが、agentが "const  b  =  3;" を指定
+      const result = resolver.resolve('src/index.ts', 'const  b  =  3;', simpleDiff);
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 2,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/index.ts',
+        newPath: 'src/index.ts',
+      });
+    });
+
+    it('改行位置の違いでフォールバック成功する', () => {
+      // diffでは2行だが、agentが1行にまとめて指定
+      const result = resolver.resolve(
+        'src/brand-new.ts',
+        'export const alpha = 1; export const beta = 2;',
+        newFileDiff,
+      );
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 1,
+        linesAbove: 0,
+        linesBelow: 1,
+        oldPath: '/dev/null',
+        newPath: 'src/brand-new.ts',
+      });
+    });
+
+    it('agentが多くの行に分割した場合もフォールバック成功する（diffでは少ない行数）', () => {
+      // diffでは "export const alpha = 1;" が1行だが、agentが2行に分割
+      // → 正規化すると同じなのでdiff側の1行にマッチ
+      const result = resolver.resolve('src/brand-new.ts', 'export const\nalpha = 1;', newFileDiff);
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 1,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: '/dev/null',
+        newPath: 'src/brand-new.ts',
+      });
+    });
+
+    it('\\r\\nと\\nの差異でフォールバック成功する', () => {
+      const result = resolver.resolve(
+        'src/index.ts',
+        'const a = 1;\r\nconst b = 3;\r\nconst c = 4;\r\n',
+        simpleDiff,
+      );
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 1,
+        linesAbove: 0,
+        linesBelow: 2,
+        oldPath: 'src/index.ts',
+        newPath: 'src/index.ts',
+      });
+    });
+
+    it('正規化マッチで複数マッチした場合エラーを返す', () => {
+      // duplicateContentDiffにはconst val = 2;が2箇所
+      // 空白違いで指定しても2箇所マッチ→エラー
+      const result = resolver.resolve('src/repeat.ts', '  const val = 2;', duplicateContentDiff);
+
+      expect(result).toEqual({
+        success: false,
+        errorMessage: expect.stringContaining('2 matches'),
+      });
+      expect(result.errorMessage).toContain('ignoring whitespace');
+    });
+
+    it('正規化マッチでも0件の場合エラーを返す', () => {
+      const result = resolver.resolve('src/index.ts', 'completely different code', simpleDiff);
+
+      expect(result).toEqual({
+        success: false,
+        errorMessage: expect.stringContaining('Code not found in diff'),
+      });
+      expect(result.errorMessage).toContain('even after ignoring all whitespace');
+    });
+
+    it('完全一致が成功する場合はフォールバック不使用（既存動作維持）', () => {
+      // 完全一致でマッチする場合はlinesBelow計算がcodeLines.length-1ベース
+      const result = resolver.resolve('src/index.ts', 'const b = 3;\nconst c = 4;', simpleDiff);
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 2,
+        linesAbove: 0,
+        linesBelow: 1, // codeLines.length(2) - 1 = 1
+        oldPath: 'src/index.ts',
+        newPath: 'src/index.ts',
+      });
+    });
+
+    it('末尾空白の差異でフォールバック成功する', () => {
+      // diffでは "const b = 3;" だが、agentが末尾にスペースを付けた
+      const result = resolver.resolve('src/index.ts', 'const b = 3;   ', simpleDiff);
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 2,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/index.ts',
+        newPath: 'src/index.ts',
+      });
+    });
+  });
 });

@@ -404,6 +404,27 @@ describe('buildInstructions', () => {
     expect(result).toContain('explanation in English');
   });
 
+  it('suggest有効時にError recovery for storeSuggestセクションが含まれる', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: ['C'],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('### Error recovery for storeSuggest');
+    expect(result).toContain('retry');
+  });
+
+  it('suggest無効時にError recovery for storeSuggestセクションが含まれない', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: [],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).not.toContain('Error recovery for storeSuggest');
+  });
+
   it('suggest有効時にCompletion Requirementsにsuggest手順が追加される', () => {
     const requestContext = createTestRequestContext({
       suggestEnabledRatingLabels: ['C'],
