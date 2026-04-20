@@ -459,7 +459,7 @@ describe('GitLabMrDiscussionGateway', () => {
       expect(result[0].hasChangedSinceNote).toBe(true);
     });
 
-    it('notes配列が空のディスカッションをスキップする', async () => {
+    it('notes配列が空の��ィスカッションをスキップする', async () => {
       const discussions = [
         {
           id: 'disc-empty',
@@ -473,6 +473,159 @@ describe('GitLabMrDiscussionGateway', () => {
       const result = await gateway.getSuggestDiscussions('123', '42');
 
       expect(result).toEqual([]);
+    });
+
+    it('resolved済みのsuggestディスカッションはスキップする', async () => {
+      const suggestData = JSON.stringify({
+        checkItemContent: 'Check resolved',
+        filePath: 'src/resolved.ts',
+        suggestedCode: 'fixed code',
+      });
+      const discussions = [
+        {
+          id: 'disc-resolved',
+          individual_note: false,
+          notes: [
+            {
+              id: 70,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              created_at: '2026-03-01T00:00:00Z',
+              system: false,
+              resolvable: true,
+              resolved: true,
+            },
+          ],
+        },
+      ];
+
+      mockClient.getAll.mockResolvedValueOnce(discussions);
+
+      const result = await gateway.getSuggestDiscussions('123', '42');
+
+      expect(result).toEqual([]);
+    });
+
+    it('unresolvedのsuggestディスカッションは含まれる', async () => {
+      const suggestData = JSON.stringify({
+        checkItemContent: 'Check unresolved',
+        filePath: 'src/unresolved.ts',
+        suggestedCode: 'code',
+      });
+      const discussions = [
+        {
+          id: 'disc-unresolved',
+          individual_note: false,
+          notes: [
+            {
+              id: 71,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              created_at: '2026-03-01T00:00:00Z',
+              system: false,
+              resolvable: true,
+              resolved: false,
+            },
+          ],
+        },
+      ];
+
+      mockClient.getAll.mockResolvedValueOnce(discussions);
+
+      const result = await gateway.getSuggestDiscussions('123', '42');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].discussionId).toBe('disc-unresolved');
+    });
+
+    it('resolvedとunresolvedが混在する場合、unresolvedのみ返す', async () => {
+      const suggestDataResolved = JSON.stringify({
+        checkItemContent: 'Resolved check',
+        filePath: 'src/a.ts',
+        suggestedCode: 'code a',
+      });
+      const suggestDataUnresolved = JSON.stringify({
+        checkItemContent: 'Unresolved check',
+        filePath: 'src/b.ts',
+        suggestedCode: 'code b',
+      });
+      const discussions = [
+        {
+          id: 'disc-resolved-mix',
+          individual_note: false,
+          notes: [
+            {
+              id: 80,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataResolved} -->\nSuggestion`,
+              created_at: '2026-03-01T00:00:00Z',
+              system: false,
+              resolvable: true,
+              resolved: true,
+            },
+          ],
+        },
+        {
+          id: 'disc-unresolved-mix',
+          individual_note: false,
+          notes: [
+            {
+              id: 81,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataUnresolved} -->\nSuggestion`,
+              created_at: '2026-03-01T00:00:00Z',
+              system: false,
+              resolvable: true,
+              resolved: false,
+            },
+          ],
+        },
+        {
+          id: 'disc-non-suggest',
+          individual_note: false,
+          notes: [
+            {
+              id: 82,
+              body: 'Regular comment',
+              created_at: '2026-03-01T00:00:00Z',
+              system: false,
+            },
+          ],
+        },
+      ];
+
+      mockClient.getAll.mockResolvedValueOnce(discussions);
+
+      const result = await gateway.getSuggestDiscussions('123', '42');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].discussionId).toBe('disc-unresolved-mix');
+    });
+
+    it('resolvable未設定のnoteはフィルタリングされない', async () => {
+      const suggestData = JSON.stringify({
+        checkItemContent: 'Check no resolvable field',
+        filePath: 'src/legacy.ts',
+        suggestedCode: 'legacy code',
+      });
+      const discussions = [
+        {
+          id: 'disc-no-resolvable',
+          individual_note: false,
+          notes: [
+            {
+              id: 90,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              created_at: '2026-03-01T00:00:00Z',
+              system: false,
+              // resolvable, resolvedフィールドなし
+            },
+          ],
+        },
+      ];
+
+      mockClient.getAll.mockResolvedValueOnce(discussions);
+
+      const result = await gateway.getSuggestDiscussions('123', '42');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].discussionId).toBe('disc-no-resolvable');
     });
   });
 

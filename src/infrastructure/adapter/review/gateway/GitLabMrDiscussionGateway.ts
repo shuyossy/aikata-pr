@@ -20,6 +20,8 @@ interface GitLabNote {
   body: string;
   created_at: string;
   system: boolean;
+  resolvable?: boolean;
+  resolved?: boolean;
 }
 
 /**
@@ -94,6 +96,11 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
       // SuggestCommentParserでメタデータを抽出（マーカー判定含む）
       const suggestData = SuggestCommentParser.parse(firstNote.body);
       if (!suggestData) {
+        continue;
+      }
+
+      // resolved済みのディスカッションはスキップ（suggest無効化→再有効化時の対策）
+      if (firstNote.resolvable === true && firstNote.resolved === true) {
         continue;
       }
 
