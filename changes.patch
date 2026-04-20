@@ -1,1333 +1,213 @@
 diff --git a/PBI.md b/PBI.md
-index 6548993..05d681d 100644
+index 05d681d..9268818 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -47,6 +47,5 @@
+@@ -47,5 +47,15 @@
    - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
      - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
  - 指摘事項（in progressの場合のみ）
--  - MR画面でsuggestが見辛い
--    - diff discussionについて、suggestしたい範囲以外も多分に含んでおり、どこに対して変更のsuggestがされているのか分かりづらい
--    - suggestについても変更箇所以外も多分に含んでおり分かりづらい
-+  - 長大な行の変更の場合、discussionの作成時にエラーになる
-+    - 横展開として、suggestプロセス全体を見直し、長大な行の変更sugggestの場合でも問題なく動作するか良く確認すること
-diff --git a/src/application/review/commentPosting/CommentPostingService.ts b/src/application/review/commentPosting/CommentPostingService.ts
-index 2d956b7..4793aa2 100644
---- a/src/application/review/commentPosting/CommentPostingService.ts
-+++ b/src/application/review/commentPosting/CommentPostingService.ts
-@@ -2,6 +2,7 @@ import type { MrDiscussionGateway } from '../../shared/port/gateway/index.js';
- import { CommentFormatter, SuggestCommentFormatter } from '../../shared/comment/index.js';
- import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
- import type { CommentPostingCommand } from './CommentPostingCommand.js';
-+import { getLogger } from '../../../lib/logger.js';
- 
- /**
-  * コメント投稿専用サービス
-@@ -49,22 +50,34 @@ export class CommentPostingService {
-       );
-     }
- 
--    // 新suggestディスカッションを投稿
-+    // 新suggestディスカッションを投稿（個別失敗時は警告ログを出力して継続）
-     for (const resolved of command.suggestions) {
--      const suggestBody = SuggestCommentFormatter.format(resolved);
--      await this.mrDiscussionGateway.postSuggestDiscussion(
--        command.projectId,
--        command.mrIid,
--        suggestBody,
--        {
--          baseSha: command.baseSha,
--          headSha: command.headSha,
--          startSha: command.startSha,
--          oldPath: resolved.oldPath,
--          newPath: resolved.newPath,
--          newLine: resolved.newLine,
--        },
--      );
-+      try {
-+        const suggestBody = SuggestCommentFormatter.format(resolved);
-+        await this.mrDiscussionGateway.postSuggestDiscussion(
-+          command.projectId,
-+          command.mrIid,
-+          suggestBody,
-+          {
-+            baseSha: command.baseSha,
-+            headSha: command.headSha,
-+            startSha: command.startSha,
-+            oldPath: resolved.oldPath,
-+            newPath: resolved.newPath,
-+            newLine: resolved.newLine,
-+          },
-+        );
-+      } catch (error) {
-+        const logger = getLogger();
-+        logger.warn(
-+          {
-+            filePath: resolved.suggestion.filePath,
-+            checkItemContent: resolved.suggestion.checkItemContent,
-+            err: error,
-+          },
-+          'Failed to post suggest discussion, skipping this suggestion',
-+        );
-+      }
-     }
-   }
- }
-diff --git a/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts b/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-index d3b39ff..1a650a0 100644
---- a/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-+++ b/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-@@ -1,4 +1,4 @@
--import { describe, it, expect, vi, beforeEach } from 'vitest';
-+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
- import { CommentPostingService } from '../CommentPostingService.js';
- import type { CommentPostingCommand } from '../CommentPostingCommand.js';
- import type { MrDiscussionGateway } from '../../../shared/port/gateway/MrDiscussionGateway.js';
-@@ -8,12 +8,14 @@ import { CheckItem } from '../../../../domain/review/checkItem/index.js';
- import { CommentFormatter, SuggestCommentFormatter } from '../../../shared/comment/index.js';
- import type { QualityGateResult } from '../../../../domain/review/qualityGate/index.js';
- import { ResolvedSuggestion, Suggestion } from '../../../../domain/review/suggestion/index.js';
-+import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
- 
- describe('CommentPostingService', () => {
-   let mrDiscussionGateway: MrDiscussionGateway;
-   let service: CommentPostingService;
- 
-   beforeEach(() => {
-+    initializeLogger({ userId: 'test-user', level: 'silent' });
-     mrDiscussionGateway = {
-       getReviewDiscussions: vi.fn(),
-       postReviewDiscussion: vi.fn().mockResolvedValue(undefined),
-@@ -26,6 +28,10 @@ describe('CommentPostingService', () => {
-     service = new CommentPostingService(mrDiscussionGateway);
-   });
- 
-+  afterEach(() => {
-+    resetLogger();
-+  });
-+
-   /**
-    * テスト用のデフォルト品質ゲート結果（成功）
-    */
-@@ -391,6 +397,40 @@ describe('CommentPostingService', () => {
-       );
-     });
- 
-+    it('postSuggestDiscussionが失敗しても残りのsuggestは投稿され、execute全体がエラーにならないこと', async () => {
-+      const suggestion1 = createResolvedSuggestion({
-+        checkItemContent: '失敗する提案',
-+        filePath: 'src/fail.ts',
-+        originalCode: 'fail code',
-+        suggestedCode: 'fixed code',
-+        comment: 'この提案は失敗する',
-+        newLine: 5,
-+      });
-+      const suggestion2 = createResolvedSuggestion({
-+        checkItemContent: '成功する提案',
-+        filePath: 'src/success.ts',
-+        originalCode: 'old code',
-+        suggestedCode: 'new code',
-+        comment: '成功する提案',
-+        newLine: 15,
-+      });
-+
-+      // 1件目で例外を投げ、2件目は成功
-+      vi.mocked(mrDiscussionGateway.postSuggestDiscussion)
-+        .mockRejectedValueOnce(new Error('GitLab API error: 422'))
-+        .mockResolvedValueOnce(undefined);
-+
-+      const command = createCommand({
-+        suggestions: [suggestion1, suggestion2],
-+      });
-+
-+      // execute全体がエラーにならないこと
-+      await expect(service.execute(command)).resolves.not.toThrow();
-+
-+      // 2回呼ばれていること（1件目の失敗後も2件目が試行される）
-+      expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenCalledTimes(2);
-+    });
-+
-     it('suggestionsとsuggestResolveEntriesが空の場合はsuggest関連メソッドが呼ばれないこと', async () => {
-       const command = createCommand({
-         suggestions: [],
-diff --git a/src/application/review/reviewExecution/ReviewExecutionService.ts b/src/application/review/reviewExecution/ReviewExecutionService.ts
-index e8bdcf4..191cf7a 100644
---- a/src/application/review/reviewExecution/ReviewExecutionService.ts
-+++ b/src/application/review/reviewExecution/ReviewExecutionService.ts
-@@ -22,7 +22,6 @@ import type { PriorSuggestLineRange } from '../../../domain/review/suggestion/in
- import type { MrContext } from '../../../domain/review/mrContext/index.js';
- import { compressDiffIfNeeded } from '../../shared/diffCompression/index.js';
- import type { TokenCounter } from '../../shared/port/tokenCounter/index.js';
--import type { SuggestionLineResolver } from '../../shared/port/suggestion/index.js';
- import { buildUserPromptTemplate } from '../../shared/prompt/index.js';
- 
- /**
-@@ -62,7 +61,6 @@ export class ReviewExecutionService {
-     private readonly workflowRunner: ReviewWorkflowRunner,
-     private readonly projectTreeGateway: ProjectTreeGateway,
-     private readonly tokenCounter: TokenCounter,
--    private readonly suggestionLineResolver: SuggestionLineResolver,
-   ) {}
- 
-   async execute(command: ReviewExecutionCommand): Promise<ReviewExecutionDto> {
-@@ -135,11 +133,7 @@ export class ReviewExecutionService {
-       const suggestions = this.convertToResolvedSuggestions(workflowResult);
- 
-       // overlap判定: 新suggestと以前のsuggestの行範囲を比較
--      const suggestsToResolve = this.buildFinalSuggestsToResolve(
--        suggestContext,
--        suggestions,
--        mrContext.diff,
--      );
-+      const suggestsToResolve = this.buildFinalSuggestsToResolve(suggestContext, suggestions);
- 
-       return {
-         results,
-@@ -242,11 +236,7 @@ export class ReviewExecutionService {
-       const suggestions = this.convertToResolvedSuggestions(workflowResult);
- 
-       // overlap判定: 新suggestと以前のsuggestの行範囲を比較
--      const suggestsToResolve = this.buildFinalSuggestsToResolve(
--        suggestContext,
--        suggestions,
--        mrContext.diff,
--      );
-+      const suggestsToResolve = this.buildFinalSuggestsToResolve(suggestContext, suggestions);
- 
-       // マージ（チェックリスト順）
-       const mergedResults = command.checklist.items.map((item) => {
-@@ -570,7 +560,6 @@ export class ReviewExecutionService {
-   private buildFinalSuggestsToResolve(
-     suggestContext: SuggestContext,
-     newSuggestions: ResolvedSuggestion[],
--    mrDiff: string,
-   ): SuggestResolveEntry[] {
-     const { immediatelyResolveEntries, priorSuggestsForOverlapCheck } = suggestContext;
- 
-@@ -578,33 +567,23 @@ export class ReviewExecutionService {
-       return immediatelyResolveEntries;
-     }
- 
--    // 以前のsuggestの行範囲を解決する
-+    // 以前のsuggestの行範囲をGitLab note positionから取得する
-     const resolvedPriors: PriorSuggestLineRange[] = [];
-     const failedResolveEntries: SuggestResolveEntry[] = [];
- 
-     for (const prior of priorSuggestsForOverlapCheck) {
--      const result = this.suggestionLineResolver.resolve(
--        prior.filePath,
--        prior.originalCode,
--        mrDiff,
--      );
--      if (
--        result.success &&
--        result.newLine !== undefined &&
--        result.linesAbove !== undefined &&
--        result.linesBelow !== undefined
--      ) {
-+      if (prior.newLine !== null) {
-         resolvedPriors.push({
-           discussionId: prior.discussionId,
-           filePath: prior.filePath,
--          startLine: result.newLine - result.linesAbove,
--          endLine: result.newLine + result.linesBelow,
-+          startLine: prior.newLine - prior.linesAbove,
-+          endLine: prior.newLine + prior.linesBelow,
-         });
-       } else {
--        // 行解決失敗 = コードがdiffに存在しない → resolve対象
-+        // position取得不可 → resolve対象
-         failedResolveEntries.push({
-           discussionId: prior.discussionId,
--          reason: 'The suggested code was not found in the current diff.',
-+          reason: 'Could not determine the position of the previous suggestion.',
-         });
-       }
-     }
-diff --git a/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts b/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-index 04e4e1c..28998f4 100644
---- a/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-+++ b/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-@@ -21,7 +21,6 @@ import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
- import { QualityGate } from '../../../../domain/review/qualityGate/index.js';
- import { CommentFormatter } from '../../../shared/comment/index.js';
- import type { TokenCounter } from '../../../shared/port/tokenCounter/index.js';
--import type { SuggestionLineResolver } from '../../../shared/port/suggestion/index.js';
- 
- // ヘルパー: テスト用のMrContextを生成
- function createMrContext(
-@@ -138,7 +137,6 @@ describe('ReviewExecutionService', () => {
-   let mrDiscussionGateway: MrDiscussionGateway;
-   let workflowRunner: ReviewWorkflowRunner;
-   let projectTreeGateway: ProjectTreeGateway;
--  let suggestionLineResolver: SuggestionLineResolver;
-   let service: ReviewExecutionService;
- 
-   beforeEach(() => {
-@@ -165,16 +163,12 @@ describe('ReviewExecutionService', () => {
-     const tokenCounter: TokenCounter = {
-       countTokens: vi.fn().mockReturnValue(100),
-     };
--    suggestionLineResolver = {
--      resolve: vi.fn().mockReturnValue({ success: false, errorMessage: 'not found' }),
--    };
-     service = new ReviewExecutionService(
-       mrGateway,
-       mrDiscussionGateway,
-       workflowRunner,
-       projectTreeGateway,
-       tokenCounter,
--      suggestionLineResolver,
-     );
-   });
- 
-@@ -1392,10 +1386,10 @@ describe('ReviewExecutionService', () => {
-           discussionId: 'disc-1',
-           checkItemContent: 'コードの可読性',
-           filePath: 'src/app.ts',
--          originalCode: 'old code',
--          suggestedCode: 'new code',
--          comment: 'コメント1',
-           hasChangedSinceNote: true, // 変更済み → 即座にresolve
-+          newLine: 10,
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-       ];
- 
-@@ -1419,10 +1413,10 @@ describe('ReviewExecutionService', () => {
-           discussionId: 'disc-1',
-           checkItemContent: '存在しない項目', // チェックリストに含まれない
-           filePath: 'src/app.ts',
--          originalCode: 'old code',
--          suggestedCode: 'new code',
--          comment: 'コメント',
-           hasChangedSinceNote: false,
-+          newLine: 10,
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-       ];
- 
-@@ -1446,28 +1440,28 @@ describe('ReviewExecutionService', () => {
-           discussionId: 'disc-1',
-           checkItemContent: 'コードの可読性',
-           filePath: 'src/app.ts',
--          originalCode: 'old code',
--          suggestedCode: 'new code',
--          comment: 'コメント1',
-           hasChangedSinceNote: true, // 変更済み → 即座にresolve
-+          newLine: 10,
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-         {
-           discussionId: 'disc-2',
-           checkItemContent: 'テストカバレッジ',
-           filePath: 'src/test.ts',
--          originalCode: 'old test',
--          suggestedCode: 'new test',
--          comment: 'コメント2',
-           hasChangedSinceNote: false, // 未変更かつチェックリストに含まれる → overlap判定対象
-+          newLine: null, // position取得不可 → resolve対象
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-         {
-           discussionId: 'disc-3',
-           checkItemContent: '削除された項目',
-           filePath: 'src/old.ts',
--          originalCode: 'deleted code',
--          suggestedCode: 'suggested code',
--          comment: 'コメント3',
-           hasChangedSinceNote: false, // 未変更だがチェックリストに含まれない → 即座にresolve
-+          newLine: 5,
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-       ];
- 
-@@ -1478,10 +1472,9 @@ describe('ReviewExecutionService', () => {
- 
-       const result = await service.execute(command);
- 
--      // disc-1とdisc-3は即座にresolve、disc-2はoverlap判定対象（行解決失敗→resolve）
-+      // disc-1とdisc-3は即座にresolve、disc-2はnewLine=nullなのでresolve対象
-       expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
-       expect(resolveIds(result.suggestsToResolve)).toContain('disc-3');
--      // disc-2はsuggestionLineResolverがデフォルトで失敗するのでresolve対象
-       expect(resolveIds(result.suggestsToResolve)).toContain('disc-2');
-     });
- 
-@@ -1526,23 +1519,13 @@ describe('ReviewExecutionService', () => {
-           discussionId: 'disc-prior',
-           checkItemContent: 'コードの可読性',
-           filePath: 'src/app.ts',
--          originalCode: 'old code at line 9',
--          suggestedCode: 'new code',
--          comment: '以前の提案',
-           hasChangedSinceNote: false,
-+          newLine: 10, // 行9-11（新suggestの8-12と重複）
-+          linesAbove: 1,
-+          linesBelow: 1,
-         },
-       ];
- 
--      // 以前suggestの行解決: 行9-11（新suggestの8-12と重複）
--      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
--        success: true,
--        newLine: 10,
--        linesAbove: 1,
--        linesBelow: 1,
--        oldPath: 'src/app.ts',
--        newPath: 'src/app.ts',
--      });
--
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-       vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
-       vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
-@@ -1594,23 +1577,13 @@ describe('ReviewExecutionService', () => {
-           discussionId: 'disc-prior',
-           checkItemContent: 'コードの可読性',
-           filePath: 'src/app.ts',
--          originalCode: 'old code at line 10',
--          suggestedCode: 'new code',
--          comment: '以前の提案',
-           hasChangedSinceNote: false,
-+          newLine: 10, // 行10（新suggestの行50と重複しない）
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-       ];
- 
--      // 以前suggestの行解決: 行10（新suggestの行50と重複しない）
--      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
--        success: true,
--        newLine: 10,
--        linesAbove: 0,
--        linesBelow: 0,
--        oldPath: 'src/app.ts',
--        newPath: 'src/app.ts',
--      });
--
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-       vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
-       vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
-@@ -1621,7 +1594,7 @@ describe('ReviewExecutionService', () => {
-       expect(resolveIds(result.suggestsToResolve)).not.toContain('disc-prior');
-     });
- 
--    it('overlap判定: 以前suggestの行解決に失敗した場合はresolve対象になる', async () => {
-+    it('overlap判定: 以前suggestのnewLineがnullの場合はresolve対象になる', async () => {
-       const command = createCommand();
-       const mrContext = createMrContext();
-       const workflowResult = createWorkflowResult();
-@@ -1631,19 +1604,13 @@ describe('ReviewExecutionService', () => {
-           discussionId: 'disc-prior',
-           checkItemContent: 'コードの可読性',
-           filePath: 'src/app.ts',
--          originalCode: 'old code',
--          suggestedCode: 'new code',
--          comment: '以前の提案',
-           hasChangedSinceNote: false,
-+          newLine: null, // position取得不可
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-       ];
- 
--      // 行解決失敗
--      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
--        success: false,
--        errorMessage: 'Code not found in diff',
--      });
--
-       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-       vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
-       vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
-@@ -1743,10 +1710,10 @@ describe('ReviewExecutionService', () => {
-           discussionId: 'disc-1',
-           checkItemContent: 'コードの可読性',
-           filePath: 'src/app.ts',
--          originalCode: 'old code',
--          suggestedCode: 'new code',
--          comment: 'コメント',
-           hasChangedSinceNote: false,
-+          newLine: 10,
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-       ];
- 
-@@ -1956,19 +1923,19 @@ describe('ReviewExecutionService', () => {
-           discussionId: 'disc-valid',
-           checkItemContent: 'コードの可読性',
-           filePath: 'src/app.ts',
--          originalCode: 'old code',
--          suggestedCode: 'new code',
--          comment: 'コメント',
-           hasChangedSinceNote: false,
-+          newLine: 10,
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-         {
-           discussionId: 'disc-changed',
-           checkItemContent: 'テストカバレッジ',
-           filePath: 'src/test.ts',
--          originalCode: 'old',
--          suggestedCode: 'new',
--          comment: 'c',
-           hasChangedSinceNote: true, // diff変更済み → resolve対象
-+          newLine: 5,
-+          linesAbove: 0,
-+          linesBelow: 0,
-         },
-       ];
- 
+-  - 長大な行の変更の場合、discussionの作成時にエラーになる
+-    - 横展開として、suggestプロセス全体を見直し、長大な行の変更sugggestの場合でも問題なく動作するか良く確認すること
++  - suggestやチェック結果をMRに投稿する際のフォーマット変更
++    - 以下の様なフォーマットとする（`---`での区切りを追加）
++    ```
++    <${ヘッダ1}>
++    ${項目1}
++    ---
++    <${ヘッダ2}>
++    ${項目2}
++    ---
++    ```
++      - suggest時`---`がMDとしてレンダリングされない様に注意する
++    - suggest時、チェック項目のフォーマットが<br>等で改行されていないため、1行に長く伸びている様な見た目でレンダリングされてしまっている問題の解決
 diff --git a/src/application/shared/comment/SuggestCommentFormatter.ts b/src/application/shared/comment/SuggestCommentFormatter.ts
-index 9815077..f3b23f4 100644
+index f3b23f4..bd5016c 100644
 --- a/src/application/shared/comment/SuggestCommentFormatter.ts
 +++ b/src/application/shared/comment/SuggestCommentFormatter.ts
-@@ -21,10 +21,6 @@ export class SuggestCommentFormatter {
-     const marker = SUGGEST_MARKER;
-     const metadata = `${SUGGEST_DATA_PREFIX}${JSON.stringify({
-       checkItemContent: resolved.suggestion.checkItemContent,
--      filePath: resolved.suggestion.filePath,
--      originalCode: resolved.suggestion.originalCode,
--      suggestedCode: resolved.suggestion.suggestedCode,
--      comment: resolved.suggestion.comment,
+@@ -24,7 +24,8 @@ export class SuggestCommentFormatter {
      })}${SUGGEST_DATA_SUFFIX}`;
  
      const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);
-diff --git a/src/application/shared/comment/SuggestCommentParser.ts b/src/application/shared/comment/SuggestCommentParser.ts
-index 9cb282b..ab4ec26 100644
---- a/src/application/shared/comment/SuggestCommentParser.ts
-+++ b/src/application/shared/comment/SuggestCommentParser.ts
-@@ -10,14 +10,16 @@ import {
- export interface ParsedSuggestComment {
-   /** チェック項目の内容 */
-   checkItemContent: string;
--  /** 対象ファイルパス */
--  filePath: string;
--  /** 置換対象コード（diffの新しい側） */
--  originalCode: string;
--  /** 提案コード */
--  suggestedCode: string;
--  /** suggestに添えるコメント */
--  comment: string;
-+}
-+
-+/**
-+ * suggestion構文のパース結果
-+ */
-+export interface SuggestionRange {
-+  /** suggestion:-X の値 */
-+  linesAbove: number;
-+  /** suggestion:+Y の値 */
-+  linesBelow: number;
- }
+-    const header = `**チェック項目:** ${displayContent}`;
++    const escapedDisplayContent = displayContent.replace(/\n/g, '<br>');
++    const header = `**チェック項目:**<br>${escapedDisplayContent}`;
+     const comment = resolved.suggestion.comment;
+     const suggestion =
+       '```suggestion:-' +
+diff --git a/src/application/shared/comment/__tests__/CommentFormatter.test.ts b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+index 421f8bf..59402bc 100644
+--- a/src/application/shared/comment/__tests__/CommentFormatter.test.ts
++++ b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+@@ -344,7 +344,7 @@ describe('CommentFormatter', () => {
+       );
  
- /**
-@@ -51,18 +53,29 @@ export class SuggestCommentParser {
-       const jsonStr = body.substring(dataStart + SUGGEST_DATA_PREFIX.length, dataEnd);
-       const data = JSON.parse(jsonStr);
-       // 必須フィールドの存在チェック
--      if (!data.checkItemContent || !data.filePath || !data.suggestedCode) {
-+      if (!data.checkItemContent) {
-         return null;
-       }
-       return {
-         checkItemContent: data.checkItemContent,
--        filePath: data.filePath,
--        originalCode: data.originalCode ?? '',
--        suggestedCode: data.suggestedCode,
--        comment: data.comment ?? '',
-       };
-     } catch {
-       return null;
-     }
-   }
-+
-+  /**
-+   * コメント本文からsuggestion構文（```suggestion:-X+Y）のlinesAbove/linesBelowを抽出する
-+   * 構文が見つからない場合はnullを返す
-+   */
-+  static parseSuggestionRange(body: string): SuggestionRange | null {
-+    const match = body.match(/```suggestion:-(\d+)\+(\d+)/);
-+    if (!match) {
-+      return null;
-+    }
-+    return {
-+      linesAbove: parseInt(match[1], 10),
-+      linesBelow: parseInt(match[2], 10),
-+    };
-+  }
- }
+       expect(output).toContain(
+-        '| <カテゴリ><br>セキュリティ<br><チェック項目><br>SQLインジェクション対策 | C | 対策が不十分です |',
++        '| <カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>--- | C | 対策が不十分です |',
+       );
+     });
+   });
 diff --git a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
-index 45e66c0..f25edf6 100644
+index f25edf6..be0785c 100644
 --- a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
 +++ b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
-@@ -52,7 +52,7 @@ describe('SuggestCommentFormatter', () => {
-       expect(output).toContain(SUGGEST_MARKER);
-     });
- 
--    it('出力にメタデータJSONが正しいフィールドで含まれる', () => {
-+    it('出力にメタデータJSONがcheckItemContentのみで含まれる', () => {
-       const resolved = createResolvedSuggestion({
-         checkItemContent: 'テスト項目',
-         filePath: 'src/app.ts',
-@@ -73,10 +73,11 @@ describe('SuggestCommentFormatter', () => {
-       const metadata = JSON.parse(jsonStr);
- 
-       expect(metadata.checkItemContent).toBe('テスト項目');
--      expect(metadata.filePath).toBe('src/app.ts');
--      expect(metadata.originalCode).toBe('console.log(error)');
--      expect(metadata.suggestedCode).toBe('return result');
--      expect(metadata.comment).toBe('メタデータ検証用コメント');
-+      // コード内容はメタデータに含まれない
-+      expect(metadata).not.toHaveProperty('filePath');
-+      expect(metadata).not.toHaveProperty('originalCode');
-+      expect(metadata).not.toHaveProperty('suggestedCode');
-+      expect(metadata).not.toHaveProperty('comment');
-     });
- 
+@@ -83,7 +83,7 @@ describe('SuggestCommentFormatter', () => {
      it('出力にチェック項目ヘッダーが含まれる', () => {
-@@ -120,7 +121,7 @@ describe('SuggestCommentFormatter', () => {
-       );
+       const resolved = createResolvedSuggestion({ checkItemContent: 'コードレビュー項目' });
+       const output = SuggestCommentFormatter.format(resolved);
+-      expect(output).toContain('**チェック項目:** コードレビュー項目');
++      expect(output).toContain('**チェック項目:**<br>コードレビュー項目');
      });
  
--    it('ラウンドトリップ: formatしてからparseすると元のデータが復元される', () => {
-+    it('ラウンドトリップ: formatしてからparseするとcheckItemContentが復元される', () => {
+     it('出力にコメントテキストが含まれる', () => {
+@@ -110,14 +110,14 @@ describe('SuggestCommentFormatter', () => {
+       expect(output).toContain('```suggestion:-5+3');
+     });
+ 
+-    it('複数列チェック項目が<header>形式で表示される', () => {
++    it('複数列チェック項目が<header>形式で表示され、<br>で改行される', () => {
        const resolved = createResolvedSuggestion({
-         checkItemContent: 'ラウンドトリップテスト',
-         filePath: 'src/roundtrip.ts',
-@@ -133,10 +134,19 @@ describe('SuggestCommentFormatter', () => {
- 
-       expect(parsed).not.toBeNull();
-       expect(parsed!.checkItemContent).toBe('ラウンドトリップテスト');
--      expect(parsed!.filePath).toBe('src/roundtrip.ts');
--      expect(parsed!.originalCode).toBe('const x = 0;');
--      expect(parsed!.suggestedCode).toBe('const x = 1;');
--      expect(parsed!.comment).toBe('ラウンドトリップ用コメント');
-+    });
-+
-+    it('ラウンドトリップ: formatしてからparseSuggestionRangeするとlinesAbove/linesBelowが復元される', () => {
-+      const resolved = createResolvedSuggestion({
-+        linesAbove: 3,
-+        linesBelow: 2,
-+      });
-+      const output = SuggestCommentFormatter.format(resolved);
-+      const range = SuggestCommentParser.parseSuggestionRange(output);
-+
-+      expect(range).not.toBeNull();
-+      expect(range!.linesAbove).toBe(3);
-+      expect(range!.linesBelow).toBe(2);
-     });
-   });
- });
-diff --git a/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts b/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
-index 48e7557..d951eb9 100644
---- a/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
-+++ b/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
-@@ -15,19 +15,16 @@ import { Suggestion } from '../../../../domain/review/suggestion/index.js';
- const createFormattedBody = (
-   overrides: Partial<{
-     checkItemContent: string;
--    filePath: string;
--    suggestedCode: string;
--    comment: string;
-     linesAbove: number;
-     linesBelow: number;
-   }> = {},
- ): string => {
-   const suggestion = new Suggestion({
-     checkItemContent: overrides.checkItemContent ?? 'テスト項目',
--    filePath: overrides.filePath ?? 'src/test.ts',
-+    filePath: 'src/test.ts',
-     originalCode: 'original code',
--    suggestedCode: overrides.suggestedCode ?? 'suggested code',
--    comment: overrides.comment ?? 'テストコメント',
-+    suggestedCode: 'suggested code',
-+    comment: 'テストコメント',
-   });
- 
-   const resolved = new ResolvedSuggestion({
-@@ -61,22 +58,15 @@ describe('SuggestCommentParser', () => {
-   });
- 
-   describe('parse', () => {
--    it('フォーマット済みの本文から正しいメタデータを抽出する', () => {
-+    it('フォーマット済みの本文からcheckItemContentを抽出する', () => {
-       const body = createFormattedBody({
-         checkItemContent: '抽出テスト',
--        filePath: 'src/extract.ts',
--        suggestedCode: 'return 42',
--        comment: '抽出テスト用コメント',
+         checkItemContent:
+           'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
        });
- 
-       const parsed = SuggestCommentParser.parse(body);
- 
-       expect(parsed).not.toBeNull();
-       expect(parsed!.checkItemContent).toBe('抽出テスト');
--      expect(parsed!.filePath).toBe('src/extract.ts');
--      expect(parsed!.originalCode).toBe('original code');
--      expect(parsed!.suggestedCode).toBe('return 42');
--      expect(parsed!.comment).toBe('抽出テスト用コメント');
-     });
- 
-     it('suggestマーカーを含まない本文に対してnullを返す', () => {
-@@ -91,35 +81,47 @@ describe('SuggestCommentParser', () => {
-     });
- 
-     it('メタデータサフィックスが欠落している場合にnullを返す', () => {
--      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts","suggestedCode":"x"}\n残りの本文`;
-+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test"}\n残りの本文`;
-       const result = SuggestCommentParser.parse(body);
-       expect(result).toBeNull();
-     });
- 
-     it('必須フィールド checkItemContent が欠落している場合にnullを返す', () => {
--      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"filePath":"a.ts","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
-+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"filePath":"a.ts"}${SUGGEST_DATA_SUFFIX}\n残り`;
-       const result = SuggestCommentParser.parse(body);
-       expect(result).toBeNull();
-     });
- 
--    it('必須フィールド filePath が欠落している場合にnullを返す', () => {
--      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
-+    it('checkItemContentのみのメタデータでもパースできる', () => {
-+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test"}${SUGGEST_DATA_SUFFIX}\n残り`;
-       const result = SuggestCommentParser.parse(body);
--      expect(result).toBeNull();
-+      expect(result).not.toBeNull();
-+      expect(result!.checkItemContent).toBe('test');
-     });
-+  });
- 
--    it('必須フィールド suggestedCode が欠落している場合にnullを返す', () => {
--      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts"}${SUGGEST_DATA_SUFFIX}\n残り`;
--      const result = SuggestCommentParser.parse(body);
--      expect(result).toBeNull();
-+  describe('parseSuggestionRange', () => {
-+    it('suggestion構文からlinesAboveとlinesBelowを正しく抽出する', () => {
-+      const body = createFormattedBody({ linesAbove: 2, linesBelow: 3 });
-+      const range = SuggestCommentParser.parseSuggestionRange(body);
-+
-+      expect(range).not.toBeNull();
-+      expect(range!.linesAbove).toBe(2);
-+      expect(range!.linesBelow).toBe(3);
-     });
- 
--    it('オプショナルフィールド originalCode, comment が欠落している場合でもパースできる', () => {
--      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
--      const result = SuggestCommentParser.parse(body);
--      expect(result).not.toBeNull();
--      expect(result!.originalCode).toBe('');
--      expect(result!.comment).toBe('');
-+    it('linesAbove=0, linesBelow=0の場合も正しく抽出する', () => {
-+      const body = createFormattedBody({ linesAbove: 0, linesBelow: 0 });
-+      const range = SuggestCommentParser.parseSuggestionRange(body);
-+
-+      expect(range).not.toBeNull();
-+      expect(range!.linesAbove).toBe(0);
-+      expect(range!.linesBelow).toBe(0);
-+    });
-+
-+    it('suggestion構文がない場合はnullを返す', () => {
-+      const result = SuggestCommentParser.parseSuggestionRange('普通のコメント');
-+      expect(result).toBeNull();
-     });
-   });
- });
-diff --git a/src/application/shared/comment/index.ts b/src/application/shared/comment/index.ts
-index 37eae10..3d9d7d0 100644
---- a/src/application/shared/comment/index.ts
-+++ b/src/application/shared/comment/index.ts
-@@ -14,5 +14,5 @@ export {
-   SUGGEST_DATA_SUFFIX,
- } from './SuggestCommentFormatter.js';
- export { SuggestCommentParser } from './SuggestCommentParser.js';
--export type { ParsedSuggestComment } from './SuggestCommentParser.js';
-+export type { ParsedSuggestComment, SuggestionRange } from './SuggestCommentParser.js';
- export { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';
-diff --git a/src/application/shared/port/gateway/SuggestDiscussion.ts b/src/application/shared/port/gateway/SuggestDiscussion.ts
-index 79e591a..2e7faf9 100644
---- a/src/application/shared/port/gateway/SuggestDiscussion.ts
-+++ b/src/application/shared/port/gateway/SuggestDiscussion.ts
-@@ -1,13 +1,19 @@
- /**
-  * GitLab上のAIKATA-PRによるsuggest discussionの情報
-  * getSuggestDiscussionsの返却型として使用
-+ *
-+ * 位置情報はGitLab APIのnote positionフィールドおよびsuggestion構文から取得する
-  */
- export interface SuggestDiscussion {
-   discussionId: string;
-   checkItemContent: string;
-+  /** ファイルパス（GitLab note positionのnew_pathから取得） */
-   filePath: string;
--  originalCode: string;
--  suggestedCode: string;
--  comment: string;
-   hasChangedSinceNote: boolean;
-+  /** アンカー行番号（GitLab note positionのnew_lineから取得、取得不可の場合はnull） */
-+  newLine: number | null;
-+  /** suggestion:-X の値（suggestion構文から取得） */
-+  linesAbove: number;
-+  /** suggestion:+Y の値（suggestion構文から取得） */
-+  linesBelow: number;
- }
-diff --git a/src/cli/review/index.ts b/src/cli/review/index.ts
-index 0767ee7..1b4d610 100644
---- a/src/cli/review/index.ts
-+++ b/src/cli/review/index.ts
-@@ -24,7 +24,6 @@ import { GitLabMrDiscussionGateway } from '../../infrastructure/adapter/review/g
- import { LocalProjectTreeGateway } from '../../infrastructure/adapter/gateway/index.js';
- import { ReviewApiClient } from '../../infrastructure/adapter/review/apiClient/index.js';
- import { MastraReviewWorkflowRunner } from '../../infrastructure/adapter/review/workflow/index.js';
--import { DiffBasedSuggestionLineResolver } from '../../infrastructure/adapter/review/suggestion/index.js';
- import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
- import { ReviewSettings } from '../../domain/review/reviewSettings/index.js';
- import { RateLimiter } from '../../infrastructure/adapter/rateLimiter/index.js';
-@@ -251,7 +250,6 @@ export async function run(args: string[]): Promise<void> {
-         workflowRunner,
-         treeGateway,
-         new GptTokenCounter(),
--        new DiffBasedSuggestionLineResolver(),
+       const output = SuggestCommentFormatter.format(resolved);
+       expect(output).toContain(
+-        '**チェック項目:** <カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策',
++        '**チェック項目:**<br><カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>---',
        );
-       const commentService = new CommentPostingService(mrDiscussionGateway);
+     });
  
-diff --git a/src/infrastructure/adapter/httpClient/GitLabApiError.ts b/src/infrastructure/adapter/httpClient/GitLabApiError.ts
-index 65e3bf5..306dc1f 100644
---- a/src/infrastructure/adapter/httpClient/GitLabApiError.ts
-+++ b/src/infrastructure/adapter/httpClient/GitLabApiError.ts
-@@ -10,6 +10,9 @@ export class GitLabApiError extends Error {
-   readonly path: string;
-   readonly requestBody: string | undefined;
+diff --git a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+index f2e5fe1..1ef8c58 100644
+--- a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
++++ b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+@@ -9,7 +9,9 @@ describe('formatCheckItemForDisplay', () => {
  
-+  /** エラーメッセージに含めるリクエストボディの最大文字数 */
-+  private static readonly MAX_REQUEST_BODY_IN_MESSAGE = 2000;
-+
-   constructor(params: {
-     status: number;
-     statusText: string;
-@@ -19,7 +22,10 @@ export class GitLabApiError extends Error {
-     requestBody?: string;
-   }) {
-     const base = `GitLab API error: ${params.status} ${params.statusText} - ${params.method} ${params.path}\nResponse body: ${params.responseBody}`;
--    const reqBody = params.requestBody !== undefined ? `\nRequest body: ${params.requestBody}` : '';
-+    const reqBody =
-+      params.requestBody !== undefined
-+        ? `\nRequest body: ${GitLabApiError.truncateForMessage(params.requestBody)}`
-+        : '';
-     const guidance =
-       params.status >= 500
-         ? '\nThis may be a temporary server issue. Please wait a few minutes and re-run the job.'
-@@ -37,4 +43,14 @@ export class GitLabApiError extends Error {
-   get isServerError(): boolean {
-     return this.status >= 500;
+       const result = formatCheckItemForDisplay(content);
+ 
+-      expect(result).toBe('<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策');
++      expect(result).toBe(
++        '<カテゴリ>\nセキュリティ\n---\n<チェック項目>\nSQLインジェクション対策\n---',
++      );
+     });
+ 
+     it('単一列の構造化フォーマットが<header>形式に変換される', () => {
+@@ -17,7 +19,7 @@ describe('formatCheckItemForDisplay', () => {
+ 
+       const result = formatCheckItemForDisplay(content);
+ 
+-      expect(result).toBe('<チェック項目>\nコード可読性');
++      expect(result).toBe('<チェック項目>\nコード可読性\n---');
+     });
+ 
+     it('3列の構造化フォーマットが正しく変換される', () => {
+@@ -27,7 +29,7 @@ describe('formatCheckItemForDisplay', () => {
+       const result = formatCheckItemForDisplay(content);
+ 
+       expect(result).toBe(
+-        '<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策\n<説明>\nバインディング確認',
++        '<カテゴリ>\nセキュリティ\n---\n<チェック項目>\nSQLインジェクション対策\n---\n<説明>\nバインディング確認\n---',
+       );
+     });
+   });
+@@ -56,7 +58,7 @@ describe('formatCheckItemForDisplay', () => {
+ 
+       const result = formatCheckItemForDisplay(content);
+ 
+-      expect(result).toBe('<ヘッダ1>\n行1\n行2\n<ヘッダ2>\n値2');
++      expect(result).toBe('<ヘッダ1>\n行1\n行2\n---\n<ヘッダ2>\n値2\n---');
+     });
+ 
+     it('値に2連続改行を含む場合も正しく変換される', () => {
+@@ -64,7 +66,7 @@ describe('formatCheckItemForDisplay', () => {
+ 
+       const result = formatCheckItemForDisplay(content);
+ 
+-      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n<ヘッダ2>\n値2');
++      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n---\n<ヘッダ2>\n値2\n---');
+     });
+ 
+     it('空値の場合も正しく変換される', () => {
+@@ -72,7 +74,7 @@ describe('formatCheckItemForDisplay', () => {
+ 
+       const result = formatCheckItemForDisplay(content);
+ 
+-      expect(result).toBe('<ヘッダ1>\n');
++      expect(result).toBe('<ヘッダ1>\n\n---');
+     });
+ 
+     it('空値を含む複数列の場合も正しく変換される', () => {
+@@ -80,7 +82,7 @@ describe('formatCheckItemForDisplay', () => {
+ 
+       const result = formatCheckItemForDisplay(content);
+ 
+-      expect(result).toBe('<ヘッダ1>\n値1\n<ヘッダ2>\n');
++      expect(result).toBe('<ヘッダ1>\n値1\n---\n<ヘッダ2>\n\n---');
+     });
+   });
+ });
+diff --git a/src/application/shared/comment/formatCheckItemForDisplay.ts b/src/application/shared/comment/formatCheckItemForDisplay.ts
+index 4bec74b..075b3d6 100644
+--- a/src/application/shared/comment/formatCheckItemForDisplay.ts
++++ b/src/application/shared/comment/formatCheckItemForDisplay.ts
+@@ -14,7 +14,7 @@ export function formatCheckItemForDisplay(content: string): string {
+   let match;
+ 
+   while ((match = pattern.exec(content)) !== null) {
+-    columns.push(`<${match[1]}>\n${match[2]}`);
++    columns.push(`<${match[1]}>\n${match[2]}\n---`);
    }
-+
-+  /**
-+   * エラーメッセージ用にリクエストボディを截断する
-+   */
-+  private static truncateForMessage(body: string): string {
-+    if (body.length <= GitLabApiError.MAX_REQUEST_BODY_IN_MESSAGE) {
-+      return body;
-+    }
-+    return `${body.substring(0, GitLabApiError.MAX_REQUEST_BODY_IN_MESSAGE)}... [truncated, total ${body.length} chars]`;
-+  }
- }
-diff --git a/src/infrastructure/adapter/httpClient/__tests__/GitLabApiError.test.ts b/src/infrastructure/adapter/httpClient/__tests__/GitLabApiError.test.ts
-index 50ca470..d7ce3db 100644
---- a/src/infrastructure/adapter/httpClient/__tests__/GitLabApiError.test.ts
-+++ b/src/infrastructure/adapter/httpClient/__tests__/GitLabApiError.test.ts
-@@ -132,6 +132,51 @@ describe('GitLabApiError', () => {
-       expect(error.message).toContain('Request body: {"body":"comment text"}');
-     });
  
-+    it('リクエストボディが2000文字超の場合、メッセージ内では截断される', () => {
-+      const reqBody = 'x'.repeat(3000);
-+      const error = new GitLabApiError({
-+        status: 422,
-+        statusText: 'Unprocessable Entity',
-+        responseBody: '',
-+        method: 'POST',
-+        path: '/projects/1/merge_requests/1/discussions',
-+        requestBody: reqBody,
-+      });
-+
-+      expect(error.message).toContain('... [truncated, total 3000 chars]');
-+      expect(error.message).not.toContain('x'.repeat(3000));
-+    });
-+
-+    it('リクエストボディが2000文字超でもプロパティにはフル値が保持される', () => {
-+      const reqBody = 'y'.repeat(5000);
-+      const error = new GitLabApiError({
-+        status: 422,
-+        statusText: 'Unprocessable Entity',
-+        responseBody: '',
-+        method: 'POST',
-+        path: '/projects/1/merge_requests/1/discussions',
-+        requestBody: reqBody,
-+      });
-+
-+      expect(error.requestBody).toBe(reqBody);
-+      expect(error.requestBody).toHaveLength(5000);
-+    });
-+
-+    it('リクエストボディがちょうど2000文字の場合は截断されない', () => {
-+      const reqBody = 'z'.repeat(2000);
-+      const error = new GitLabApiError({
-+        status: 422,
-+        statusText: 'Unprocessable Entity',
-+        responseBody: '',
-+        method: 'POST',
-+        path: '/projects/1/merge_requests/1/discussions',
-+        requestBody: reqBody,
-+      });
-+
-+      expect(error.message).toContain('z'.repeat(2000));
-+      expect(error.message).not.toContain('[truncated');
-+    });
-+
-     it('リクエストボディが未指定の場合はundefinedでメッセージに含まれない', () => {
-       const error = new GitLabApiError({
-         status: 404,
-diff --git a/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts b/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
-index 48262c1..116382f 100644
---- a/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
-+++ b/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
-@@ -12,6 +12,14 @@ import type { GitLabApiClient } from '../../httpClient/index.js';
-  */
- const CHANGED_KEYWORDS = ['changed this line', 'changed this', 'compare changes'];
+   // 構造化フォーマットが検出されなかった場合はそのまま返す
+diff --git a/src/mastra/review/agents/__tests__/reviewAgent.test.ts b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
+index dbe02f7..85d7d4d 100644
+--- a/src/mastra/review/agents/__tests__/reviewAgent.test.ts
++++ b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
+@@ -432,7 +432,9 @@ describe('buildInstructions', () => {
  
-+/**
-+ * GitLab APIから返却されるdiff noteのposition情報
-+ */
-+interface GitLabNotePosition {
-+  new_line?: number;
-+  new_path?: string;
-+}
-+
- /**
-  * GitLab APIから返却されるノート情報の型定義
-  */
-@@ -22,6 +30,7 @@ interface GitLabNote {
-   system: boolean;
-   resolvable?: boolean;
-   resolved?: boolean;
-+  position?: GitLabNotePosition;
- }
+     const result = buildInstructions(requestContext);
  
- /**
-@@ -107,14 +116,17 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
-       // system noteに変更キーワードが含まれているか確認
-       const hasChangedSinceNote = this.hasChangedSystemNote(discussion.notes);
- 
-+      // suggestion構文からlinesAbove/linesBelowを取得
-+      const suggestionRange = SuggestCommentParser.parseSuggestionRange(firstNote.body);
-+
-       results.push({
-         discussionId: discussion.id,
-         checkItemContent: suggestData.checkItemContent,
--        filePath: suggestData.filePath,
--        originalCode: suggestData.originalCode,
--        suggestedCode: suggestData.suggestedCode,
--        comment: suggestData.comment,
-+        filePath: firstNote.position?.new_path ?? '',
-         hasChangedSinceNote,
-+        newLine: firstNote.position?.new_line ?? null,
-+        linesAbove: suggestionRange?.linesAbove ?? 0,
-+        linesBelow: suggestionRange?.linesBelow ?? 0,
-       });
-     }
- 
-diff --git a/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts b/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
-index 4f2d157..105932a 100644
---- a/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
-+++ b/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
-@@ -197,9 +197,6 @@ describe('GitLabMrDiscussionGateway', () => {
-     it('suggestマーカーとメタデータを持つディスカッションを正しくパースする', async () => {
-       const suggestData = JSON.stringify({
-         checkItemContent: 'Check null handling',
--        filePath: 'src/main.ts',
--        originalCode: 'if (x) { ... }',
--        suggestedCode: 'if (x != null) { ... }',
-       });
-       const discussions = [
-         {
-@@ -208,9 +205,10 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 10,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion body`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n**チェック項目:** Check null handling\n\nComment\n\n\`\`\`suggestion:-2+1\nif (x != null) { ... }\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-+              position: { new_line: 15, new_path: 'src/main.ts' },
-             },
-           ],
-         },
-@@ -225,20 +223,16 @@ describe('GitLabMrDiscussionGateway', () => {
-           discussionId: 'disc-suggest-1',
-           checkItemContent: 'Check null handling',
-           filePath: 'src/main.ts',
--          originalCode: 'if (x) { ... }',
--          suggestedCode: 'if (x != null) { ... }',
--          comment: '',
-           hasChangedSinceNote: false,
-+          newLine: 15,
-+          linesAbove: 2,
-+          linesBelow: 1,
-         },
-       ]);
-     });
- 
-     it('system noteに"changed this line"が含まれる場合、hasChangedSinceNoteがtrueになる', async () => {
--      const suggestData = JSON.stringify({
--        checkItemContent: 'Check error handling',
--        filePath: 'src/error.ts',
--        suggestedCode: 'throw new Error("msg")',
--      });
-+      const suggestData = JSON.stringify({ checkItemContent: 'Check error handling' });
-       const discussions = [
-         {
-           id: 'disc-changed',
-@@ -246,9 +240,10 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 20,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-+              position: { new_line: 5, new_path: 'src/error.ts' },
-             },
-             {
-               id: 21,
-@@ -269,11 +264,7 @@ describe('GitLabMrDiscussionGateway', () => {
-     });
- 
-     it('system noteがない場合、hasChangedSinceNoteがfalseになる', async () => {
--      const suggestData = JSON.stringify({
--        checkItemContent: 'Check logging',
--        filePath: 'src/logger.ts',
--        suggestedCode: 'console.log("debug")',
--      });
-+      const suggestData = JSON.stringify({ checkItemContent: 'Check logging' });
-       const discussions = [
-         {
-           id: 'disc-no-change',
-@@ -281,9 +272,10 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 30,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-+              position: { new_line: 10, new_path: 'src/logger.ts' },
-             },
-             {
-               id: 31,
-@@ -304,11 +296,7 @@ describe('GitLabMrDiscussionGateway', () => {
-     });
- 
-     it('suggestでないディスカッション（aikata-reviewを含む）を無視する', async () => {
--      const suggestData = JSON.stringify({
--        checkItemContent: 'Valid check',
--        filePath: 'src/valid.ts',
--        suggestedCode: 'return true;',
--      });
-+      const suggestData = JSON.stringify({ checkItemContent: 'Valid check' });
-       const discussions = [
-         {
-           id: 'disc-review',
-@@ -340,9 +328,10 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 42,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-+              position: { new_line: 5, new_path: 'src/valid.ts' },
-             },
-           ],
-         },
-@@ -357,16 +346,8 @@ describe('GitLabMrDiscussionGateway', () => {
-     });
- 
-     it('複数のsuggestディスカッションを処理できる', async () => {
--      const suggestData1 = JSON.stringify({
--        checkItemContent: 'Check 1',
--        filePath: 'src/a.ts',
--        suggestedCode: 'code 1',
--      });
--      const suggestData2 = JSON.stringify({
--        checkItemContent: 'Check 2',
--        filePath: 'src/b.ts',
--        suggestedCode: 'code 2',
--      });
-+      const suggestData1 = JSON.stringify({ checkItemContent: 'Check 1' });
-+      const suggestData2 = JSON.stringify({ checkItemContent: 'Check 2' });
-       const discussions = [
-         {
-           id: 'disc-s1',
-@@ -374,9 +355,10 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 50,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData1} -->\nSuggestion 1`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData1} -->\n\`\`\`suggestion:-1+2\ncode 1\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-+              position: { new_line: 10, new_path: 'src/a.ts' },
-             },
-           ],
-         },
-@@ -386,9 +368,10 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 51,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData2} -->\nSuggestion 2`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData2} -->\n\`\`\`suggestion:-0+3\ncode 2\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-+              position: { new_line: 20, new_path: 'src/b.ts' },
-             },
-             {
-               id: 52,
-@@ -409,28 +392,24 @@ describe('GitLabMrDiscussionGateway', () => {
-         discussionId: 'disc-s1',
-         checkItemContent: 'Check 1',
-         filePath: 'src/a.ts',
--        originalCode: '',
--        suggestedCode: 'code 1',
--        comment: '',
-         hasChangedSinceNote: false,
-+        newLine: 10,
-+        linesAbove: 1,
-+        linesBelow: 2,
-       });
-       expect(result[1]).toEqual({
-         discussionId: 'disc-s2',
-         checkItemContent: 'Check 2',
-         filePath: 'src/b.ts',
--        originalCode: '',
--        suggestedCode: 'code 2',
--        comment: '',
-         hasChangedSinceNote: true,
-+        newLine: 20,
-+        linesAbove: 0,
-+        linesBelow: 3,
-       });
-     });
- 
-     it('"changed this"キーワードでもhasChangedSinceNoteがtrueになる', async () => {
--      const suggestData = JSON.stringify({
--        checkItemContent: 'Check',
--        filePath: 'src/x.ts',
--        suggestedCode: 'code',
--      });
-+      const suggestData = JSON.stringify({ checkItemContent: 'Check' });
-       const discussions = [
-         {
-           id: 'disc-changed2',
-@@ -438,9 +417,10 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 60,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-+              position: { new_line: 5, new_path: 'src/x.ts' },
-             },
-             {
-               id: 61,
-@@ -476,11 +456,7 @@ describe('GitLabMrDiscussionGateway', () => {
-     });
- 
-     it('resolved済みのsuggestディスカッションはスキップする', async () => {
--      const suggestData = JSON.stringify({
--        checkItemContent: 'Check resolved',
--        filePath: 'src/resolved.ts',
--        suggestedCode: 'fixed code',
--      });
-+      const suggestData = JSON.stringify({ checkItemContent: 'Check resolved' });
-       const discussions = [
-         {
-           id: 'disc-resolved',
-@@ -488,11 +464,12 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 70,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-               resolvable: true,
-               resolved: true,
-+              position: { new_line: 5, new_path: 'src/resolved.ts' },
-             },
-           ],
-         },
-@@ -506,11 +483,7 @@ describe('GitLabMrDiscussionGateway', () => {
-     });
- 
-     it('unresolvedのsuggestディスカッションは含まれる', async () => {
--      const suggestData = JSON.stringify({
--        checkItemContent: 'Check unresolved',
--        filePath: 'src/unresolved.ts',
--        suggestedCode: 'code',
--      });
-+      const suggestData = JSON.stringify({ checkItemContent: 'Check unresolved' });
-       const discussions = [
-         {
-           id: 'disc-unresolved',
-@@ -518,11 +491,12 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 71,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-               resolvable: true,
-               resolved: false,
-+              position: { new_line: 5, new_path: 'src/unresolved.ts' },
-             },
-           ],
-         },
-@@ -537,16 +511,8 @@ describe('GitLabMrDiscussionGateway', () => {
-     });
- 
-     it('resolvedとunresolvedが混在する場合、unresolvedのみ返す', async () => {
--      const suggestDataResolved = JSON.stringify({
--        checkItemContent: 'Resolved check',
--        filePath: 'src/a.ts',
--        suggestedCode: 'code a',
--      });
--      const suggestDataUnresolved = JSON.stringify({
--        checkItemContent: 'Unresolved check',
--        filePath: 'src/b.ts',
--        suggestedCode: 'code b',
--      });
-+      const suggestDataResolved = JSON.stringify({ checkItemContent: 'Resolved check' });
-+      const suggestDataUnresolved = JSON.stringify({ checkItemContent: 'Unresolved check' });
-       const discussions = [
-         {
-           id: 'disc-resolved-mix',
-@@ -554,11 +520,12 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 80,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataResolved} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataResolved} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-               resolvable: true,
-               resolved: true,
-+              position: { new_line: 5, new_path: 'src/a.ts' },
-             },
-           ],
-         },
-@@ -568,11 +535,12 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 81,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataUnresolved} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataUnresolved} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-               resolvable: true,
-               resolved: false,
-+              position: { new_line: 10, new_path: 'src/b.ts' },
-             },
-           ],
-         },
-@@ -599,11 +567,7 @@ describe('GitLabMrDiscussionGateway', () => {
-     });
- 
-     it('resolvable未設定のnoteはフィルタリングされない', async () => {
--      const suggestData = JSON.stringify({
--        checkItemContent: 'Check no resolvable field',
--        filePath: 'src/legacy.ts',
--        suggestedCode: 'legacy code',
--      });
-+      const suggestData = JSON.stringify({ checkItemContent: 'Check no resolvable field' });
-       const discussions = [
-         {
-           id: 'disc-no-resolvable',
-@@ -611,10 +575,11 @@ describe('GitLabMrDiscussionGateway', () => {
-           notes: [
-             {
-               id: 90,
--              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
-               created_at: '2026-03-01T00:00:00Z',
-               system: false,
-               // resolvable, resolvedフィールドなし
-+              position: { new_line: 5, new_path: 'src/legacy.ts' },
-             },
-           ],
-         },
-@@ -627,6 +592,35 @@ describe('GitLabMrDiscussionGateway', () => {
-       expect(result).toHaveLength(1);
-       expect(result[0].discussionId).toBe('disc-no-resolvable');
-     });
-+
-+    it('positionフィールドがないnoteの場合、newLineがnullになる', async () => {
-+      const suggestData = JSON.stringify({ checkItemContent: 'No position' });
-+      const discussions = [
-+        {
-+          id: 'disc-no-position',
-+          individual_note: false,
-+          notes: [
-+            {
-+              id: 95,
-+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-1+1\ncode\n\`\`\``,
-+              created_at: '2026-03-01T00:00:00Z',
-+              system: false,
-+              // positionフィールドなし
-+            },
-+          ],
-+        },
-+      ];
-+
-+      mockClient.getAll.mockResolvedValueOnce(discussions);
-+
-+      const result = await gateway.getSuggestDiscussions('123', '42');
-+
-+      expect(result).toHaveLength(1);
-+      expect(result[0].newLine).toBeNull();
-+      expect(result[0].filePath).toBe('');
-+      expect(result[0].linesAbove).toBe(1);
-+      expect(result[0].linesBelow).toBe(1);
-+    });
+-    expect(result).toContain('4. After storing all review results, generate suggestions');
++    expect(result).toContain(
++      '4. After storing all review results, re-read the results from getReviewResults',
++    );
+     expect(result).toContain('5. Call getSuggests to verify');
    });
  
-   describe('postSuggestDiscussion', () => {
-diff --git a/src/presentation/api/review/reviewHandler.ts b/src/presentation/api/review/reviewHandler.ts
-index bb0cc01..f228387 100644
---- a/src/presentation/api/review/reviewHandler.ts
-+++ b/src/presentation/api/review/reviewHandler.ts
-@@ -12,7 +12,6 @@ import {
-   LocalProjectTreeGateway,
- } from '../../../infrastructure/adapter/gateway/index.js';
- import { GitLabMrDiscussionGateway } from '../../../infrastructure/adapter/review/gateway/index.js';
--import { DiffBasedSuggestionLineResolver } from '../../../infrastructure/adapter/review/suggestion/index.js';
- import { ReviewSettings } from '../../../domain/review/reviewSettings/index.js';
- import { Rating } from '../../../domain/review/rating/index.js';
- import { QualityGate } from '../../../domain/review/qualityGate/index.js';
-@@ -166,7 +165,6 @@ export class DefaultPerRequestServiceFactory implements PerRequestServiceFactory
-       this.workflowRunner,
-       treeGateway,
-       new GptTokenCounter(),
--      new DiffBasedSuggestionLineResolver(),
-     );
+diff --git a/src/mastra/review/agents/reviewAgent.ts b/src/mastra/review/agents/reviewAgent.ts
+index 7ee789a..c41c1e7 100644
+--- a/src/mastra/review/agents/reviewAgent.ts
++++ b/src/mastra/review/agents/reviewAgent.ts
+@@ -176,10 +176,11 @@ ${
+ For check items that receive a rating of [${suggestLabelsText}], you MUST generate concrete code suggestions using the storeSuggest tool.
  
-     return { mrInfoFetcher, reviewExecutor };
+ ### How to create suggestions
+-1. Identify the specific code in the diff that needs improvement
+-2. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
+-3. Write the improved code in suggestedCode
+-4. Provide a clear explanation in comment
++1. Re-read your review comment for the check item (from getReviewResults) and identify the specific issue described
++2. Identify the specific code in the diff that relates to that issue
++3. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
++4. Write the improved code in suggestedCode that directly resolves the issue described in your review comment
++5. Provide a clear explanation in comment that references the same issue noted in your review
+ 
+ ### Important rules
+ - You may create multiple suggestions per check item
+@@ -187,6 +188,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
+ - Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.
+ - Include sufficient context lines in originalCode to avoid ambiguity
+ - Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
++- Each suggestion MUST address the specific issue described in your review comment for that check item. Do not suggest fixes for different issues than what you identified during review.
+ 
+ ### Error recovery for storeSuggest
+ - If storeSuggest fails, carefully read the error message and retry with corrected input.
+@@ -203,7 +205,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
+ 3. Do NOT finish until ALL check items have been reviewed and stored.${
+     suggestEnabled
+       ? `
+-4. After storing all review results, generate suggestions for items rated [${suggestLabelsText}] using storeSuggest.
++4. After storing all review results, re-read the results from getReviewResults. For each item rated [${suggestLabelsText}], generate suggestions that directly address the issue described in your review comment for that item.
+ 5. Call getSuggests to verify all suggestions are stored.`
+       : ''
+   }`;
