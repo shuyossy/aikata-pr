@@ -109,6 +109,17 @@ describe('SuggestCommentFormatter', () => {
       expect(output).toContain('```suggestion:-5+3');
     });
 
+    it('複数列チェック項目が<header>形式で表示される', () => {
+      const resolved = createResolvedSuggestion({
+        checkItemContent:
+          'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
+      });
+      const output = SuggestCommentFormatter.format(resolved);
+      expect(output).toContain(
+        '**チェック項目:** <カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策',
+      );
+    });
+
     it('ラウンドトリップ: formatしてからparseすると元のデータが復元される', () => {
       const resolved = createResolvedSuggestion({
         checkItemContent: 'ラウンドトリップテスト',

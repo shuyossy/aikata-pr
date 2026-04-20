@@ -15,3 +15,4 @@ export {
 } from './SuggestCommentFormatter.js';
 export { SuggestCommentParser } from './SuggestCommentParser.js';
 export type { ParsedSuggestComment } from './SuggestCommentParser.js';
+export { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';

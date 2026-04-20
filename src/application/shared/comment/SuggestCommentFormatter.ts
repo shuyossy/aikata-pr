@@ -1,4 +1,5 @@
 import { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
+import { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';
 
 /** AIKATA-PRのsuggestコメント識別用マーカー */
 export const SUGGEST_MARKER = '<!-- aikata-suggest -->';
@@ -26,7 +27,8 @@ export class SuggestCommentFormatter {
       comment: resolved.suggestion.comment,
     })}${SUGGEST_DATA_SUFFIX}`;
 
-    const header = `**チェック項目:** ${resolved.suggestion.checkItemContent}`;
+    const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);
+    const header = `**チェック項目:** ${displayContent}`;
     const comment = resolved.suggestion.comment;
     const suggestion =
       '```suggestion:-' +

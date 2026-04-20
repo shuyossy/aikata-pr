@@ -1,6 +1,7 @@
 import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/review/reviewResult/index.js';
 import { Rating } from '../../../domain/review/rating/index.js';
 import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
+import { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';
 
 /** aikataレビューコメント識別用マーカー */
 export const REVIEW_MARKER = '<!-- aikata-review -->';
@@ -105,7 +106,8 @@ export class CommentFormatter {
     const separator = '| --- | --- | --- |';
     const rows = results.map((result) => {
       const ratingLabel = result.isError ? ERROR_RATING_LABEL : result.rating.label;
-      return `| ${CommentFormatter.escapeCell(result.checkItem.content)} | ${ratingLabel} | ${CommentFormatter.escapeCell(result.comment)} |`;
+      const displayContent = formatCheckItemForDisplay(result.checkItem.content);
+      return `| ${CommentFormatter.escapeCell(displayContent)} | ${ratingLabel} | ${CommentFormatter.escapeCell(result.comment)} |`;
     });
 
     return [header, separator, ...rows].join('\n');

@@ -322,6 +322,31 @@ describe('CommentFormatter', () => {
 
       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
     });
+
+    it('複数列チェック項目が<header>形式で表示される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem(
+            'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
+          ),
+          new Rating('C', '満たしていない'),
+          '対策が不十分です',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+      );
+
+      expect(output).toContain(
+        '| <カテゴリ><br>セキュリティ<br><チェック項目><br>SQLインジェクション対策 | C | 対策が不十分です |',
+      );
+    });
   });
 
   describe('hiddenRatingLabels', () => {
