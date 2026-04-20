@@ -52,7 +52,7 @@ export const storeSuggestTool = createTool({
     originalCode: z
       .string()
       .describe(
-        'The exact original code from the new side of the diff to be replaced. Include enough context lines for unique identification.',
+        'The original code from the new side of the diff to be replaced. Each line must be copied in full from beginning to end, even if the line is very long. Include enough context lines for unique identification.',
       ),
     suggestedCode: z.string().describe('The proposed replacement code'),
     comment: z.string().describe('Explanation of why this change is suggested'),

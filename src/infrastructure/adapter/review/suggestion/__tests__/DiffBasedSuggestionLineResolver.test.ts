@@ -352,6 +352,165 @@ diff --git a/src/utils.ts b/src/utils.ts
     });
   });
 
+  // --- 長い行を含むテスト用diffデータ ---
+  const longLineDiff = `diff --git a/src/config.ts b/src/config.ts
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -1,5 +1,5 @@
+ import { something } from 'somewhere';
+
+-const config = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
++const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
+
+ export default config;`;
+
+  const longLineMultiHunkDiff = `diff --git a/src/config.ts b/src/config.ts
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -1,5 +1,5 @@
+ import { something } from 'somewhere';
+
+-const config = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
++const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
+
+ export default config;
+@@ -10,3 +10,3 @@
+ const another = 'value';
+-const settings = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
++const settings = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
+ const end = true;`;
+
+  describe('部分行マッチフォールバック', () => {
+    it('最初の行が途中から指定された場合（サフィックスマッチ）にマッチする', () => {
+      const result = resolver.resolve(
+        'src/config.ts',
+        'timeout: 5000, retryCount: 5, debug: true, verbose: true };',
+        longLineDiff,
+      );
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 3,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/config.ts',
+        newPath: 'src/config.ts',
+      });
+    });
+
+    it('最後の行が途中で途切れた場合（プレフィックスマッチ）にマッチする', () => {
+      const result = resolver.resolve(
+        'src/config.ts',
+        "import { something } from 'somewhere';\n\nconst config = { apiUrl: 'http://new-api.example.com'",
+        longLineDiff,
+      );
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 1,
+        linesAbove: 0,
+        linesBelow: 2,
+        oldPath: 'src/config.ts',
+        newPath: 'src/config.ts',
+      });
+    });
+
+    it('単一行の部分文字列マッチにマッチする', () => {
+      const result = resolver.resolve(
+        'src/config.ts',
+        "apiUrl: 'http://new-api.example.com', timeout: 5000",
+        longLineDiff,
+      );
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 3,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/config.ts',
+        newPath: 'src/config.ts',
+      });
+    });
+
+    it('最初の行と最後の行が両方部分マッチする場合にマッチする', () => {
+      const result = resolver.resolve(
+        'src/config.ts',
+        'timeout: 5000, retryCount: 5, debug: true, verbose: true };\n\nexport default',
+        longLineDiff,
+      );
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 3,
+        linesAbove: 0,
+        linesBelow: 2,
+        oldPath: 'src/config.ts',
+        newPath: 'src/config.ts',
+      });
+    });
+
+    it('中間行が完全一致しない場合はマッチしない', () => {
+      const result = resolver.resolve(
+        'src/config.ts',
+        'timeout: 5000, retryCount: 5, debug: true, verbose: true };\nNOT_MATCHING_LINE\nexport default',
+        longLineDiff,
+      );
+
+      expect(result.success).toBe(false);
+    });
+
+    it('最小長要件を満たさない短い部分文字列はマッチしない', () => {
+      // "true" は4文字なので最小長10文字未満 → 部分マッチ対象外
+      const result = resolver.resolve('src/config.ts', 'true', longLineDiff);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('部分マッチで複数マッチの場合エラーを返す', () => {
+      // longLineMultiHunkDiffでは同じ長い行が2つのハンクに存在する
+      const result = resolver.resolve(
+        'src/config.ts',
+        'timeout: 5000, retryCount: 5, debug: true, verbose: true };',
+        longLineMultiHunkDiff,
+      );
+
+      expect(result).toEqual({
+        success: false,
+        errorMessage: expect.stringContaining('2 matches'),
+      });
+      expect(result.errorMessage).toContain('partial line matching');
+    });
+
+    it('完全一致が優先される（部分マッチは不使用）', () => {
+      // 完全な行を指定した場合は完全一致で見つかるべき
+      const result = resolver.resolve(
+        'src/config.ts',
+        "const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };",
+        longLineDiff,
+      );
+
+      expect(result).toEqual({
+        success: true,
+        newLine: 3,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/config.ts',
+        newPath: 'src/config.ts',
+      });
+    });
+
+    it('ハンク境界を跨ぐ部分マッチは行わない', () => {
+      // 1つ目のハンクの最後の行（部分マッチ）と2つ目のハンクの最初の行は連続していない
+      const result = resolver.resolve(
+        'src/config.ts',
+        "verbose: true };\nconst another = 'value';",
+        longLineMultiHunkDiff,
+      );
+
+      expect(result.success).toBe(false);
+    });
+  });
+
   describe('全空白除去フォールバックマッチ', () => {
     it('先頭空白が異なるoriginalCodeでフォールバック成功する（単一行）', () => {
       // diffでは "const b = 3;" だが、agentが "  const b = 3;" を指定

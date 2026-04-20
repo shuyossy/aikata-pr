@@ -65,7 +65,29 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
     const matches = this.findCodeMatches(newSideLineGroups, codeLines);
 
     if (matches.length === 0) {
-      // 完全一致失敗 → 全空白除去フォールバックを試行
+      // 完全一致失敗 → 部分行マッチフォールバックを試行
+      const partialMatches = this.findCodeMatchesPartial(newSideLineGroups, codeLines);
+
+      if (partialMatches.length === 1) {
+        const match = partialMatches[0]!;
+        return {
+          success: true,
+          newLine: match.newLineNum,
+          linesAbove: 0,
+          linesBelow: codeLines.length - 1,
+          oldPath: paths.oldPath,
+          newPath: paths.newPath,
+        };
+      }
+
+      if (partialMatches.length > 1) {
+        return {
+          success: false,
+          errorMessage: `Found ${partialMatches.length} matches (partial line matching) for the given code in '${filePath}'. Include more surrounding context lines in originalCode to uniquely identify the location.`,
+        };
+      }
+
+      // 部分行マッチも失敗 → 全空白除去フォールバックを試行
       const normalizedMatches = this.findCodeMatchesNormalized(newSideLineGroups, originalCode);
 
       if (normalizedMatches.length === 1) {
@@ -273,6 +295,72 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
           }
         }
         if (allMatch) {
+          matches.push(group[i]!);
+        }
+      }
+    }
+
+    return matches;
+  }
+
+  /**
+   * 部分行マッチでコード断片を検索するフォールバック
+   * 最初の行がサフィックスマッチ、最後の行がプレフィックスマッチ、中間行は完全一致
+   * 単一行の場合は部分文字列マッチ
+   * ハンク境界を跨ぐマッチは行わない
+   */
+  private findCodeMatchesPartial(hunkGroups: NewSideLine[][], codeLines: string[]): NewSideLine[] {
+    const matches: NewSideLine[] = [];
+    const MIN_PARTIAL_LENGTH = 10;
+
+    if (codeLines.length === 0) return matches;
+
+    for (const group of hunkGroups) {
+      for (let i = 0; i <= group.length - codeLines.length; i++) {
+        let allMatch = true;
+        let hasPartial = false;
+
+        for (let j = 0; j < codeLines.length; j++) {
+          const diffContent = group[i + j]!.content;
+          const codeLine = codeLines[j]!;
+
+          if (diffContent === codeLine) {
+            // 完全一致はOK
+            continue;
+          }
+
+          if (codeLines.length === 1) {
+            // 単一行: 部分文字列マッチ
+            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.includes(codeLine)) {
+              hasPartial = true;
+            } else {
+              allMatch = false;
+            }
+          } else if (j === 0) {
+            // 最初の行: サフィックスマッチ（Agentが行の途中から指定したケース）
+            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.endsWith(codeLine)) {
+              hasPartial = true;
+            } else {
+              allMatch = false;
+            }
+          } else if (j === codeLines.length - 1) {
+            // 最後の行: プレフィックスマッチ（Agentが行の途中で打ち切ったケース）
+            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.startsWith(codeLine)) {
+              hasPartial = true;
+            } else {
+              allMatch = false;
+            }
+          } else {
+            // 中間行: 完全一致のみ
+            allMatch = false;
+          }
+
+          if (!allMatch) break;
+        }
+
+        // 少なくとも1つの部分マッチが含まれている場合のみ追加
+        // （全て完全一致の場合はfindCodeMatchesで既に検出済みのため除外）
+        if (allMatch && hasPartial) {
           matches.push(group[i]!);
         }
       }

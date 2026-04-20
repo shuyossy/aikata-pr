@@ -386,7 +386,7 @@ describe('buildInstructions', () => {
 
     expect(result).toContain('## Code Suggestion Guidelines');
     expect(result).toContain('storeSuggest tool');
-    expect(result).toContain('originalCode must exactly match');
+    expect(result).toContain('Each line in originalCode must be copied in its entirety');
     expect(result).toContain('Do NOT duplicate suggestions');
   });
 

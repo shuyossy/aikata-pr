@@ -156,7 +156,7 @@ If the output shows "[output truncated: ...]", use the reported line counts and 
   }${
     suggestEnabled
       ? `### Suggestion Tools
-- storeSuggest: Store a code suggestion. Parameters: checkItemId, filePath, originalCode (exact code from the new side of the diff), suggestedCode (replacement), comment (explanation in ${ctx.commentLanguage})
+- storeSuggest: Store a code suggestion. Parameters: checkItemId, filePath, originalCode (code from the new side of the diff — each line must be complete, not truncated), suggestedCode (replacement), comment (explanation in ${ctx.commentLanguage})
 - getSuggests: Retrieve all suggestions stored in this session to check for duplicates and verify completeness
 
 `
@@ -184,7 +184,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
 ### Important rules
 - You may create multiple suggestions per check item
 - Do NOT duplicate suggestions within this session (check with getSuggests)
-- originalCode must exactly match the code in the diff (whitespace-sensitive)
+- Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.
 - Include sufficient context lines in originalCode to avoid ambiguity
 - Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
 
