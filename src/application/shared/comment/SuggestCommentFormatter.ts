@@ -21,10 +21,6 @@ export class SuggestCommentFormatter {
     const marker = SUGGEST_MARKER;
     const metadata = `${SUGGEST_DATA_PREFIX}${JSON.stringify({
       checkItemContent: resolved.suggestion.checkItemContent,
-      filePath: resolved.suggestion.filePath,
-      originalCode: resolved.suggestion.originalCode,
-      suggestedCode: resolved.suggestion.suggestedCode,
-      comment: resolved.suggestion.comment,
     })}${SUGGEST_DATA_SUFFIX}`;
 
     const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);

@@ -15,19 +15,16 @@ import { Suggestion } from '../../../../domain/review/suggestion/index.js';
 const createFormattedBody = (
   overrides: Partial<{
     checkItemContent: string;
-    filePath: string;
-    suggestedCode: string;
-    comment: string;
     linesAbove: number;
     linesBelow: number;
   }> = {},
 ): string => {
   const suggestion = new Suggestion({
     checkItemContent: overrides.checkItemContent ?? 'テスト項目',
-    filePath: overrides.filePath ?? 'src/test.ts',
+    filePath: 'src/test.ts',
     originalCode: 'original code',
-    suggestedCode: overrides.suggestedCode ?? 'suggested code',
-    comment: overrides.comment ?? 'テストコメント',
+    suggestedCode: 'suggested code',
+    comment: 'テストコメント',
   });
 
   const resolved = new ResolvedSuggestion({
@@ -61,22 +58,15 @@ describe('SuggestCommentParser', () => {
   });
 
   describe('parse', () => {
-    it('フォーマット済みの本文から正しいメタデータを抽出する', () => {
+    it('フォーマット済みの本文からcheckItemContentを抽出する', () => {
       const body = createFormattedBody({
         checkItemContent: '抽出テスト',
-        filePath: 'src/extract.ts',
-        suggestedCode: 'return 42',
-        comment: '抽出テスト用コメント',
       });
 
       const parsed = SuggestCommentParser.parse(body);
 
       expect(parsed).not.toBeNull();
       expect(parsed!.checkItemContent).toBe('抽出テスト');
-      expect(parsed!.filePath).toBe('src/extract.ts');
-      expect(parsed!.originalCode).toBe('original code');
-      expect(parsed!.suggestedCode).toBe('return 42');
-      expect(parsed!.comment).toBe('抽出テスト用コメント');
     });
 
     it('suggestマーカーを含まない本文に対してnullを返す', () => {
@@ -91,35 +81,47 @@ describe('SuggestCommentParser', () => {
     });
 
     it('メタデータサフィックスが欠落している場合にnullを返す', () => {
-      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts","suggestedCode":"x"}\n残りの本文`;
+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test"}\n残りの本文`;
       const result = SuggestCommentParser.parse(body);
       expect(result).toBeNull();
     });
 
     it('必須フィールド checkItemContent が欠落している場合にnullを返す', () => {
-      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"filePath":"a.ts","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"filePath":"a.ts"}${SUGGEST_DATA_SUFFIX}\n残り`;
       const result = SuggestCommentParser.parse(body);
       expect(result).toBeNull();
     });
 
-    it('必須フィールド filePath が欠落している場合にnullを返す', () => {
-      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
-      const result = SuggestCommentParser.parse(body);
-      expect(result).toBeNull();
-    });
-
-    it('必須フィールド suggestedCode が欠落している場合にnullを返す', () => {
-      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts"}${SUGGEST_DATA_SUFFIX}\n残り`;
-      const result = SuggestCommentParser.parse(body);
-      expect(result).toBeNull();
-    });
-
-    it('オプショナルフィールド originalCode, comment が欠落している場合でもパースできる', () => {
-      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
+    it('checkItemContentのみのメタデータでもパースできる', () => {
+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test"}${SUGGEST_DATA_SUFFIX}\n残り`;
       const result = SuggestCommentParser.parse(body);
       expect(result).not.toBeNull();
-      expect(result!.originalCode).toBe('');
-      expect(result!.comment).toBe('');
+      expect(result!.checkItemContent).toBe('test');
+    });
+  });
+
+  describe('parseSuggestionRange', () => {
+    it('suggestion構文からlinesAboveとlinesBelowを正しく抽出する', () => {
+      const body = createFormattedBody({ linesAbove: 2, linesBelow: 3 });
+      const range = SuggestCommentParser.parseSuggestionRange(body);
+
+      expect(range).not.toBeNull();
+      expect(range!.linesAbove).toBe(2);
+      expect(range!.linesBelow).toBe(3);
+    });
+
+    it('linesAbove=0, linesBelow=0の場合も正しく抽出する', () => {
+      const body = createFormattedBody({ linesAbove: 0, linesBelow: 0 });
+      const range = SuggestCommentParser.parseSuggestionRange(body);
+
+      expect(range).not.toBeNull();
+      expect(range!.linesAbove).toBe(0);
+      expect(range!.linesBelow).toBe(0);
+    });
+
+    it('suggestion構文がない場合はnullを返す', () => {
+      const result = SuggestCommentParser.parseSuggestionRange('普通のコメント');
+      expect(result).toBeNull();
     });
   });
 });

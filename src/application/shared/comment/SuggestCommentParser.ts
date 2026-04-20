@@ -10,14 +10,16 @@ import {
 export interface ParsedSuggestComment {
   /** チェック項目の内容 */
   checkItemContent: string;
-  /** 対象ファイルパス */
-  filePath: string;
-  /** 置換対象コード（diffの新しい側） */
-  originalCode: string;
-  /** 提案コード */
-  suggestedCode: string;
-  /** suggestに添えるコメント */
-  comment: string;
+}
+
+/**
+ * suggestion構文のパース結果
+ */
+export interface SuggestionRange {
+  /** suggestion:-X の値 */
+  linesAbove: number;
+  /** suggestion:+Y の値 */
+  linesBelow: number;
 }
 
 /**
@@ -51,18 +53,29 @@ export class SuggestCommentParser {
       const jsonStr = body.substring(dataStart + SUGGEST_DATA_PREFIX.length, dataEnd);
       const data = JSON.parse(jsonStr);
       // 必須フィールドの存在チェック
-      if (!data.checkItemContent || !data.filePath || !data.suggestedCode) {
+      if (!data.checkItemContent) {
         return null;
       }
       return {
         checkItemContent: data.checkItemContent,
-        filePath: data.filePath,
-        originalCode: data.originalCode ?? '',
-        suggestedCode: data.suggestedCode,
-        comment: data.comment ?? '',
       };
     } catch {
       return null;
     }
+  }
+
+  /**
+   * コメント本文からsuggestion構文（```suggestion:-X+Y）のlinesAbove/linesBelowを抽出する
+   * 構文が見つからない場合はnullを返す
+   */
+  static parseSuggestionRange(body: string): SuggestionRange | null {
+    const match = body.match(/```suggestion:-(\d+)\+(\d+)/);
+    if (!match) {
+      return null;
+    }
+    return {
+      linesAbove: parseInt(match[1], 10),
+      linesBelow: parseInt(match[2], 10),
+    };
   }
 }

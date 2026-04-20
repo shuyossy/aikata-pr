@@ -24,7 +24,6 @@ import { GitLabMrDiscussionGateway } from '../../infrastructure/adapter/review/g
 import { LocalProjectTreeGateway } from '../../infrastructure/adapter/gateway/index.js';
 import { ReviewApiClient } from '../../infrastructure/adapter/review/apiClient/index.js';
 import { MastraReviewWorkflowRunner } from '../../infrastructure/adapter/review/workflow/index.js';
-import { DiffBasedSuggestionLineResolver } from '../../infrastructure/adapter/review/suggestion/index.js';
 import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
 import { ReviewSettings } from '../../domain/review/reviewSettings/index.js';
 import { RateLimiter } from '../../infrastructure/adapter/rateLimiter/index.js';
@@ -251,7 +250,6 @@ export async function run(args: string[]): Promise<void> {
         workflowRunner,
         treeGateway,
         new GptTokenCounter(),
-        new DiffBasedSuggestionLineResolver(),
       );
       const commentService = new CommentPostingService(mrDiscussionGateway);
 

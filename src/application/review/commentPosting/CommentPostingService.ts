@@ -2,6 +2,7 @@ import type { MrDiscussionGateway } from '../../shared/port/gateway/index.js';
 import { CommentFormatter, SuggestCommentFormatter } from '../../shared/comment/index.js';
 import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
 import type { CommentPostingCommand } from './CommentPostingCommand.js';
+import { getLogger } from '../../../lib/logger.js';
 
 /**
  * コメント投稿専用サービス
@@ -49,22 +50,34 @@ export class CommentPostingService {
       );
     }
 
-    // 新suggestディスカッションを投稿
+    // 新suggestディスカッションを投稿（個別失敗時は警告ログを出力して継続）
     for (const resolved of command.suggestions) {
-      const suggestBody = SuggestCommentFormatter.format(resolved);
-      await this.mrDiscussionGateway.postSuggestDiscussion(
-        command.projectId,
-        command.mrIid,
-        suggestBody,
-        {
-          baseSha: command.baseSha,
-          headSha: command.headSha,
-          startSha: command.startSha,
-          oldPath: resolved.oldPath,
-          newPath: resolved.newPath,
-          newLine: resolved.newLine,
-        },
-      );
+      try {
+        const suggestBody = SuggestCommentFormatter.format(resolved);
+        await this.mrDiscussionGateway.postSuggestDiscussion(
+          command.projectId,
+          command.mrIid,
+          suggestBody,
+          {
+            baseSha: command.baseSha,
+            headSha: command.headSha,
+            startSha: command.startSha,
+            oldPath: resolved.oldPath,
+            newPath: resolved.newPath,
+            newLine: resolved.newLine,
+          },
+        );
+      } catch (error) {
+        const logger = getLogger();
+        logger.warn(
+          {
+            filePath: resolved.suggestion.filePath,
+            checkItemContent: resolved.suggestion.checkItemContent,
+            err: error,
+          },
+          'Failed to post suggest discussion, skipping this suggestion',
+        );
+      }
     }
   }
 }

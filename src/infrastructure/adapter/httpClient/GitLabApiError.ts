@@ -10,6 +10,9 @@ export class GitLabApiError extends Error {
   readonly path: string;
   readonly requestBody: string | undefined;
 
+  /** エラーメッセージに含めるリクエストボディの最大文字数 */
+  private static readonly MAX_REQUEST_BODY_IN_MESSAGE = 2000;
+
   constructor(params: {
     status: number;
     statusText: string;
@@ -19,7 +22,10 @@ export class GitLabApiError extends Error {
     requestBody?: string;
   }) {
     const base = `GitLab API error: ${params.status} ${params.statusText} - ${params.method} ${params.path}\nResponse body: ${params.responseBody}`;
-    const reqBody = params.requestBody !== undefined ? `\nRequest body: ${params.requestBody}` : '';
+    const reqBody =
+      params.requestBody !== undefined
+        ? `\nRequest body: ${GitLabApiError.truncateForMessage(params.requestBody)}`
+        : '';
     const guidance =
       params.status >= 500
         ? '\nThis may be a temporary server issue. Please wait a few minutes and re-run the job.'
@@ -36,5 +42,15 @@ export class GitLabApiError extends Error {
 
   get isServerError(): boolean {
     return this.status >= 500;
+  }
+
+  /**
+   * エラーメッセージ用にリクエストボディを截断する
+   */
+  private static truncateForMessage(body: string): string {
+    if (body.length <= GitLabApiError.MAX_REQUEST_BODY_IN_MESSAGE) {
+      return body;
+    }
+    return `${body.substring(0, GitLabApiError.MAX_REQUEST_BODY_IN_MESSAGE)}... [truncated, total ${body.length} chars]`;
   }
 }

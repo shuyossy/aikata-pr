@@ -197,9 +197,6 @@ describe('GitLabMrDiscussionGateway', () => {
     it('suggestマーカーとメタデータを持つディスカッションを正しくパースする', async () => {
       const suggestData = JSON.stringify({
         checkItemContent: 'Check null handling',
-        filePath: 'src/main.ts',
-        originalCode: 'if (x) { ... }',
-        suggestedCode: 'if (x != null) { ... }',
       });
       const discussions = [
         {
@@ -208,9 +205,10 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 10,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion body`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n**チェック項目:** Check null handling\n\nComment\n\n\`\`\`suggestion:-2+1\nif (x != null) { ... }\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
+              position: { new_line: 15, new_path: 'src/main.ts' },
             },
           ],
         },
@@ -225,20 +223,16 @@ describe('GitLabMrDiscussionGateway', () => {
           discussionId: 'disc-suggest-1',
           checkItemContent: 'Check null handling',
           filePath: 'src/main.ts',
-          originalCode: 'if (x) { ... }',
-          suggestedCode: 'if (x != null) { ... }',
-          comment: '',
           hasChangedSinceNote: false,
+          newLine: 15,
+          linesAbove: 2,
+          linesBelow: 1,
         },
       ]);
     });
 
     it('system noteに"changed this line"が含まれる場合、hasChangedSinceNoteがtrueになる', async () => {
-      const suggestData = JSON.stringify({
-        checkItemContent: 'Check error handling',
-        filePath: 'src/error.ts',
-        suggestedCode: 'throw new Error("msg")',
-      });
+      const suggestData = JSON.stringify({ checkItemContent: 'Check error handling' });
       const discussions = [
         {
           id: 'disc-changed',
@@ -246,9 +240,10 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 20,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
+              position: { new_line: 5, new_path: 'src/error.ts' },
             },
             {
               id: 21,
@@ -269,11 +264,7 @@ describe('GitLabMrDiscussionGateway', () => {
     });
 
     it('system noteがない場合、hasChangedSinceNoteがfalseになる', async () => {
-      const suggestData = JSON.stringify({
-        checkItemContent: 'Check logging',
-        filePath: 'src/logger.ts',
-        suggestedCode: 'console.log("debug")',
-      });
+      const suggestData = JSON.stringify({ checkItemContent: 'Check logging' });
       const discussions = [
         {
           id: 'disc-no-change',
@@ -281,9 +272,10 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 30,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
+              position: { new_line: 10, new_path: 'src/logger.ts' },
             },
             {
               id: 31,
@@ -304,11 +296,7 @@ describe('GitLabMrDiscussionGateway', () => {
     });
 
     it('suggestでないディスカッション（aikata-reviewを含む）を無視する', async () => {
-      const suggestData = JSON.stringify({
-        checkItemContent: 'Valid check',
-        filePath: 'src/valid.ts',
-        suggestedCode: 'return true;',
-      });
+      const suggestData = JSON.stringify({ checkItemContent: 'Valid check' });
       const discussions = [
         {
           id: 'disc-review',
@@ -340,9 +328,10 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 42,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
+              position: { new_line: 5, new_path: 'src/valid.ts' },
             },
           ],
         },
@@ -357,16 +346,8 @@ describe('GitLabMrDiscussionGateway', () => {
     });
 
     it('複数のsuggestディスカッションを処理できる', async () => {
-      const suggestData1 = JSON.stringify({
-        checkItemContent: 'Check 1',
-        filePath: 'src/a.ts',
-        suggestedCode: 'code 1',
-      });
-      const suggestData2 = JSON.stringify({
-        checkItemContent: 'Check 2',
-        filePath: 'src/b.ts',
-        suggestedCode: 'code 2',
-      });
+      const suggestData1 = JSON.stringify({ checkItemContent: 'Check 1' });
+      const suggestData2 = JSON.stringify({ checkItemContent: 'Check 2' });
       const discussions = [
         {
           id: 'disc-s1',
@@ -374,9 +355,10 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 50,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData1} -->\nSuggestion 1`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData1} -->\n\`\`\`suggestion:-1+2\ncode 1\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
+              position: { new_line: 10, new_path: 'src/a.ts' },
             },
           ],
         },
@@ -386,9 +368,10 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 51,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData2} -->\nSuggestion 2`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData2} -->\n\`\`\`suggestion:-0+3\ncode 2\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
+              position: { new_line: 20, new_path: 'src/b.ts' },
             },
             {
               id: 52,
@@ -409,28 +392,24 @@ describe('GitLabMrDiscussionGateway', () => {
         discussionId: 'disc-s1',
         checkItemContent: 'Check 1',
         filePath: 'src/a.ts',
-        originalCode: '',
-        suggestedCode: 'code 1',
-        comment: '',
         hasChangedSinceNote: false,
+        newLine: 10,
+        linesAbove: 1,
+        linesBelow: 2,
       });
       expect(result[1]).toEqual({
         discussionId: 'disc-s2',
         checkItemContent: 'Check 2',
         filePath: 'src/b.ts',
-        originalCode: '',
-        suggestedCode: 'code 2',
-        comment: '',
         hasChangedSinceNote: true,
+        newLine: 20,
+        linesAbove: 0,
+        linesBelow: 3,
       });
     });
 
     it('"changed this"キーワードでもhasChangedSinceNoteがtrueになる', async () => {
-      const suggestData = JSON.stringify({
-        checkItemContent: 'Check',
-        filePath: 'src/x.ts',
-        suggestedCode: 'code',
-      });
+      const suggestData = JSON.stringify({ checkItemContent: 'Check' });
       const discussions = [
         {
           id: 'disc-changed2',
@@ -438,9 +417,10 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 60,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
+              position: { new_line: 5, new_path: 'src/x.ts' },
             },
             {
               id: 61,
@@ -476,11 +456,7 @@ describe('GitLabMrDiscussionGateway', () => {
     });
 
     it('resolved済みのsuggestディスカッションはスキップする', async () => {
-      const suggestData = JSON.stringify({
-        checkItemContent: 'Check resolved',
-        filePath: 'src/resolved.ts',
-        suggestedCode: 'fixed code',
-      });
+      const suggestData = JSON.stringify({ checkItemContent: 'Check resolved' });
       const discussions = [
         {
           id: 'disc-resolved',
@@ -488,11 +464,12 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 70,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
               resolvable: true,
               resolved: true,
+              position: { new_line: 5, new_path: 'src/resolved.ts' },
             },
           ],
         },
@@ -506,11 +483,7 @@ describe('GitLabMrDiscussionGateway', () => {
     });
 
     it('unresolvedのsuggestディスカッションは含まれる', async () => {
-      const suggestData = JSON.stringify({
-        checkItemContent: 'Check unresolved',
-        filePath: 'src/unresolved.ts',
-        suggestedCode: 'code',
-      });
+      const suggestData = JSON.stringify({ checkItemContent: 'Check unresolved' });
       const discussions = [
         {
           id: 'disc-unresolved',
@@ -518,11 +491,12 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 71,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
               resolvable: true,
               resolved: false,
+              position: { new_line: 5, new_path: 'src/unresolved.ts' },
             },
           ],
         },
@@ -537,16 +511,8 @@ describe('GitLabMrDiscussionGateway', () => {
     });
 
     it('resolvedとunresolvedが混在する場合、unresolvedのみ返す', async () => {
-      const suggestDataResolved = JSON.stringify({
-        checkItemContent: 'Resolved check',
-        filePath: 'src/a.ts',
-        suggestedCode: 'code a',
-      });
-      const suggestDataUnresolved = JSON.stringify({
-        checkItemContent: 'Unresolved check',
-        filePath: 'src/b.ts',
-        suggestedCode: 'code b',
-      });
+      const suggestDataResolved = JSON.stringify({ checkItemContent: 'Resolved check' });
+      const suggestDataUnresolved = JSON.stringify({ checkItemContent: 'Unresolved check' });
       const discussions = [
         {
           id: 'disc-resolved-mix',
@@ -554,11 +520,12 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 80,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataResolved} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataResolved} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
               resolvable: true,
               resolved: true,
+              position: { new_line: 5, new_path: 'src/a.ts' },
             },
           ],
         },
@@ -568,11 +535,12 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 81,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataUnresolved} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataUnresolved} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
               resolvable: true,
               resolved: false,
+              position: { new_line: 10, new_path: 'src/b.ts' },
             },
           ],
         },
@@ -599,11 +567,7 @@ describe('GitLabMrDiscussionGateway', () => {
     });
 
     it('resolvable未設定のnoteはフィルタリングされない', async () => {
-      const suggestData = JSON.stringify({
-        checkItemContent: 'Check no resolvable field',
-        filePath: 'src/legacy.ts',
-        suggestedCode: 'legacy code',
-      });
+      const suggestData = JSON.stringify({ checkItemContent: 'Check no resolvable field' });
       const discussions = [
         {
           id: 'disc-no-resolvable',
@@ -611,10 +575,11 @@ describe('GitLabMrDiscussionGateway', () => {
           notes: [
             {
               id: 90,
-              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-0+0\ncode\n\`\`\``,
               created_at: '2026-03-01T00:00:00Z',
               system: false,
               // resolvable, resolvedフィールドなし
+              position: { new_line: 5, new_path: 'src/legacy.ts' },
             },
           ],
         },
@@ -626,6 +591,35 @@ describe('GitLabMrDiscussionGateway', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].discussionId).toBe('disc-no-resolvable');
+    });
+
+    it('positionフィールドがないnoteの場合、newLineがnullになる', async () => {
+      const suggestData = JSON.stringify({ checkItemContent: 'No position' });
+      const discussions = [
+        {
+          id: 'disc-no-position',
+          individual_note: false,
+          notes: [
+            {
+              id: 95,
+              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\n\`\`\`suggestion:-1+1\ncode\n\`\`\``,
+              created_at: '2026-03-01T00:00:00Z',
+              system: false,
+              // positionフィールドなし
+            },
+          ],
+        },
+      ];
+
+      mockClient.getAll.mockResolvedValueOnce(discussions);
+
+      const result = await gateway.getSuggestDiscussions('123', '42');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].newLine).toBeNull();
+      expect(result[0].filePath).toBe('');
+      expect(result[0].linesAbove).toBe(1);
+      expect(result[0].linesBelow).toBe(1);
     });
   });
 

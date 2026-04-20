@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CommentPostingService } from '../CommentPostingService.js';
 import type { CommentPostingCommand } from '../CommentPostingCommand.js';
 import type { MrDiscussionGateway } from '../../../shared/port/gateway/MrDiscussionGateway.js';
@@ -8,12 +8,14 @@ import { CheckItem } from '../../../../domain/review/checkItem/index.js';
 import { CommentFormatter, SuggestCommentFormatter } from '../../../shared/comment/index.js';
 import type { QualityGateResult } from '../../../../domain/review/qualityGate/index.js';
 import { ResolvedSuggestion, Suggestion } from '../../../../domain/review/suggestion/index.js';
+import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 
 describe('CommentPostingService', () => {
   let mrDiscussionGateway: MrDiscussionGateway;
   let service: CommentPostingService;
 
   beforeEach(() => {
+    initializeLogger({ userId: 'test-user', level: 'silent' });
     mrDiscussionGateway = {
       getReviewDiscussions: vi.fn(),
       postReviewDiscussion: vi.fn().mockResolvedValue(undefined),
@@ -24,6 +26,10 @@ describe('CommentPostingService', () => {
       resolveDiscussion: vi.fn().mockResolvedValue(undefined),
     };
     service = new CommentPostingService(mrDiscussionGateway);
+  });
+
+  afterEach(() => {
+    resetLogger();
   });
 
   /**
@@ -389,6 +395,40 @@ describe('CommentPostingService', () => {
           newLine: 20,
         },
       );
+    });
+
+    it('postSuggestDiscussionが失敗しても残りのsuggestは投稿され、execute全体がエラーにならないこと', async () => {
+      const suggestion1 = createResolvedSuggestion({
+        checkItemContent: '失敗する提案',
+        filePath: 'src/fail.ts',
+        originalCode: 'fail code',
+        suggestedCode: 'fixed code',
+        comment: 'この提案は失敗する',
+        newLine: 5,
+      });
+      const suggestion2 = createResolvedSuggestion({
+        checkItemContent: '成功する提案',
+        filePath: 'src/success.ts',
+        originalCode: 'old code',
+        suggestedCode: 'new code',
+        comment: '成功する提案',
+        newLine: 15,
+      });
+
+      // 1件目で例外を投げ、2件目は成功
+      vi.mocked(mrDiscussionGateway.postSuggestDiscussion)
+        .mockRejectedValueOnce(new Error('GitLab API error: 422'))
+        .mockResolvedValueOnce(undefined);
+
+      const command = createCommand({
+        suggestions: [suggestion1, suggestion2],
+      });
+
+      // execute全体がエラーにならないこと
+      await expect(service.execute(command)).resolves.not.toThrow();
+
+      // 2回呼ばれていること（1件目の失敗後も2件目が試行される）
+      expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenCalledTimes(2);
     });
 
     it('suggestionsとsuggestResolveEntriesが空の場合はsuggest関連メソッドが呼ばれないこと', async () => {

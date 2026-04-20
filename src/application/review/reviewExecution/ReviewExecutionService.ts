@@ -22,7 +22,6 @@ import type { PriorSuggestLineRange } from '../../../domain/review/suggestion/in
 import type { MrContext } from '../../../domain/review/mrContext/index.js';
 import { compressDiffIfNeeded } from '../../shared/diffCompression/index.js';
 import type { TokenCounter } from '../../shared/port/tokenCounter/index.js';
-import type { SuggestionLineResolver } from '../../shared/port/suggestion/index.js';
 import { buildUserPromptTemplate } from '../../shared/prompt/index.js';
 
 /**
@@ -62,7 +61,6 @@ export class ReviewExecutionService {
     private readonly workflowRunner: ReviewWorkflowRunner,
     private readonly projectTreeGateway: ProjectTreeGateway,
     private readonly tokenCounter: TokenCounter,
-    private readonly suggestionLineResolver: SuggestionLineResolver,
   ) {}
 
   async execute(command: ReviewExecutionCommand): Promise<ReviewExecutionDto> {
@@ -135,11 +133,7 @@ export class ReviewExecutionService {
       const suggestions = this.convertToResolvedSuggestions(workflowResult);
 
       // overlap判定: 新suggestと以前のsuggestの行範囲を比較
-      const suggestsToResolve = this.buildFinalSuggestsToResolve(
-        suggestContext,
-        suggestions,
-        mrContext.diff,
-      );
+      const suggestsToResolve = this.buildFinalSuggestsToResolve(suggestContext, suggestions);
 
       return {
         results,
@@ -242,11 +236,7 @@ export class ReviewExecutionService {
       const suggestions = this.convertToResolvedSuggestions(workflowResult);
 
       // overlap判定: 新suggestと以前のsuggestの行範囲を比較
-      const suggestsToResolve = this.buildFinalSuggestsToResolve(
-        suggestContext,
-        suggestions,
-        mrContext.diff,
-      );
+      const suggestsToResolve = this.buildFinalSuggestsToResolve(suggestContext, suggestions);
 
       // マージ（チェックリスト順）
       const mergedResults = command.checklist.items.map((item) => {
@@ -570,7 +560,6 @@ export class ReviewExecutionService {
   private buildFinalSuggestsToResolve(
     suggestContext: SuggestContext,
     newSuggestions: ResolvedSuggestion[],
-    mrDiff: string,
   ): SuggestResolveEntry[] {
     const { immediatelyResolveEntries, priorSuggestsForOverlapCheck } = suggestContext;
 
@@ -578,33 +567,23 @@ export class ReviewExecutionService {
       return immediatelyResolveEntries;
     }
 
-    // 以前のsuggestの行範囲を解決する
+    // 以前のsuggestの行範囲をGitLab note positionから取得する
     const resolvedPriors: PriorSuggestLineRange[] = [];
     const failedResolveEntries: SuggestResolveEntry[] = [];
 
     for (const prior of priorSuggestsForOverlapCheck) {
-      const result = this.suggestionLineResolver.resolve(
-        prior.filePath,
-        prior.originalCode,
-        mrDiff,
-      );
-      if (
-        result.success &&
-        result.newLine !== undefined &&
-        result.linesAbove !== undefined &&
-        result.linesBelow !== undefined
-      ) {
+      if (prior.newLine !== null) {
         resolvedPriors.push({
           discussionId: prior.discussionId,
           filePath: prior.filePath,
-          startLine: result.newLine - result.linesAbove,
-          endLine: result.newLine + result.linesBelow,
+          startLine: prior.newLine - prior.linesAbove,
+          endLine: prior.newLine + prior.linesBelow,
         });
       } else {
-        // 行解決失敗 = コードがdiffに存在しない → resolve対象
+        // position取得不可 → resolve対象
         failedResolveEntries.push({
           discussionId: prior.discussionId,
-          reason: 'The suggested code was not found in the current diff.',
+          reason: 'Could not determine the position of the previous suggestion.',
         });
       }
     }

@@ -14,5 +14,5 @@ export {
   SUGGEST_DATA_SUFFIX,
 } from './SuggestCommentFormatter.js';
 export { SuggestCommentParser } from './SuggestCommentParser.js';
-export type { ParsedSuggestComment } from './SuggestCommentParser.js';
+export type { ParsedSuggestComment, SuggestionRange } from './SuggestCommentParser.js';
 export { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';

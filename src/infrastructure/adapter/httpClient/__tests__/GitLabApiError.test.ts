@@ -132,6 +132,51 @@ describe('GitLabApiError', () => {
       expect(error.message).toContain('Request body: {"body":"comment text"}');
     });
 
+    it('リクエストボディが2000文字超の場合、メッセージ内では截断される', () => {
+      const reqBody = 'x'.repeat(3000);
+      const error = new GitLabApiError({
+        status: 422,
+        statusText: 'Unprocessable Entity',
+        responseBody: '',
+        method: 'POST',
+        path: '/projects/1/merge_requests/1/discussions',
+        requestBody: reqBody,
+      });
+
+      expect(error.message).toContain('... [truncated, total 3000 chars]');
+      expect(error.message).not.toContain('x'.repeat(3000));
+    });
+
+    it('リクエストボディが2000文字超でもプロパティにはフル値が保持される', () => {
+      const reqBody = 'y'.repeat(5000);
+      const error = new GitLabApiError({
+        status: 422,
+        statusText: 'Unprocessable Entity',
+        responseBody: '',
+        method: 'POST',
+        path: '/projects/1/merge_requests/1/discussions',
+        requestBody: reqBody,
+      });
+
+      expect(error.requestBody).toBe(reqBody);
+      expect(error.requestBody).toHaveLength(5000);
+    });
+
+    it('リクエストボディがちょうど2000文字の場合は截断されない', () => {
+      const reqBody = 'z'.repeat(2000);
+      const error = new GitLabApiError({
+        status: 422,
+        statusText: 'Unprocessable Entity',
+        responseBody: '',
+        method: 'POST',
+        path: '/projects/1/merge_requests/1/discussions',
+        requestBody: reqBody,
+      });
+
+      expect(error.message).toContain('z'.repeat(2000));
+      expect(error.message).not.toContain('[truncated');
+    });
+
     it('リクエストボディが未指定の場合はundefinedでメッセージに含まれない', () => {
       const error = new GitLabApiError({
         status: 404,

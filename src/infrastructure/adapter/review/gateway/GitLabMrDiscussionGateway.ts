@@ -13,6 +13,14 @@ import type { GitLabApiClient } from '../../httpClient/index.js';
 const CHANGED_KEYWORDS = ['changed this line', 'changed this', 'compare changes'];
 
 /**
+ * GitLab APIから返却されるdiff noteのposition情報
+ */
+interface GitLabNotePosition {
+  new_line?: number;
+  new_path?: string;
+}
+
+/**
  * GitLab APIから返却されるノート情報の型定義
  */
 interface GitLabNote {
@@ -22,6 +30,7 @@ interface GitLabNote {
   system: boolean;
   resolvable?: boolean;
   resolved?: boolean;
+  position?: GitLabNotePosition;
 }
 
 /**
@@ -107,14 +116,17 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
       // system noteに変更キーワードが含まれているか確認
       const hasChangedSinceNote = this.hasChangedSystemNote(discussion.notes);
 
+      // suggestion構文からlinesAbove/linesBelowを取得
+      const suggestionRange = SuggestCommentParser.parseSuggestionRange(firstNote.body);
+
       results.push({
         discussionId: discussion.id,
         checkItemContent: suggestData.checkItemContent,
-        filePath: suggestData.filePath,
-        originalCode: suggestData.originalCode,
-        suggestedCode: suggestData.suggestedCode,
-        comment: suggestData.comment,
+        filePath: firstNote.position?.new_path ?? '',
         hasChangedSinceNote,
+        newLine: firstNote.position?.new_line ?? null,
+        linesAbove: suggestionRange?.linesAbove ?? 0,
+        linesBelow: suggestionRange?.linesBelow ?? 0,
       });
     }
 

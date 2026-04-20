@@ -21,7 +21,6 @@ import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
 import { QualityGate } from '../../../../domain/review/qualityGate/index.js';
 import { CommentFormatter } from '../../../shared/comment/index.js';
 import type { TokenCounter } from '../../../shared/port/tokenCounter/index.js';
-import type { SuggestionLineResolver } from '../../../shared/port/suggestion/index.js';
 
 // ヘルパー: テスト用のMrContextを生成
 function createMrContext(
@@ -138,7 +137,6 @@ describe('ReviewExecutionService', () => {
   let mrDiscussionGateway: MrDiscussionGateway;
   let workflowRunner: ReviewWorkflowRunner;
   let projectTreeGateway: ProjectTreeGateway;
-  let suggestionLineResolver: SuggestionLineResolver;
   let service: ReviewExecutionService;
 
   beforeEach(() => {
@@ -165,16 +163,12 @@ describe('ReviewExecutionService', () => {
     const tokenCounter: TokenCounter = {
       countTokens: vi.fn().mockReturnValue(100),
     };
-    suggestionLineResolver = {
-      resolve: vi.fn().mockReturnValue({ success: false, errorMessage: 'not found' }),
-    };
     service = new ReviewExecutionService(
       mrGateway,
       mrDiscussionGateway,
       workflowRunner,
       projectTreeGateway,
       tokenCounter,
-      suggestionLineResolver,
     );
   });
 
@@ -1392,10 +1386,10 @@ describe('ReviewExecutionService', () => {
           discussionId: 'disc-1',
           checkItemContent: 'コードの可読性',
           filePath: 'src/app.ts',
-          originalCode: 'old code',
-          suggestedCode: 'new code',
-          comment: 'コメント1',
           hasChangedSinceNote: true, // 変更済み → 即座にresolve
+          newLine: 10,
+          linesAbove: 0,
+          linesBelow: 0,
         },
       ];
 
@@ -1419,10 +1413,10 @@ describe('ReviewExecutionService', () => {
           discussionId: 'disc-1',
           checkItemContent: '存在しない項目', // チェックリストに含まれない
           filePath: 'src/app.ts',
-          originalCode: 'old code',
-          suggestedCode: 'new code',
-          comment: 'コメント',
           hasChangedSinceNote: false,
+          newLine: 10,
+          linesAbove: 0,
+          linesBelow: 0,
         },
       ];
 
@@ -1446,28 +1440,28 @@ describe('ReviewExecutionService', () => {
           discussionId: 'disc-1',
           checkItemContent: 'コードの可読性',
           filePath: 'src/app.ts',
-          originalCode: 'old code',
-          suggestedCode: 'new code',
-          comment: 'コメント1',
           hasChangedSinceNote: true, // 変更済み → 即座にresolve
+          newLine: 10,
+          linesAbove: 0,
+          linesBelow: 0,
         },
         {
           discussionId: 'disc-2',
           checkItemContent: 'テストカバレッジ',
           filePath: 'src/test.ts',
-          originalCode: 'old test',
-          suggestedCode: 'new test',
-          comment: 'コメント2',
           hasChangedSinceNote: false, // 未変更かつチェックリストに含まれる → overlap判定対象
+          newLine: null, // position取得不可 → resolve対象
+          linesAbove: 0,
+          linesBelow: 0,
         },
         {
           discussionId: 'disc-3',
           checkItemContent: '削除された項目',
           filePath: 'src/old.ts',
-          originalCode: 'deleted code',
-          suggestedCode: 'suggested code',
-          comment: 'コメント3',
           hasChangedSinceNote: false, // 未変更だがチェックリストに含まれない → 即座にresolve
+          newLine: 5,
+          linesAbove: 0,
+          linesBelow: 0,
         },
       ];
 
@@ -1478,10 +1472,9 @@ describe('ReviewExecutionService', () => {
 
       const result = await service.execute(command);
 
-      // disc-1とdisc-3は即座にresolve、disc-2はoverlap判定対象（行解決失敗→resolve）
+      // disc-1とdisc-3は即座にresolve、disc-2はnewLine=nullなのでresolve対象
       expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
       expect(resolveIds(result.suggestsToResolve)).toContain('disc-3');
-      // disc-2はsuggestionLineResolverがデフォルトで失敗するのでresolve対象
       expect(resolveIds(result.suggestsToResolve)).toContain('disc-2');
     });
 
@@ -1526,22 +1519,12 @@ describe('ReviewExecutionService', () => {
           discussionId: 'disc-prior',
           checkItemContent: 'コードの可読性',
           filePath: 'src/app.ts',
-          originalCode: 'old code at line 9',
-          suggestedCode: 'new code',
-          comment: '以前の提案',
           hasChangedSinceNote: false,
+          newLine: 10, // 行9-11（新suggestの8-12と重複）
+          linesAbove: 1,
+          linesBelow: 1,
         },
       ];
-
-      // 以前suggestの行解決: 行9-11（新suggestの8-12と重複）
-      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
-        success: true,
-        newLine: 10,
-        linesAbove: 1,
-        linesBelow: 1,
-        oldPath: 'src/app.ts',
-        newPath: 'src/app.ts',
-      });
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
       vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
@@ -1594,22 +1577,12 @@ describe('ReviewExecutionService', () => {
           discussionId: 'disc-prior',
           checkItemContent: 'コードの可読性',
           filePath: 'src/app.ts',
-          originalCode: 'old code at line 10',
-          suggestedCode: 'new code',
-          comment: '以前の提案',
           hasChangedSinceNote: false,
+          newLine: 10, // 行10（新suggestの行50と重複しない）
+          linesAbove: 0,
+          linesBelow: 0,
         },
       ];
-
-      // 以前suggestの行解決: 行10（新suggestの行50と重複しない）
-      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
-        success: true,
-        newLine: 10,
-        linesAbove: 0,
-        linesBelow: 0,
-        oldPath: 'src/app.ts',
-        newPath: 'src/app.ts',
-      });
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
       vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
@@ -1621,7 +1594,7 @@ describe('ReviewExecutionService', () => {
       expect(resolveIds(result.suggestsToResolve)).not.toContain('disc-prior');
     });
 
-    it('overlap判定: 以前suggestの行解決に失敗した場合はresolve対象になる', async () => {
+    it('overlap判定: 以前suggestのnewLineがnullの場合はresolve対象になる', async () => {
       const command = createCommand();
       const mrContext = createMrContext();
       const workflowResult = createWorkflowResult();
@@ -1631,18 +1604,12 @@ describe('ReviewExecutionService', () => {
           discussionId: 'disc-prior',
           checkItemContent: 'コードの可読性',
           filePath: 'src/app.ts',
-          originalCode: 'old code',
-          suggestedCode: 'new code',
-          comment: '以前の提案',
           hasChangedSinceNote: false,
+          newLine: null, // position取得不可
+          linesAbove: 0,
+          linesBelow: 0,
         },
       ];
-
-      // 行解決失敗
-      vi.mocked(suggestionLineResolver.resolve).mockReturnValue({
-        success: false,
-        errorMessage: 'Code not found in diff',
-      });
 
       vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
       vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([]);
@@ -1743,10 +1710,10 @@ describe('ReviewExecutionService', () => {
           discussionId: 'disc-1',
           checkItemContent: 'コードの可読性',
           filePath: 'src/app.ts',
-          originalCode: 'old code',
-          suggestedCode: 'new code',
-          comment: 'コメント',
           hasChangedSinceNote: false,
+          newLine: 10,
+          linesAbove: 0,
+          linesBelow: 0,
         },
       ];
 
@@ -1956,19 +1923,19 @@ describe('ReviewExecutionService', () => {
           discussionId: 'disc-valid',
           checkItemContent: 'コードの可読性',
           filePath: 'src/app.ts',
-          originalCode: 'old code',
-          suggestedCode: 'new code',
-          comment: 'コメント',
           hasChangedSinceNote: false,
+          newLine: 10,
+          linesAbove: 0,
+          linesBelow: 0,
         },
         {
           discussionId: 'disc-changed',
           checkItemContent: 'テストカバレッジ',
           filePath: 'src/test.ts',
-          originalCode: 'old',
-          suggestedCode: 'new',
-          comment: 'c',
           hasChangedSinceNote: true, // diff変更済み → resolve対象
+          newLine: 5,
+          linesAbove: 0,
+          linesBelow: 0,
         },
       ];
 

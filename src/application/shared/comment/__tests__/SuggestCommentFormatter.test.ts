@@ -52,7 +52,7 @@ describe('SuggestCommentFormatter', () => {
       expect(output).toContain(SUGGEST_MARKER);
     });
 
-    it('出力にメタデータJSONが正しいフィールドで含まれる', () => {
+    it('出力にメタデータJSONがcheckItemContentのみで含まれる', () => {
       const resolved = createResolvedSuggestion({
         checkItemContent: 'テスト項目',
         filePath: 'src/app.ts',
@@ -73,10 +73,11 @@ describe('SuggestCommentFormatter', () => {
       const metadata = JSON.parse(jsonStr);
 
       expect(metadata.checkItemContent).toBe('テスト項目');
-      expect(metadata.filePath).toBe('src/app.ts');
-      expect(metadata.originalCode).toBe('console.log(error)');
-      expect(metadata.suggestedCode).toBe('return result');
-      expect(metadata.comment).toBe('メタデータ検証用コメント');
+      // コード内容はメタデータに含まれない
+      expect(metadata).not.toHaveProperty('filePath');
+      expect(metadata).not.toHaveProperty('originalCode');
+      expect(metadata).not.toHaveProperty('suggestedCode');
+      expect(metadata).not.toHaveProperty('comment');
     });
 
     it('出力にチェック項目ヘッダーが含まれる', () => {
@@ -120,7 +121,7 @@ describe('SuggestCommentFormatter', () => {
       );
     });
 
-    it('ラウンドトリップ: formatしてからparseすると元のデータが復元される', () => {
+    it('ラウンドトリップ: formatしてからparseするとcheckItemContentが復元される', () => {
       const resolved = createResolvedSuggestion({
         checkItemContent: 'ラウンドトリップテスト',
         filePath: 'src/roundtrip.ts',
@@ -133,10 +134,19 @@ describe('SuggestCommentFormatter', () => {
 
       expect(parsed).not.toBeNull();
       expect(parsed!.checkItemContent).toBe('ラウンドトリップテスト');
-      expect(parsed!.filePath).toBe('src/roundtrip.ts');
-      expect(parsed!.originalCode).toBe('const x = 0;');
-      expect(parsed!.suggestedCode).toBe('const x = 1;');
-      expect(parsed!.comment).toBe('ラウンドトリップ用コメント');
+    });
+
+    it('ラウンドトリップ: formatしてからparseSuggestionRangeするとlinesAbove/linesBelowが復元される', () => {
+      const resolved = createResolvedSuggestion({
+        linesAbove: 3,
+        linesBelow: 2,
+      });
+      const output = SuggestCommentFormatter.format(resolved);
+      const range = SuggestCommentParser.parseSuggestionRange(output);
+
+      expect(range).not.toBeNull();
+      expect(range!.linesAbove).toBe(3);
+      expect(range!.linesBelow).toBe(2);
     });
   });
 });
