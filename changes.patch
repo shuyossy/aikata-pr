@@ -1,346 +1,1074 @@
 diff --git a/PBI.md b/PBI.md
-index 4febafc..60c2563 100644
+index 60c2563..6548993 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -47,8 +47,10 @@
+@@ -47,10 +47,6 @@
    - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
      - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
  - 指摘事項（in progressの場合のみ）
--  - 本番環境で試してみたが、diffの登録がなかなか成功しない
--    - 良く出るエラーは`Code not found in diff for file ~`
--      - 更新対象コードをAgentにどの様に指定させるかもう一度よく検討する必要がある
--    - suggest登録toolの実行に失敗した場合に、Agentは諦めてしまう
--      - エラーメッセージにリトライを促す様な文言を付与すべき
-+  - 提案対象コードの1行が長大な場合、storeSuggestツールを呼び出す際にAgentがその1行の途中までしか指定しないことがある
-+    - 現状はoriginalCodeのマッチング処理は1行全て一致しないと一致したとみなさないのでエラーになる
-+      - 改善方針
-+        - プロンプト改善
-+          - toolの利用方法で1行全て指定するように記載
-+        - マッチング処理改善
-+          - originalCodeにおいて、最初の行が途中から指定された場合や、最後の行が途中で途切れた場合にもマッチングできるようにする
-diff --git a/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts b/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
-index 463beff..89a578c 100644
---- a/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
-+++ b/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
-@@ -65,7 +65,29 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
-     const matches = this.findCodeMatches(newSideLineGroups, codeLines);
+-  - 提案対象コードの1行が長大な場合、storeSuggestツールを呼び出す際にAgentがその1行の途中までしか指定しないことがある
+-    - 現状はoriginalCodeのマッチング処理は1行全て一致しないと一致したとみなさないのでエラーになる
+-      - 改善方針
+-        - プロンプト改善
+-          - toolの利用方法で1行全て指定するように記載
+-        - マッチング処理改善
+-          - originalCodeにおいて、最初の行が途中から指定された場合や、最後の行が途中で途切れた場合にもマッチングできるようにする
++  - MR画面でsuggestが見辛い
++    - diff discussionについて、suggestしたい範囲以外も多分に含んでおり、どこに対して変更のsuggestがされているのか分かりづらい
++    - suggestについても変更箇所以外も多分に含んでおり分かりづらい
+diff --git a/src/application/shared/comment/CommentFormatter.ts b/src/application/shared/comment/CommentFormatter.ts
+index 618b7d9..ba89c3b 100644
+--- a/src/application/shared/comment/CommentFormatter.ts
++++ b/src/application/shared/comment/CommentFormatter.ts
+@@ -1,6 +1,7 @@
+ import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/review/reviewResult/index.js';
+ import { Rating } from '../../../domain/review/rating/index.js';
+ import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
++import { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';
  
-     if (matches.length === 0) {
--      // 完全一致失敗 → 全空白除去フォールバックを試行
-+      // 完全一致失敗 → 部分行マッチフォールバックを試行
-+      const partialMatches = this.findCodeMatchesPartial(newSideLineGroups, codeLines);
-+
-+      if (partialMatches.length === 1) {
-+        const match = partialMatches[0]!;
-+        return {
-+          success: true,
-+          newLine: match.newLineNum,
-+          linesAbove: 0,
-+          linesBelow: codeLines.length - 1,
-+          oldPath: paths.oldPath,
-+          newPath: paths.newPath,
-+        };
-+      }
-+
-+      if (partialMatches.length > 1) {
-+        return {
-+          success: false,
-+          errorMessage: `Found ${partialMatches.length} matches (partial line matching) for the given code in '${filePath}'. Include more surrounding context lines in originalCode to uniquely identify the location.`,
-+        };
-+      }
-+
-+      // 部分行マッチも失敗 → 全空白除去フォールバックを試行
-       const normalizedMatches = this.findCodeMatchesNormalized(newSideLineGroups, originalCode);
- 
-       if (normalizedMatches.length === 1) {
-@@ -281,6 +303,72 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
-     return matches;
-   }
- 
-+  /**
-+   * 部分行マッチでコード断片を検索するフォールバック
-+   * 最初の行がサフィックスマッチ、最後の行がプレフィックスマッチ、中間行は完全一致
-+   * 単一行の場合は部分文字列マッチ
-+   * ハンク境界を跨ぐマッチは行わない
-+   */
-+  private findCodeMatchesPartial(hunkGroups: NewSideLine[][], codeLines: string[]): NewSideLine[] {
-+    const matches: NewSideLine[] = [];
-+    const MIN_PARTIAL_LENGTH = 10;
-+
-+    if (codeLines.length === 0) return matches;
-+
-+    for (const group of hunkGroups) {
-+      for (let i = 0; i <= group.length - codeLines.length; i++) {
-+        let allMatch = true;
-+        let hasPartial = false;
-+
-+        for (let j = 0; j < codeLines.length; j++) {
-+          const diffContent = group[i + j]!.content;
-+          const codeLine = codeLines[j]!;
-+
-+          if (diffContent === codeLine) {
-+            // 完全一致はOK
-+            continue;
-+          }
-+
-+          if (codeLines.length === 1) {
-+            // 単一行: 部分文字列マッチ
-+            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.includes(codeLine)) {
-+              hasPartial = true;
-+            } else {
-+              allMatch = false;
-+            }
-+          } else if (j === 0) {
-+            // 最初の行: サフィックスマッチ（Agentが行の途中から指定したケース）
-+            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.endsWith(codeLine)) {
-+              hasPartial = true;
-+            } else {
-+              allMatch = false;
-+            }
-+          } else if (j === codeLines.length - 1) {
-+            // 最後の行: プレフィックスマッチ（Agentが行の途中で打ち切ったケース）
-+            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.startsWith(codeLine)) {
-+              hasPartial = true;
-+            } else {
-+              allMatch = false;
-+            }
-+          } else {
-+            // 中間行: 完全一致のみ
-+            allMatch = false;
-+          }
-+
-+          if (!allMatch) break;
-+        }
-+
-+        // 少なくとも1つの部分マッチが含まれている場合のみ追加
-+        // （全て完全一致の場合はfindCodeMatchesで既に検出済みのため除外）
-+        if (allMatch && hasPartial) {
-+          matches.push(group[i]!);
-+        }
-+      }
-+    }
-+
-+    return matches;
-+  }
-+
-   /**
-    * 全空白・改行を除去してコード断片のマッチを検索するフォールバック
-    * スライディングウィンドウ方式で、diff側の連続行を結合しつつ空白除去して比較する
-diff --git a/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts b/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
-index 0f78034..8723579 100644
---- a/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
-+++ b/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
-@@ -352,6 +352,165 @@ diff --git a/src/utils.ts b/src/utils.ts
+ /** aikataレビューコメント識別用マーカー */
+ export const REVIEW_MARKER = '<!-- aikata-review -->';
+@@ -105,7 +106,8 @@ export class CommentFormatter {
+     const separator = '| --- | --- | --- |';
+     const rows = results.map((result) => {
+       const ratingLabel = result.isError ? ERROR_RATING_LABEL : result.rating.label;
+-      return `| ${CommentFormatter.escapeCell(result.checkItem.content)} | ${ratingLabel} | ${CommentFormatter.escapeCell(result.comment)} |`;
++      const displayContent = formatCheckItemForDisplay(result.checkItem.content);
++      return `| ${CommentFormatter.escapeCell(displayContent)} | ${ratingLabel} | ${CommentFormatter.escapeCell(result.comment)} |`;
      });
+ 
+     return [header, separator, ...rows].join('\n');
+diff --git a/src/application/shared/comment/SuggestCommentFormatter.ts b/src/application/shared/comment/SuggestCommentFormatter.ts
+index d0da575..9815077 100644
+--- a/src/application/shared/comment/SuggestCommentFormatter.ts
++++ b/src/application/shared/comment/SuggestCommentFormatter.ts
+@@ -1,4 +1,5 @@
+ import { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
++import { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';
+ 
+ /** AIKATA-PRのsuggestコメント識別用マーカー */
+ export const SUGGEST_MARKER = '<!-- aikata-suggest -->';
+@@ -26,7 +27,8 @@ export class SuggestCommentFormatter {
+       comment: resolved.suggestion.comment,
+     })}${SUGGEST_DATA_SUFFIX}`;
+ 
+-    const header = `**チェック項目:** ${resolved.suggestion.checkItemContent}`;
++    const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);
++    const header = `**チェック項目:** ${displayContent}`;
+     const comment = resolved.suggestion.comment;
+     const suggestion =
+       '```suggestion:-' +
+diff --git a/src/application/shared/comment/__tests__/CommentFormatter.test.ts b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+index 5952e9e..421f8bf 100644
+--- a/src/application/shared/comment/__tests__/CommentFormatter.test.ts
++++ b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+@@ -322,6 +322,31 @@ describe('CommentFormatter', () => {
+ 
+       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
+     });
++
++    it('複数列チェック項目が<header>形式で表示される', () => {
++      const results = [
++        ReviewResult.success(
++          new CheckItem(
++            'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
++          ),
++          new Rating('C', '満たしていない'),
++          '対策が不十分です',
++        ),
++      ];
++
++      const output = CommentFormatter.formatComment(
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        [],
++        PASSED_GATE,
++      );
++
++      expect(output).toContain(
++        '| <カテゴリ><br>セキュリティ<br><チェック項目><br>SQLインジェクション対策 | C | 対策が不十分です |',
++      );
++    });
    });
  
-+  // --- 長い行を含むテスト用diffデータ ---
-+  const longLineDiff = `diff --git a/src/config.ts b/src/config.ts
-+--- a/src/config.ts
-++++ b/src/config.ts
-+@@ -1,5 +1,5 @@
-+ import { something } from 'somewhere';
-+
-+-const config = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
-++const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
-+
-+ export default config;`;
-+
-+  const longLineMultiHunkDiff = `diff --git a/src/config.ts b/src/config.ts
-+--- a/src/config.ts
-++++ b/src/config.ts
-+@@ -1,5 +1,5 @@
-+ import { something } from 'somewhere';
-+
-+-const config = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
-++const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
-+
-+ export default config;
-+@@ -10,3 +10,3 @@
-+ const another = 'value';
-+-const settings = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
-++const settings = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
-+ const end = true;`;
-+
-+  describe('部分行マッチフォールバック', () => {
-+    it('最初の行が途中から指定された場合（サフィックスマッチ）にマッチする', () => {
-+      const result = resolver.resolve(
-+        'src/config.ts',
-+        'timeout: 5000, retryCount: 5, debug: true, verbose: true };',
-+        longLineDiff,
-+      );
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 3,
-+        linesAbove: 0,
-+        linesBelow: 0,
-+        oldPath: 'src/config.ts',
-+        newPath: 'src/config.ts',
+   describe('hiddenRatingLabels', () => {
+diff --git a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
+index 7fbc852..45e66c0 100644
+--- a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
++++ b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
+@@ -109,6 +109,17 @@ describe('SuggestCommentFormatter', () => {
+       expect(output).toContain('```suggestion:-5+3');
+     });
+ 
++    it('複数列チェック項目が<header>形式で表示される', () => {
++      const resolved = createResolvedSuggestion({
++        checkItemContent:
++          'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
 +      });
-+    });
-+
-+    it('最後の行が途中で途切れた場合（プレフィックスマッチ）にマッチする', () => {
-+      const result = resolver.resolve(
-+        'src/config.ts',
-+        "import { something } from 'somewhere';\n\nconst config = { apiUrl: 'http://new-api.example.com'",
-+        longLineDiff,
++      const output = SuggestCommentFormatter.format(resolved);
++      expect(output).toContain(
++        '**チェック項目:** <カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策',
 +      );
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 1,
-+        linesAbove: 0,
-+        linesBelow: 2,
-+        oldPath: 'src/config.ts',
-+        newPath: 'src/config.ts',
-+      });
 +    });
 +
-+    it('単一行の部分文字列マッチにマッチする', () => {
-+      const result = resolver.resolve(
-+        'src/config.ts',
-+        "apiUrl: 'http://new-api.example.com', timeout: 5000",
-+        longLineDiff,
+     it('ラウンドトリップ: formatしてからparseすると元のデータが復元される', () => {
+       const resolved = createResolvedSuggestion({
+         checkItemContent: 'ラウンドトリップテスト',
+diff --git a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+new file mode 100644
+index 0000000..f2e5fe1
+--- /dev/null
++++ b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+@@ -0,0 +1,86 @@
++import { describe, it, expect } from 'vitest';
++import { formatCheckItemForDisplay } from '../formatCheckItemForDisplay.js';
++
++describe('formatCheckItemForDisplay', () => {
++  describe('構造化フォーマットの変換', () => {
++    it('複数列の構造化フォーマットが<header>形式に変換される', () => {
++      const content =
++        'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe('<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策');
++    });
++
++    it('単一列の構造化フォーマットが<header>形式に変換される', () => {
++      const content = 'チェック項目:\n---\nコード可読性\n---';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe('<チェック項目>\nコード可読性');
++    });
++
++    it('3列の構造化フォーマットが正しく変換される', () => {
++      const content =
++        'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---\n\n説明:\n---\nバインディング確認\n---';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe(
++        '<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策\n<説明>\nバインディング確認',
 +      );
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 3,
-+        linesAbove: 0,
-+        linesBelow: 0,
-+        oldPath: 'src/config.ts',
-+        newPath: 'src/config.ts',
-+      });
-+    });
-+
-+    it('最初の行と最後の行が両方部分マッチする場合にマッチする', () => {
-+      const result = resolver.resolve(
-+        'src/config.ts',
-+        'timeout: 5000, retryCount: 5, debug: true, verbose: true };\n\nexport default',
-+        longLineDiff,
-+      );
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 3,
-+        linesAbove: 0,
-+        linesBelow: 2,
-+        oldPath: 'src/config.ts',
-+        newPath: 'src/config.ts',
-+      });
-+    });
-+
-+    it('中間行が完全一致しない場合はマッチしない', () => {
-+      const result = resolver.resolve(
-+        'src/config.ts',
-+        'timeout: 5000, retryCount: 5, debug: true, verbose: true };\nNOT_MATCHING_LINE\nexport default',
-+        longLineDiff,
-+      );
-+
-+      expect(result.success).toBe(false);
-+    });
-+
-+    it('最小長要件を満たさない短い部分文字列はマッチしない', () => {
-+      // "true" は4文字なので最小長10文字未満 → 部分マッチ対象外
-+      const result = resolver.resolve('src/config.ts', 'true', longLineDiff);
-+
-+      expect(result.success).toBe(false);
-+    });
-+
-+    it('部分マッチで複数マッチの場合エラーを返す', () => {
-+      // longLineMultiHunkDiffでは同じ長い行が2つのハンクに存在する
-+      const result = resolver.resolve(
-+        'src/config.ts',
-+        'timeout: 5000, retryCount: 5, debug: true, verbose: true };',
-+        longLineMultiHunkDiff,
-+      );
-+
-+      expect(result).toEqual({
-+        success: false,
-+        errorMessage: expect.stringContaining('2 matches'),
-+      });
-+      expect(result.errorMessage).toContain('partial line matching');
-+    });
-+
-+    it('完全一致が優先される（部分マッチは不使用）', () => {
-+      // 完全な行を指定した場合は完全一致で見つかるべき
-+      const result = resolver.resolve(
-+        'src/config.ts',
-+        "const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };",
-+        longLineDiff,
-+      );
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 3,
-+        linesAbove: 0,
-+        linesBelow: 0,
-+        oldPath: 'src/config.ts',
-+        newPath: 'src/config.ts',
-+      });
-+    });
-+
-+    it('ハンク境界を跨ぐ部分マッチは行わない', () => {
-+      // 1つ目のハンクの最後の行（部分マッチ）と2つ目のハンクの最初の行は連続していない
-+      const result = resolver.resolve(
-+        'src/config.ts',
-+        "verbose: true };\nconst another = 'value';",
-+        longLineMultiHunkDiff,
-+      );
-+
-+      expect(result.success).toBe(false);
 +    });
 +  });
 +
-   describe('全空白除去フォールバックマッチ', () => {
-     it('先頭空白が異なるoriginalCodeでフォールバック成功する（単一行）', () => {
-       // diffでは "const b = 3;" だが、agentが "  const b = 3;" を指定
-diff --git a/src/mastra/review/agents/__tests__/reviewAgent.test.ts b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
-index fea0235..dbe02f7 100644
---- a/src/mastra/review/agents/__tests__/reviewAgent.test.ts
-+++ b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
-@@ -386,7 +386,7 @@ describe('buildInstructions', () => {
++  describe('plain textの場合', () => {
++    it('構造化フォーマットでないテキストはそのまま返される', () => {
++      const content = 'コード可読性';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe('コード可読性');
++    });
++
++    it('改行を含むplain textはそのまま返される', () => {
++      const content = '項目A\n項目B';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe('項目A\n項目B');
++    });
++  });
++
++  describe('エッジケース', () => {
++    it('値に改行を含む場合も正しく変換される', () => {
++      const content = 'ヘッダ1:\n---\n行1\n行2\n---\n\nヘッダ2:\n---\n値2\n---';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe('<ヘッダ1>\n行1\n行2\n<ヘッダ2>\n値2');
++    });
++
++    it('値に2連続改行を含む場合も正しく変換される', () => {
++      const content = 'ヘッダ1:\n---\n行1\n\n行2\n---\n\nヘッダ2:\n---\n値2\n---';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n<ヘッダ2>\n値2');
++    });
++
++    it('空値の場合も正しく変換される', () => {
++      const content = 'ヘッダ1:\n---\n\n---';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe('<ヘッダ1>\n');
++    });
++
++    it('空値を含む複数列の場合も正しく変換される', () => {
++      const content = 'ヘッダ1:\n---\n値1\n---\n\nヘッダ2:\n---\n\n---';
++
++      const result = formatCheckItemForDisplay(content);
++
++      expect(result).toBe('<ヘッダ1>\n値1\n<ヘッダ2>\n');
++    });
++  });
++});
+diff --git a/src/application/shared/comment/formatCheckItemForDisplay.ts b/src/application/shared/comment/formatCheckItemForDisplay.ts
+new file mode 100644
+index 0000000..4bec74b
+--- /dev/null
++++ b/src/application/shared/comment/formatCheckItemForDisplay.ts
+@@ -0,0 +1,23 @@
++/**
++ * チェック項目のcontentをdiscussion表示用フォーマットに変換する
++ *
++ * AI連携用フォーマット（header:\n---\nvalue\n---）を
++ * discussion表示用フォーマット（<header>\nvalue）に変換する。
++ * 構造化フォーマットでない場合はそのまま返す。
++ *
++ * 値の中に\n\nが含まれていても、次列の構造パターン（headerName:\n---\n）が
++ * 後続しない限り誤マッチしないlookaheadを使用する。
++ */
++export function formatCheckItemForDisplay(content: string): string {
++  const pattern = /([^\n]+):\n---\n([\s\S]*?)\n---(?=\n\n[^\n]+:\n---\n|$)/g;
++  const columns: string[] = [];
++  let match;
++
++  while ((match = pattern.exec(content)) !== null) {
++    columns.push(`<${match[1]}>\n${match[2]}`);
++  }
++
++  // 構造化フォーマットが検出されなかった場合はそのまま返す
++  if (columns.length === 0) return content;
++  return columns.join('\n');
++}
+diff --git a/src/application/shared/comment/index.ts b/src/application/shared/comment/index.ts
+index 59578af..37eae10 100644
+--- a/src/application/shared/comment/index.ts
++++ b/src/application/shared/comment/index.ts
+@@ -15,3 +15,4 @@ export {
+ } from './SuggestCommentFormatter.js';
+ export { SuggestCommentParser } from './SuggestCommentParser.js';
+ export type { ParsedSuggestComment } from './SuggestCommentParser.js';
++export { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';
+diff --git a/src/infrastructure/adapter/httpClient/GitLabApiClient.ts b/src/infrastructure/adapter/httpClient/GitLabApiClient.ts
+index 140578d..056b4ec 100644
+--- a/src/infrastructure/adapter/httpClient/GitLabApiClient.ts
++++ b/src/infrastructure/adapter/httpClient/GitLabApiClient.ts
+@@ -1,3 +1,5 @@
++import { GitLabApiError } from './GitLabApiError.js';
++
+ /**
+  * GitLab APIとの通信を行うHTTPクライアント
+  * PRIVATE-TOKENヘッダによる認証を自動付与する
+@@ -19,9 +21,7 @@ export class GitLabApiClient {
+     const response = await fetch(`${this.baseUrl}${path}`, {
+       headers: { 'PRIVATE-TOKEN': this.token },
+     });
+-    if (!response.ok) {
+-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+-    }
++    await this.throwIfNotOk(response, 'GET', path);
+     return response.json() as Promise<T>;
+   }
  
-     expect(result).toContain('## Code Suggestion Guidelines');
-     expect(result).toContain('storeSuggest tool');
--    expect(result).toContain('originalCode must exactly match');
-+    expect(result).toContain('Each line in originalCode must be copied in its entirety');
-     expect(result).toContain('Do NOT duplicate suggestions');
+@@ -33,9 +33,7 @@ export class GitLabApiClient {
+     const response = await fetch(`${this.baseUrl}${path}`, {
+       headers: { 'PRIVATE-TOKEN': this.token },
+     });
+-    if (!response.ok) {
+-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+-    }
++    await this.throwIfNotOk(response, 'GET', path);
+     return response.text();
+   }
+ 
+@@ -48,9 +46,7 @@ export class GitLabApiClient {
+     const response = await fetch(`${this.baseUrl}${path}`, {
+       headers: { 'PRIVATE-TOKEN': this.token },
+     });
+-    if (!response.ok) {
+-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+-    }
++    await this.throwIfNotOk(response, 'GET', path);
+     return response;
+   }
+ 
+@@ -67,9 +63,7 @@ export class GitLabApiClient {
+       const response = await fetch(url, {
+         headers: { 'PRIVATE-TOKEN': this.token },
+       });
+-      if (!response.ok) {
+-        throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+-      }
++      await this.throwIfNotOk(response, 'GET', path);
+       const items = (await response.json()) as T[];
+       allItems.push(...items);
+ 
+@@ -95,17 +89,16 @@ export class GitLabApiClient {
+    * POSTリクエストを送信する
+    */
+   async post<T>(path: string, body: unknown): Promise<T> {
++    const serializedBody = JSON.stringify(body);
+     const response = await fetch(`${this.baseUrl}${path}`, {
+       method: 'POST',
+       headers: {
+         'PRIVATE-TOKEN': this.token,
+         'Content-Type': 'application/json',
+       },
+-      body: JSON.stringify(body),
++      body: serializedBody,
+     });
+-    if (!response.ok) {
+-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+-    }
++    await this.throwIfNotOk(response, 'POST', path, serializedBody);
+     return response.json() as Promise<T>;
+   }
+ 
+@@ -113,17 +106,38 @@ export class GitLabApiClient {
+    * PUTリクエストを送信する
+    */
+   async put<T>(path: string, body: unknown): Promise<T> {
++    const serializedBody = JSON.stringify(body);
+     const response = await fetch(`${this.baseUrl}${path}`, {
+       method: 'PUT',
+       headers: {
+         'PRIVATE-TOKEN': this.token,
+         'Content-Type': 'application/json',
+       },
+-      body: JSON.stringify(body),
++      body: serializedBody,
+     });
++    await this.throwIfNotOk(response, 'PUT', path, serializedBody);
++    return response.json() as Promise<T>;
++  }
++
++  /**
++   * レスポンスがエラーの場合、レスポンスボディを含むGitLabApiErrorをスローする
++   */
++  private async throwIfNotOk(
++    response: Response,
++    method: string,
++    path: string,
++    requestBody?: string,
++  ): Promise<void> {
+     if (!response.ok) {
+-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
++      const responseBody = await response.text().catch(() => '');
++      throw new GitLabApiError({
++        status: response.status,
++        statusText: response.statusText,
++        responseBody,
++        method,
++        path,
++        requestBody,
++      });
+     }
+-    return response.json() as Promise<T>;
+   }
+ }
+diff --git a/src/infrastructure/adapter/httpClient/GitLabApiError.ts b/src/infrastructure/adapter/httpClient/GitLabApiError.ts
+new file mode 100644
+index 0000000..65e3bf5
+--- /dev/null
++++ b/src/infrastructure/adapter/httpClient/GitLabApiError.ts
+@@ -0,0 +1,40 @@
++/**
++ * GitLab APIエラーを表すカスタムエラークラス
++ * HTTPステータス、レスポンスボディ、リクエスト情報を保持する
++ */
++export class GitLabApiError extends Error {
++  readonly status: number;
++  readonly statusText: string;
++  readonly responseBody: string;
++  readonly method: string;
++  readonly path: string;
++  readonly requestBody: string | undefined;
++
++  constructor(params: {
++    status: number;
++    statusText: string;
++    responseBody: string;
++    method: string;
++    path: string;
++    requestBody?: string;
++  }) {
++    const base = `GitLab API error: ${params.status} ${params.statusText} - ${params.method} ${params.path}\nResponse body: ${params.responseBody}`;
++    const reqBody = params.requestBody !== undefined ? `\nRequest body: ${params.requestBody}` : '';
++    const guidance =
++      params.status >= 500
++        ? '\nThis may be a temporary server issue. Please wait a few minutes and re-run the job.'
++        : '';
++    super(`${base}${reqBody}${guidance}`);
++    this.name = 'GitLabApiError';
++    this.status = params.status;
++    this.statusText = params.statusText;
++    this.responseBody = params.responseBody;
++    this.method = params.method;
++    this.path = params.path;
++    this.requestBody = params.requestBody;
++  }
++
++  get isServerError(): boolean {
++    return this.status >= 500;
++  }
++}
+diff --git a/src/infrastructure/adapter/httpClient/__tests__/GitLabApiClient.test.ts b/src/infrastructure/adapter/httpClient/__tests__/GitLabApiClient.test.ts
+index ec476d0..090e380 100644
+--- a/src/infrastructure/adapter/httpClient/__tests__/GitLabApiClient.test.ts
++++ b/src/infrastructure/adapter/httpClient/__tests__/GitLabApiClient.test.ts
+@@ -1,5 +1,6 @@
+ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+ import { GitLabApiClient } from '../GitLabApiClient.js';
++import { GitLabApiError } from '../GitLabApiError.js';
+ 
+ describe('GitLabApiClient', () => {
+   const mockFetch = vi.fn();
+@@ -22,11 +23,12 @@ describe('GitLabApiClient', () => {
    });
  
-diff --git a/src/mastra/review/agents/reviewAgent.ts b/src/mastra/review/agents/reviewAgent.ts
-index 2c6409f..7ee789a 100644
---- a/src/mastra/review/agents/reviewAgent.ts
-+++ b/src/mastra/review/agents/reviewAgent.ts
-@@ -156,7 +156,7 @@ If the output shows "[output truncated: ...]", use the reported line counts and
-   }${
-     suggestEnabled
-       ? `### Suggestion Tools
--- storeSuggest: Store a code suggestion. Parameters: checkItemId, filePath, originalCode (exact code from the new side of the diff), suggestedCode (replacement), comment (explanation in ${ctx.commentLanguage})
-+- storeSuggest: Store a code suggestion. Parameters: checkItemId, filePath, originalCode (code from the new side of the diff — each line must be complete, not truncated), suggestedCode (replacement), comment (explanation in ${ctx.commentLanguage})
- - getSuggests: Retrieve all suggestions stored in this session to check for duplicates and verify completeness
+   // ヘルパー: エラーレスポンスを生成
+-  const createErrorResponse = (status: number, statusText: string) => ({
++  const createErrorResponse = (status: number, statusText: string, responseBody: string = '') => ({
+     ok: false,
+     status,
+     statusText,
+     json: () => Promise.resolve({}),
++    text: () => Promise.resolve(responseBody),
+   });
  
- `
-@@ -184,7 +184,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
- ### Important rules
- - You may create multiple suggestions per check item
- - Do NOT duplicate suggestions within this session (check with getSuggests)
--- originalCode must exactly match the code in the diff (whitespace-sensitive)
-+- Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.
- - Include sufficient context lines in originalCode to avoid ambiguity
- - Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
+   it('GETリクエストにPRIVATE-TOKENヘッダが付与される', async () => {
+@@ -64,30 +66,141 @@ describe('GitLabApiClient', () => {
+     expect(result).toEqual(responseData);
+   });
  
-diff --git a/src/mastra/review/tools/storeSuggest.ts b/src/mastra/review/tools/storeSuggest.ts
-index 46f9cd8..7f3a5a4 100644
---- a/src/mastra/review/tools/storeSuggest.ts
-+++ b/src/mastra/review/tools/storeSuggest.ts
-@@ -52,7 +52,7 @@ export const storeSuggestTool = createTool({
-     originalCode: z
-       .string()
-       .describe(
--        'The exact original code from the new side of the diff to be replaced. Include enough context lines for unique identification.',
-+        'The original code from the new side of the diff to be replaced. Each line must be copied in full from beginning to end, even if the line is very long. Include enough context lines for unique identification.',
-       ),
-     suggestedCode: z.string().describe('The proposed replacement code'),
-     comment: z.string().describe('Explanation of why this change is suggested'),
+-  it('HTTPステータス401でエラーがスローされる', async () => {
+-    mockFetch.mockResolvedValueOnce(createErrorResponse(401, 'Unauthorized'));
++  it('HTTPステータス401でGitLabApiErrorがスローされる', async () => {
++    mockFetch.mockResolvedValueOnce(
++      createErrorResponse(401, 'Unauthorized', '{"message":"401 Unauthorized"}'),
++    );
+ 
+     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'invalid-token');
+ 
+-    await expect(client.get('/projects/1')).rejects.toThrow('GitLab API error: 401 Unauthorized');
++    await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
+   });
+ 
+-  it('HTTPステータス404でエラーがスローされる', async () => {
+-    mockFetch.mockResolvedValueOnce(createErrorResponse(404, 'Not Found'));
++  it('HTTPステータス404でGitLabApiErrorがスローされる', async () => {
++    mockFetch.mockResolvedValueOnce(
++      createErrorResponse(404, 'Not Found', '{"message":"404 Not Found"}'),
++    );
+ 
+     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+-    await expect(client.get('/projects/99999')).rejects.toThrow('GitLab API error: 404 Not Found');
++    await expect(client.get('/projects/99999')).rejects.toThrow(GitLabApiError);
+   });
+ 
+-  it('POSTリクエストでHTTPエラーの場合、エラーがスローされる', async () => {
+-    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
++  it('POSTリクエストでHTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
++    mockFetch.mockResolvedValueOnce(
++      createErrorResponse(500, 'Internal Server Error', '{"error":"something went wrong"}'),
++    );
+ 
+     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+     await expect(
+       client.post('/projects/1/merge_requests/1/notes', { body: 'comment' }),
+-    ).rejects.toThrow('GitLab API error: 500 Internal Server Error');
++    ).rejects.toThrow(GitLabApiError);
++  });
++
++  it('エラー時にレスポンスボディがGitLabApiErrorに含まれる', async () => {
++    const errorBody = '{"message":"Something went wrong","details":"internal error"}';
++    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error', errorBody));
++
++    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++    try {
++      await client.get('/projects/1');
++      expect.fail('Expected GitLabApiError to be thrown');
++    } catch (error) {
++      expect(error).toBeInstanceOf(GitLabApiError);
++      const apiError = error as GitLabApiError;
++      expect(apiError.status).toBe(500);
++      expect(apiError.responseBody).toBe(errorBody);
++      expect(apiError.method).toBe('GET');
++      expect(apiError.path).toBe('/projects/1');
++    }
++  });
++
++  it('5xxエラー時に誘導メッセージがエラーメッセージに含まれる', async () => {
++    mockFetch.mockResolvedValueOnce(
++      createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
++    );
++
++    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++    try {
++      await client.post('/projects/1/merge_requests/1/notes', { body: 'comment' });
++      expect.fail('Expected GitLabApiError to be thrown');
++    } catch (error) {
++      expect(error).toBeInstanceOf(GitLabApiError);
++      const apiError = error as GitLabApiError;
++      expect(apiError.message).toContain(
++        'This may be a temporary server issue. Please wait a few minutes and re-run the job.',
++      );
++      expect(apiError.message).toContain('{"error":"server error"}');
++    }
++  });
++
++  it('POSTエラー時にリクエストボディがGitLabApiErrorに含まれる', async () => {
++    const requestBody = { body: 'comment text', position: { new_line: 10 } };
++    mockFetch.mockResolvedValueOnce(
++      createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
++    );
++
++    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++    try {
++      await client.post('/projects/1/merge_requests/1/discussions', requestBody);
++      expect.fail('Expected GitLabApiError to be thrown');
++    } catch (error) {
++      expect(error).toBeInstanceOf(GitLabApiError);
++      const apiError = error as GitLabApiError;
++      expect(apiError.requestBody).toBe(JSON.stringify(requestBody));
++      expect(apiError.message).toContain('Request body:');
++    }
++  });
++
++  it('PUTエラー時にリクエストボディがGitLabApiErrorに含まれる', async () => {
++    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error', ''));
++
++    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++    try {
++      await client.put('/projects/1/merge_requests/1/discussions/disc-1', { resolved: true });
++      expect.fail('Expected GitLabApiError to be thrown');
++    } catch (error) {
++      expect(error).toBeInstanceOf(GitLabApiError);
++      const apiError = error as GitLabApiError;
++      expect(apiError.requestBody).toBe('{"resolved":true}');
++    }
++  });
++
++  it('GETエラー時にリクエストボディはundefined', async () => {
++    mockFetch.mockResolvedValueOnce(createErrorResponse(404, 'Not Found'));
++
++    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++    try {
++      await client.get('/projects/999');
++      expect.fail('Expected GitLabApiError to be thrown');
++    } catch (error) {
++      expect(error).toBeInstanceOf(GitLabApiError);
++      const apiError = error as GitLabApiError;
++      expect(apiError.requestBody).toBeUndefined();
++    }
++  });
++
++  it('4xxエラー時に誘導メッセージがエラーメッセージに含まれない', async () => {
++    mockFetch.mockResolvedValueOnce(
++      createErrorResponse(404, 'Not Found', '{"message":"404 Not Found"}'),
++    );
++
++    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++    try {
++      await client.get('/projects/999');
++      expect.fail('Expected GitLabApiError to be thrown');
++    } catch (error) {
++      expect(error).toBeInstanceOf(GitLabApiError);
++      const apiError = error as GitLabApiError;
++      expect(apiError.message).not.toContain('Please wait a few minutes and re-run the job');
++    }
+   });
+ 
+   it('ベースURLとパスが正しく結合される', async () => {
+@@ -128,24 +241,20 @@ describe('GitLabApiClient', () => {
+       expect(result).toBe(traceBody);
+     });
+ 
+-    it('HTTPステータス404でエラーがスローされる（getと同じ文言）', async () => {
++    it('HTTPステータス404でGitLabApiErrorがスローされる', async () => {
+       mockFetch.mockResolvedValueOnce(createErrorResponse(404, 'Not Found'));
+ 
+       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+-      await expect(client.getText('/projects/1/jobs/9999/trace')).rejects.toThrow(
+-        'GitLab API error: 404 Not Found',
+-      );
++      await expect(client.getText('/projects/1/jobs/9999/trace')).rejects.toThrow(GitLabApiError);
+     });
+ 
+-    it('HTTPステータス500でエラーがスローされる（getと同じ文言）', async () => {
++    it('HTTPステータス500でGitLabApiErrorがスローされる', async () => {
+       mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
+ 
+       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+-      await expect(client.getText('/projects/1/jobs/42/trace')).rejects.toThrow(
+-        'GitLab API error: 500 Internal Server Error',
+-      );
++      await expect(client.getText('/projects/1/jobs/42/trace')).rejects.toThrow(GitLabApiError);
+     });
+ 
+     it('末尾スラッシュ付きベースURLが正規化される', async () => {
+@@ -198,23 +307,23 @@ describe('GitLabApiClient', () => {
+       expect(response.headers.get('content-type')).toBe('application/zip');
+     });
+ 
+-    it('HTTPステータス404でエラーがスローされる（getと同じ文言）', async () => {
++    it('HTTPステータス404でGitLabApiErrorがスローされる', async () => {
+       mockFetch.mockResolvedValueOnce(createErrorResponse(404, 'Not Found'));
+ 
+       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+       await expect(client.getResponse('/projects/1/jobs/9999/artifacts')).rejects.toThrow(
+-        'GitLab API error: 404 Not Found',
++        GitLabApiError,
+       );
+     });
+ 
+-    it('HTTPステータス403でエラーがスローされる（getと同じ文言）', async () => {
++    it('HTTPステータス403でGitLabApiErrorがスローされる', async () => {
+       mockFetch.mockResolvedValueOnce(createErrorResponse(403, 'Forbidden'));
+ 
+       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+       await expect(client.getResponse('/projects/1/jobs/42/artifacts')).rejects.toThrow(
+-        'GitLab API error: 403 Forbidden',
++        GitLabApiError,
+       );
+     });
+ 
+@@ -260,14 +369,14 @@ describe('GitLabApiClient', () => {
+       expect(result).toEqual(responseData);
+     });
+ 
+-    it('PUTリクエストでHTTPエラーの場合、エラーがスローされる', async () => {
++    it('PUTリクエストでHTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
+       mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
+ 
+       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+       await expect(
+         client.put('/projects/1/merge_requests/1/discussions/disc-1', { resolved: true }),
+-      ).rejects.toThrow('GitLab API error: 500 Internal Server Error');
++      ).rejects.toThrow(GitLabApiError);
+     });
+   });
+ 
+@@ -332,18 +441,17 @@ describe('GitLabApiClient', () => {
+       );
+     });
+ 
+-    it('HTTPエラーの場合、エラーがスローされる', async () => {
++    it('HTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
+       mockFetch.mockResolvedValueOnce({
+         ok: false,
+         status: 403,
+         statusText: 'Forbidden',
+         headers: { get: () => null },
++        text: () => Promise.resolve('{"message":"403 Forbidden"}'),
+       });
+ 
+       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+-      await expect(client.getAll('/projects/1/notes')).rejects.toThrow(
+-        'GitLab API error: 403 Forbidden',
+-      );
++      await expect(client.getAll('/projects/1/notes')).rejects.toThrow(GitLabApiError);
+     });
+   });
+ });
+diff --git a/src/infrastructure/adapter/httpClient/__tests__/GitLabApiError.test.ts b/src/infrastructure/adapter/httpClient/__tests__/GitLabApiError.test.ts
+new file mode 100644
+index 0000000..50ca470
+--- /dev/null
++++ b/src/infrastructure/adapter/httpClient/__tests__/GitLabApiError.test.ts
+@@ -0,0 +1,162 @@
++import { describe, it, expect } from 'vitest';
++import { GitLabApiError } from '../GitLabApiError.js';
++
++describe('GitLabApiError', () => {
++  it('ステータス・レスポンスボディ・リクエスト情報がプロパティとして保持される', () => {
++    const error = new GitLabApiError({
++      status: 404,
++      statusText: 'Not Found',
++      responseBody: '{"message":"404 Project Not Found"}',
++      method: 'GET',
++      path: '/projects/999',
++    });
++
++    expect(error.status).toBe(404);
++    expect(error.statusText).toBe('Not Found');
++    expect(error.responseBody).toBe('{"message":"404 Project Not Found"}');
++    expect(error.method).toBe('GET');
++    expect(error.path).toBe('/projects/999');
++  });
++
++  it('メッセージにステータス・メソッド・パス・レスポンスボディが含まれる', () => {
++    const error = new GitLabApiError({
++      status: 404,
++      statusText: 'Not Found',
++      responseBody: '{"message":"404 Project Not Found"}',
++      method: 'GET',
++      path: '/projects/999',
++    });
++
++    expect(error.message).toContain('404');
++    expect(error.message).toContain('Not Found');
++    expect(error.message).toContain('GET');
++    expect(error.message).toContain('/projects/999');
++    expect(error.message).toContain('{"message":"404 Project Not Found"}');
++  });
++
++  it('Errorを継承している', () => {
++    const error = new GitLabApiError({
++      status: 500,
++      statusText: 'Internal Server Error',
++      responseBody: '',
++      method: 'POST',
++      path: '/projects/1/merge_requests/1/discussions',
++    });
++
++    expect(error).toBeInstanceOf(Error);
++    expect(error.name).toBe('GitLabApiError');
++  });
++
++  describe('isServerError', () => {
++    it.each([500, 502, 503, 504])('ステータス%iの場合trueを返す', (status) => {
++      const error = new GitLabApiError({
++        status,
++        statusText: 'Server Error',
++        responseBody: '',
++        method: 'GET',
++        path: '/test',
++      });
++
++      expect(error.isServerError).toBe(true);
++    });
++
++    it.each([400, 401, 403, 404, 422])('ステータス%iの場合falseを返す', (status) => {
++      const error = new GitLabApiError({
++        status,
++        statusText: 'Client Error',
++        responseBody: '',
++        method: 'GET',
++        path: '/test',
++      });
++
++      expect(error.isServerError).toBe(false);
++    });
++  });
++
++  describe('5xxエラー時の誘導メッセージ', () => {
++    it('5xxエラーの場合、再実行を促す誘導メッセージがメッセージに含まれる', () => {
++      const error = new GitLabApiError({
++        status: 500,
++        statusText: 'Internal Server Error',
++        responseBody: '{"error":"something went wrong"}',
++        method: 'POST',
++        path: '/projects/1/merge_requests/1/discussions',
++      });
++
++      expect(error.message).toContain(
++        'This may be a temporary server issue. Please wait a few minutes and re-run the job.',
++      );
++    });
++
++    it('4xxエラーの場合、誘導メッセージは含まれない', () => {
++      const error = new GitLabApiError({
++        status: 404,
++        statusText: 'Not Found',
++        responseBody: '{"message":"404 Not Found"}',
++        method: 'GET',
++        path: '/projects/999',
++      });
++
++      expect(error.message).not.toContain(
++        'This may be a temporary server issue. Please wait a few minutes and re-run the job.',
++      );
++    });
++  });
++
++  describe('リクエストボディ', () => {
++    it('リクエストボディがプロパティに保持される', () => {
++      const reqBody = '{"body":"comment text"}';
++      const error = new GitLabApiError({
++        status: 500,
++        statusText: 'Internal Server Error',
++        responseBody: '',
++        method: 'POST',
++        path: '/projects/1/merge_requests/1/discussions',
++        requestBody: reqBody,
++      });
++
++      expect(error.requestBody).toBe(reqBody);
++    });
++
++    it('リクエストボディがメッセージに含まれる', () => {
++      const reqBody = '{"body":"comment text"}';
++      const error = new GitLabApiError({
++        status: 500,
++        statusText: 'Internal Server Error',
++        responseBody: '',
++        method: 'POST',
++        path: '/projects/1/merge_requests/1/discussions',
++        requestBody: reqBody,
++      });
++
++      expect(error.message).toContain('Request body: {"body":"comment text"}');
++    });
++
++    it('リクエストボディが未指定の場合はundefinedでメッセージに含まれない', () => {
++      const error = new GitLabApiError({
++        status: 404,
++        statusText: 'Not Found',
++        responseBody: '',
++        method: 'GET',
++        path: '/projects/999',
++      });
++
++      expect(error.requestBody).toBeUndefined();
++      expect(error.message).not.toContain('Request body');
++    });
++  });
++
++  it('レスポンスボディが空の場合もエラーが正しく生成される', () => {
++    const error = new GitLabApiError({
++      status: 500,
++      statusText: 'Internal Server Error',
++      responseBody: '',
++      method: 'GET',
++      path: '/test',
++    });
++
++    expect(error.status).toBe(500);
++    expect(error.responseBody).toBe('');
++    expect(error.message).toContain('500');
++  });
++});
+diff --git a/src/infrastructure/adapter/httpClient/index.ts b/src/infrastructure/adapter/httpClient/index.ts
+index 86f876b..ccffb90 100644
+--- a/src/infrastructure/adapter/httpClient/index.ts
++++ b/src/infrastructure/adapter/httpClient/index.ts
+@@ -1 +1,2 @@
+ export { GitLabApiClient } from './GitLabApiClient.js';
++export { GitLabApiError } from './GitLabApiError.js';
+diff --git a/src/infrastructure/adapter/pipeline-report/gateway/__tests__/GitLabPipelineGateway.test.ts b/src/infrastructure/adapter/pipeline-report/gateway/__tests__/GitLabPipelineGateway.test.ts
+index bf4e703..f4bfb78 100644
+--- a/src/infrastructure/adapter/pipeline-report/gateway/__tests__/GitLabPipelineGateway.test.ts
++++ b/src/infrastructure/adapter/pipeline-report/gateway/__tests__/GitLabPipelineGateway.test.ts
+@@ -293,11 +293,10 @@ describe('GitLabPipelineGateway', () => {
+         status: 500,
+         statusText: 'Internal Server Error',
+         headers: { get: () => null },
++        text: () => Promise.resolve(''),
+       });
+ 
+-      await expect(gateway.getJobs(42, 5501, { includeRetried: false })).rejects.toThrow(
+-        'GitLab API error: 500 Internal Server Error',
+-      );
++      await expect(gateway.getJobs(42, 5501, { includeRetried: false })).rejects.toThrow(/500/);
+     });
+   });
+ 
+diff --git a/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts b/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
+index ecd969e..48262c1 100644
+--- a/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
++++ b/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
+@@ -20,6 +20,8 @@ interface GitLabNote {
+   body: string;
+   created_at: string;
+   system: boolean;
++  resolvable?: boolean;
++  resolved?: boolean;
+ }
+ 
+ /**
+@@ -97,6 +99,11 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
+         continue;
+       }
+ 
++      // resolved済みのディスカッションはスキップ（suggest無効化→再有効化時の対策）
++      if (firstNote.resolvable === true && firstNote.resolved === true) {
++        continue;
++      }
++
+       // system noteに変更キーワードが含まれているか確認
+       const hasChangedSinceNote = this.hasChangedSystemNote(discussion.notes);
+ 
+diff --git a/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts b/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
+index 280d739..4f2d157 100644
+--- a/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
++++ b/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
+@@ -459,7 +459,7 @@ describe('GitLabMrDiscussionGateway', () => {
+       expect(result[0].hasChangedSinceNote).toBe(true);
+     });
+ 
+-    it('notes配列が空のディスカッションをスキップする', async () => {
++    it('notes配列が空の��ィスカッションをスキップする', async () => {
+       const discussions = [
+         {
+           id: 'disc-empty',
+@@ -474,6 +474,159 @@ describe('GitLabMrDiscussionGateway', () => {
+ 
+       expect(result).toEqual([]);
+     });
++
++    it('resolved済みのsuggestディスカッションはスキップする', async () => {
++      const suggestData = JSON.stringify({
++        checkItemContent: 'Check resolved',
++        filePath: 'src/resolved.ts',
++        suggestedCode: 'fixed code',
++      });
++      const discussions = [
++        {
++          id: 'disc-resolved',
++          individual_note: false,
++          notes: [
++            {
++              id: 70,
++              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
++              created_at: '2026-03-01T00:00:00Z',
++              system: false,
++              resolvable: true,
++              resolved: true,
++            },
++          ],
++        },
++      ];
++
++      mockClient.getAll.mockResolvedValueOnce(discussions);
++
++      const result = await gateway.getSuggestDiscussions('123', '42');
++
++      expect(result).toEqual([]);
++    });
++
++    it('unresolvedのsuggestディスカッションは含まれる', async () => {
++      const suggestData = JSON.stringify({
++        checkItemContent: 'Check unresolved',
++        filePath: 'src/unresolved.ts',
++        suggestedCode: 'code',
++      });
++      const discussions = [
++        {
++          id: 'disc-unresolved',
++          individual_note: false,
++          notes: [
++            {
++              id: 71,
++              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
++              created_at: '2026-03-01T00:00:00Z',
++              system: false,
++              resolvable: true,
++              resolved: false,
++            },
++          ],
++        },
++      ];
++
++      mockClient.getAll.mockResolvedValueOnce(discussions);
++
++      const result = await gateway.getSuggestDiscussions('123', '42');
++
++      expect(result).toHaveLength(1);
++      expect(result[0].discussionId).toBe('disc-unresolved');
++    });
++
++    it('resolvedとunresolvedが混在する場合、unresolvedのみ返す', async () => {
++      const suggestDataResolved = JSON.stringify({
++        checkItemContent: 'Resolved check',
++        filePath: 'src/a.ts',
++        suggestedCode: 'code a',
++      });
++      const suggestDataUnresolved = JSON.stringify({
++        checkItemContent: 'Unresolved check',
++        filePath: 'src/b.ts',
++        suggestedCode: 'code b',
++      });
++      const discussions = [
++        {
++          id: 'disc-resolved-mix',
++          individual_note: false,
++          notes: [
++            {
++              id: 80,
++              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataResolved} -->\nSuggestion`,
++              created_at: '2026-03-01T00:00:00Z',
++              system: false,
++              resolvable: true,
++              resolved: true,
++            },
++          ],
++        },
++        {
++          id: 'disc-unresolved-mix',
++          individual_note: false,
++          notes: [
++            {
++              id: 81,
++              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestDataUnresolved} -->\nSuggestion`,
++              created_at: '2026-03-01T00:00:00Z',
++              system: false,
++              resolvable: true,
++              resolved: false,
++            },
++          ],
++        },
++        {
++          id: 'disc-non-suggest',
++          individual_note: false,
++          notes: [
++            {
++              id: 82,
++              body: 'Regular comment',
++              created_at: '2026-03-01T00:00:00Z',
++              system: false,
++            },
++          ],
++        },
++      ];
++
++      mockClient.getAll.mockResolvedValueOnce(discussions);
++
++      const result = await gateway.getSuggestDiscussions('123', '42');
++
++      expect(result).toHaveLength(1);
++      expect(result[0].discussionId).toBe('disc-unresolved-mix');
++    });
++
++    it('resolvable未設定のnoteはフィルタリングされない', async () => {
++      const suggestData = JSON.stringify({
++        checkItemContent: 'Check no resolvable field',
++        filePath: 'src/legacy.ts',
++        suggestedCode: 'legacy code',
++      });
++      const discussions = [
++        {
++          id: 'disc-no-resolvable',
++          individual_note: false,
++          notes: [
++            {
++              id: 90,
++              body: `<!-- aikata-suggest -->\n<!-- aikata-suggest-data: ${suggestData} -->\nSuggestion`,
++              created_at: '2026-03-01T00:00:00Z',
++              system: false,
++              // resolvable, resolvedフィールドなし
++            },
++          ],
++        },
++      ];
++
++      mockClient.getAll.mockResolvedValueOnce(discussions);
++
++      const result = await gateway.getSuggestDiscussions('123', '42');
++
++      expect(result).toHaveLength(1);
++      expect(result[0].discussionId).toBe('disc-no-resolvable');
++    });
+   });
+ 
+   describe('postSuggestDiscussion', () => {
