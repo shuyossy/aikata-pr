@@ -432,7 +432,9 @@ describe('buildInstructions', () => {
 
     const result = buildInstructions(requestContext);
 
-    expect(result).toContain('4. After storing all review results, generate suggestions');
+    expect(result).toContain(
+      '4. After storing all review results, re-read the results from getReviewResults',
+    );
     expect(result).toContain('5. Call getSuggests to verify');
   });
 

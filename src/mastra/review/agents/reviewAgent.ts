@@ -176,10 +176,11 @@ ${
 For check items that receive a rating of [${suggestLabelsText}], you MUST generate concrete code suggestions using the storeSuggest tool.
 
 ### How to create suggestions
-1. Identify the specific code in the diff that needs improvement
-2. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
-3. Write the improved code in suggestedCode
-4. Provide a clear explanation in comment
+1. Re-read your review comment for the check item (from getReviewResults) and identify the specific issue described
+2. Identify the specific code in the diff that relates to that issue
+3. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
+4. Write the improved code in suggestedCode that directly resolves the issue described in your review comment
+5. Provide a clear explanation in comment that references the same issue noted in your review
 
 ### Important rules
 - You may create multiple suggestions per check item
@@ -187,6 +188,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
 - Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.
 - Include sufficient context lines in originalCode to avoid ambiguity
 - Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
+- Each suggestion MUST address the specific issue described in your review comment for that check item. Do not suggest fixes for different issues than what you identified during review.
 
 ### Error recovery for storeSuggest
 - If storeSuggest fails, carefully read the error message and retry with corrected input.
@@ -203,7 +205,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
 3. Do NOT finish until ALL check items have been reviewed and stored.${
     suggestEnabled
       ? `
-4. After storing all review results, generate suggestions for items rated [${suggestLabelsText}] using storeSuggest.
+4. After storing all review results, re-read the results from getReviewResults. For each item rated [${suggestLabelsText}], generate suggestions that directly address the issue described in your review comment for that item.
 5. Call getSuggests to verify all suggestions are stored.`
       : ''
   }`;
