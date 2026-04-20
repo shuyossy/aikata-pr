@@ -83,7 +83,7 @@ describe('SuggestCommentFormatter', () => {
     it('出力にチェック項目ヘッダーが含まれる', () => {
       const resolved = createResolvedSuggestion({ checkItemContent: 'コードレビュー項目' });
       const output = SuggestCommentFormatter.format(resolved);
-      expect(output).toContain('**チェック項目:** コードレビュー項目');
+      expect(output).toContain('**チェック項目:**<br>コードレビュー項目');
     });
 
     it('出力にコメントテキストが含まれる', () => {
@@ -110,14 +110,14 @@ describe('SuggestCommentFormatter', () => {
       expect(output).toContain('```suggestion:-5+3');
     });
 
-    it('複数列チェック項目が<header>形式で表示される', () => {
+    it('複数列チェック項目が<header>形式で表示され、<br>で改行される', () => {
       const resolved = createResolvedSuggestion({
         checkItemContent:
           'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
       });
       const output = SuggestCommentFormatter.format(resolved);
       expect(output).toContain(
-        '**チェック項目:** <カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策',
+        '**チェック項目:**<br><カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>---',
       );
     });
 

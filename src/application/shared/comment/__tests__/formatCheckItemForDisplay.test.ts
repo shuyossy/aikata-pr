@@ -9,7 +9,9 @@ describe('formatCheckItemForDisplay', () => {
 
       const result = formatCheckItemForDisplay(content);
 
-      expect(result).toBe('<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策');
+      expect(result).toBe(
+        '<カテゴリ>\nセキュリティ\n---\n<チェック項目>\nSQLインジェクション対策\n---',
+      );
     });
 
     it('単一列の構造化フォーマットが<header>形式に変換される', () => {
@@ -17,7 +19,7 @@ describe('formatCheckItemForDisplay', () => {
 
       const result = formatCheckItemForDisplay(content);
 
-      expect(result).toBe('<チェック項目>\nコード可読性');
+      expect(result).toBe('<チェック項目>\nコード可読性\n---');
     });
 
     it('3列の構造化フォーマットが正しく変換される', () => {
@@ -27,7 +29,7 @@ describe('formatCheckItemForDisplay', () => {
       const result = formatCheckItemForDisplay(content);
 
       expect(result).toBe(
-        '<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策\n<説明>\nバインディング確認',
+        '<カテゴリ>\nセキュリティ\n---\n<チェック項目>\nSQLインジェクション対策\n---\n<説明>\nバインディング確認\n---',
       );
     });
   });
@@ -56,7 +58,7 @@ describe('formatCheckItemForDisplay', () => {
 
       const result = formatCheckItemForDisplay(content);
 
-      expect(result).toBe('<ヘッダ1>\n行1\n行2\n<ヘッダ2>\n値2');
+      expect(result).toBe('<ヘッダ1>\n行1\n行2\n---\n<ヘッダ2>\n値2\n---');
     });
 
     it('値に2連続改行を含む場合も正しく変換される', () => {
@@ -64,7 +66,7 @@ describe('formatCheckItemForDisplay', () => {
 
       const result = formatCheckItemForDisplay(content);
 
-      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n<ヘッダ2>\n値2');
+      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n---\n<ヘッダ2>\n値2\n---');
     });
 
     it('空値の場合も正しく変換される', () => {
@@ -72,7 +74,7 @@ describe('formatCheckItemForDisplay', () => {
 
       const result = formatCheckItemForDisplay(content);
 
-      expect(result).toBe('<ヘッダ1>\n');
+      expect(result).toBe('<ヘッダ1>\n\n---');
     });
 
     it('空値を含む複数列の場合も正しく変換される', () => {
@@ -80,7 +82,7 @@ describe('formatCheckItemForDisplay', () => {
 
       const result = formatCheckItemForDisplay(content);
 
-      expect(result).toBe('<ヘッダ1>\n値1\n<ヘッダ2>\n');
+      expect(result).toBe('<ヘッダ1>\n値1\n---\n<ヘッダ2>\n\n---');
     });
   });
 });

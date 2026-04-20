@@ -24,7 +24,8 @@ export class SuggestCommentFormatter {
     })}${SUGGEST_DATA_SUFFIX}`;
 
     const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);
-    const header = `**チェック項目:** ${displayContent}`;
+    const escapedDisplayContent = displayContent.replace(/\n/g, '<br>');
+    const header = `**チェック項目:**<br>${escapedDisplayContent}`;
     const comment = resolved.suggestion.comment;
     const suggestion =
       '```suggestion:-' +

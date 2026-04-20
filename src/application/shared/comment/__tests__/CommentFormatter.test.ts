@@ -344,7 +344,7 @@ describe('CommentFormatter', () => {
       );
 
       expect(output).toContain(
-        '| <カテゴリ><br>セキュリティ<br><チェック項目><br>SQLインジェクション対策 | C | 対策が不十分です |',
+        '| <カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>--- | C | 対策が不十分です |',
       );
     });
   });

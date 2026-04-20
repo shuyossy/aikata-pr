@@ -14,7 +14,7 @@ export function formatCheckItemForDisplay(content: string): string {
   let match;
 
   while ((match = pattern.exec(content)) !== null) {
-    columns.push(`<${match[1]}>\n${match[2]}`);
+    columns.push(`<${match[1]}>\n${match[2]}\n---`);
   }
 
   // 構造化フォーマットが検出されなかった場合はそのまま返す
