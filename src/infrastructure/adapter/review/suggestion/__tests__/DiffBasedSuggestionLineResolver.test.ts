@@ -254,7 +254,7 @@ diff --git a/src/utils.ts b/src/utils.ts
         newLine: 1,
         linesAbove: 0,
         linesBelow: 0,
-        oldPath: '/dev/null',
+        oldPath: 'src/brand-new.ts',
         newPath: 'src/brand-new.ts',
       });
     });
@@ -271,7 +271,7 @@ diff --git a/src/utils.ts b/src/utils.ts
         newLine: 2,
         linesAbove: 0,
         linesBelow: 1,
-        oldPath: '/dev/null',
+        oldPath: 'src/brand-new.ts',
         newPath: 'src/brand-new.ts',
       });
     });
@@ -585,7 +585,7 @@ diff --git a/src/utils.ts b/src/utils.ts
         newLine: 1,
         linesAbove: 0,
         linesBelow: 1,
-        oldPath: '/dev/null',
+        oldPath: 'src/brand-new.ts',
         newPath: 'src/brand-new.ts',
       });
     });
@@ -600,7 +600,7 @@ diff --git a/src/utils.ts b/src/utils.ts
         newLine: 1,
         linesAbove: 0,
         linesBelow: 0,
-        oldPath: '/dev/null',
+        oldPath: 'src/brand-new.ts',
         newPath: 'src/brand-new.ts',
       });
     });

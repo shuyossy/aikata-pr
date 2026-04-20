@@ -200,6 +200,14 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
       }
     }
 
+    // GitLab APIは/dev/nullをファイルパスとして受け付けないため、実在するパスに正規化する
+    if (oldPath === '/dev/null') {
+      oldPath = newPath;
+    }
+    if (newPath === '/dev/null') {
+      newPath = oldPath;
+    }
+
     return { oldPath, newPath };
   }
 

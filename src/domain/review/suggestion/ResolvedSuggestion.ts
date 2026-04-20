@@ -51,6 +51,12 @@ export class ResolvedSuggestion {
     if (params.newPath.trim() === '') {
       throw new Error('newPath must not be empty');
     }
+    if (params.oldPath === '/dev/null') {
+      throw new Error('oldPath must not be /dev/null');
+    }
+    if (params.newPath === '/dev/null') {
+      throw new Error('newPath must not be /dev/null');
+    }
 
     this.suggestion = params.suggestion;
     this.newLine = params.newLine;

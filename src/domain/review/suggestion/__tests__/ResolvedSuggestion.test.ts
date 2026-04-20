@@ -127,6 +127,18 @@ describe('ResolvedSuggestion', () => {
     );
   });
 
+  it('oldPathが/dev/nullの場合はエラーになる', () => {
+    expect(() => new ResolvedSuggestion({ ...validParams, oldPath: '/dev/null' })).toThrow(
+      'oldPath must not be /dev/null',
+    );
+  });
+
+  it('newPathが/dev/nullの場合はエラーになる', () => {
+    expect(() => new ResolvedSuggestion({ ...validParams, newPath: '/dev/null' })).toThrow(
+      'newPath must not be /dev/null',
+    );
+  });
+
   it('oldPathとnewPathが異なる場合でも生成できる（リネーム対応）', () => {
     const resolved = new ResolvedSuggestion({
       ...validParams,
