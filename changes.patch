@@ -1,897 +1,190 @@
 diff --git a/PBI.md b/PBI.md
-index 9616817..4febafc 100644
+index 4febafc..60c2563 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -26,7 +26,7 @@
-     - 既にそのdiffが後続の別コミットによって更新されていた場合は、自動でresolveする
-       - 別コミットによって更新されているかどうかはsystem note内に「changed this」「chenged this line」「compare changes」などが含まれているかで判断可能
-     - そのdiffがまだ更新されておらず、suggestが有効な場合はそのまま残す
--      - 同じsuggestが複数表示されると混乱の元になるので、Agentには現状で有効なsuggest以外のsuggestを生成させる様にする 
-+      - ただし、今回のレビュー実行で新規作成されたsuggestと1行でも被っている場合は、その以前のsuggestを削除する
-   - suggest有効時はレビュー実行Agentにsuggest情報の登録を可能にさせる
-     - suggest有効時にレビュー実行Agentに追加して与えるべき情報
-       - systemプロンプト
-@@ -47,11 +47,8 @@
+@@ -47,8 +47,10 @@
    - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
      - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
  - 指摘事項（in progressの場合のみ）
--  - 以前のsuggestがあった場合の挙動変更
--    - 以前のsuggestは明示的にAgentに伝えない様に変更した
--    - Agentがレビューした結果、もし以前のsuggestに1行でも重なっていたら以前のsuggestをresolveする様に変更した
--    - 変更内容:
--      - `SuggestOverlapResolver`（ドメインサービス）を新規作成し、行範囲の重複判定を実装
--      - `ReviewExecutionService`にoverlap判定ロジックを追加（ワークフロー実行後、投稿前に判定）
--      - `activeSuggests`をワークフロー・Agent・ツールのパイプラインから完全に削除
--      - 以前のsuggestの行解決には`DiffBasedSuggestionLineResolver`を再利用
-+  - 本番環境で試してみたが、diffの登録がなかなか成功しない
-+    - 良く出るエラーは`Code not found in diff for file ~`
-+      - 更新対象コードをAgentにどの様に指定させるかもう一度よく検討する必要がある
-+    - suggest登録toolの実行に失敗した場合に、Agentは諦めてしまう
-+      - エラーメッセージにリトライを促す様な文言を付与すべき
-diff --git a/src/application/review/commentPosting/CommentPostingCommand.ts b/src/application/review/commentPosting/CommentPostingCommand.ts
-index 4a8c6d0..616fdf5 100644
---- a/src/application/review/commentPosting/CommentPostingCommand.ts
-+++ b/src/application/review/commentPosting/CommentPostingCommand.ts
-@@ -2,6 +2,7 @@ import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
- import { Rating } from '../../../domain/review/rating/index.js';
- import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
- import type { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
-+import type { SuggestResolveEntry } from '../reviewExecution/ReviewExecutionDto.js';
- 
- /**
-  * CommentPostingServiceの入力DTO
-@@ -18,8 +19,8 @@ export interface CommentPostingCommand {
-   qualityGateResult: QualityGateResult;
-   /** 投稿する変更提案 */
-   suggestions: ResolvedSuggestion[];
--  /** 解決すべき旧suggestディスカッションID */
--  suggestDiscussionIdsToResolve: string[];
-+  /** 解決すべき旧suggestディスカッション */
-+  suggestResolveEntries: SuggestResolveEntry[];
-   /** MRのdiff_refs.base_sha */
-   baseSha: string;
-   /** MRのdiff_refs.head_sha */
-diff --git a/src/application/review/commentPosting/CommentPostingService.ts b/src/application/review/commentPosting/CommentPostingService.ts
-index a98a393..2d956b7 100644
---- a/src/application/review/commentPosting/CommentPostingService.ts
-+++ b/src/application/review/commentPosting/CommentPostingService.ts
-@@ -34,12 +34,18 @@ export class CommentPostingService {
-       await this.mrDiscussionGateway.postReviewDiscussion(command.projectId, command.mrIid, body);
-     }
- 
--    // 旧suggestディスカッションを解決
--    for (const discussionId of command.suggestDiscussionIdsToResolve) {
-+    // 旧suggestディスカッションに理由を投稿してから解決
-+    for (const entry of command.suggestResolveEntries) {
-+      await this.mrDiscussionGateway.replyToDiscussion(
-+        command.projectId,
-+        command.mrIid,
-+        entry.discussionId,
-+        entry.reason,
-+      );
-       await this.mrDiscussionGateway.resolveDiscussion(
-         command.projectId,
-         command.mrIid,
--        discussionId,
-+        entry.discussionId,
-       );
-     }
- 
-diff --git a/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts b/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-index 953520d..d3b39ff 100644
---- a/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-+++ b/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-@@ -20,6 +20,7 @@ describe('CommentPostingService', () => {
-       postNote: vi.fn().mockResolvedValue(undefined),
-       getSuggestDiscussions: vi.fn().mockResolvedValue([]),
-       postSuggestDiscussion: vi.fn().mockResolvedValue(undefined),
-+      replyToDiscussion: vi.fn().mockResolvedValue(undefined),
-       resolveDiscussion: vi.fn().mockResolvedValue(undefined),
-     };
-     service = new CommentPostingService(mrDiscussionGateway);
-@@ -68,7 +69,7 @@ describe('CommentPostingService', () => {
-     hiddenRatingLabels: [],
-     qualityGateResult: passedQualityGateResult,
-     suggestions: [],
--    suggestDiscussionIdsToResolve: [],
-+    suggestResolveEntries: [],
-     baseSha: 'base-sha-000',
-     headSha: 'head-sha-111',
-     startSha: 'start-sha-222',
-@@ -263,13 +264,42 @@ describe('CommentPostingService', () => {
-       });
-     };
- 
--    it('suggestDiscussionIdsToResolveの各IDに対してresolveDiscussionが呼ばれること', async () => {
-+    it('suggestResolveEntriesの各エントリに対して理由投稿後にresolveDiscussionが呼ばれること', async () => {
-       const command = createCommand({
--        suggestDiscussionIdsToResolve: ['disc-1', 'disc-2', 'disc-3'],
-+        suggestResolveEntries: [
-+          { discussionId: 'disc-1', reason: 'Diff updated.' },
-+          { discussionId: 'disc-2', reason: 'Overlapping suggest.' },
-+          { discussionId: 'disc-3', reason: 'Check item removed.' },
-+        ],
-       });
- 
-       await service.execute(command);
- 
-+      // 理由の投稿
-+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenCalledTimes(3);
-+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenNthCalledWith(
-+        1,
-+        '123',
-+        '42',
-+        'disc-1',
-+        'Diff updated.',
-+      );
-+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenNthCalledWith(
-+        2,
-+        '123',
-+        '42',
-+        'disc-2',
-+        'Overlapping suggest.',
-+      );
-+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenNthCalledWith(
-+        3,
-+        '123',
-+        '42',
-+        'disc-3',
-+        'Check item removed.',
-+      );
-+
-+      // resolve
-       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledTimes(3);
-       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenNthCalledWith(
-         1,
-@@ -361,14 +391,15 @@ describe('CommentPostingService', () => {
-       );
-     });
- 
--    it('suggestionsとsuggestDiscussionIdsToResolveが空の場合はsuggest関連メソッドが呼ばれないこと', async () => {
-+    it('suggestionsとsuggestResolveEntriesが空の場合はsuggest関連メソッドが呼ばれないこと', async () => {
-       const command = createCommand({
-         suggestions: [],
--        suggestDiscussionIdsToResolve: [],
-+        suggestResolveEntries: [],
-       });
- 
-       await service.execute(command);
- 
-+      expect(mrDiscussionGateway.replyToDiscussion).not.toHaveBeenCalled();
-       expect(mrDiscussionGateway.resolveDiscussion).not.toHaveBeenCalled();
-       expect(mrDiscussionGateway.postSuggestDiscussion).not.toHaveBeenCalled();
-     });
-@@ -377,13 +408,21 @@ describe('CommentPostingService', () => {
-       const suggestion = createResolvedSuggestion();
-       const command = createCommand({
-         suggestions: [suggestion],
--        suggestDiscussionIdsToResolve: ['old-disc-1'],
-+        suggestResolveEntries: [{ discussionId: 'old-disc-1', reason: 'Overlap.' }],
-       });
- 
-       await service.execute(command);
- 
-       // 既存のレビューコメント投稿が行われていること
-       expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledOnce();
-+      // 旧suggestに理由が投稿されていること
-+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenCalledOnce();
-+      expect(mrDiscussionGateway.replyToDiscussion).toHaveBeenCalledWith(
-+        '123',
-+        '42',
-+        'old-disc-1',
-+        'Overlap.',
-+      );
-       // 旧suggestのresolveが行われていること
-       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledOnce();
-       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledWith('123', '42', 'old-disc-1');
-diff --git a/src/application/review/reviewExecution/ReviewExecutionCommand.ts b/src/application/review/reviewExecution/ReviewExecutionCommand.ts
-index aab393c..20c6c6f 100644
---- a/src/application/review/reviewExecution/ReviewExecutionCommand.ts
-+++ b/src/application/review/reviewExecution/ReviewExecutionCommand.ts
-@@ -21,5 +21,4 @@ export interface ReviewExecutionCommand {
-   commentLanguage: string;
-   openaiReasoningEffort: string | undefined;
-   maxContextLength: number | undefined;
--  suggestEnabledRatingLabels: string[];
- }
-diff --git a/src/application/review/reviewExecution/ReviewExecutionDto.ts b/src/application/review/reviewExecution/ReviewExecutionDto.ts
-index 003390d..c17b71c 100644
---- a/src/application/review/reviewExecution/ReviewExecutionDto.ts
-+++ b/src/application/review/reviewExecution/ReviewExecutionDto.ts
-@@ -1,6 +1,14 @@
- import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
- import type { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
- 
-+/**
-+ * resolve対象のsuggestディスカッション情報
-+ */
-+export interface SuggestResolveEntry {
-+  discussionId: string;
-+  reason: string;
-+}
-+
- /**
-  * ReviewExecutionServiceの出力DTO
-  * AIレビュー実行結果のみを保持する（コメント投稿・品質ゲートの結果は含まない）
-@@ -10,7 +18,7 @@ export interface ReviewExecutionDto {
-   commitHash: string;
-   commitMessage: string;
-   suggestions: ResolvedSuggestion[];
--  suggestsToResolve: string[];
-+  suggestsToResolve: SuggestResolveEntry[];
-   baseSha: string;
-   headSha: string;
-   startSha: string;
-diff --git a/src/application/review/reviewExecution/ReviewExecutionService.ts b/src/application/review/reviewExecution/ReviewExecutionService.ts
-index 822278c..e8bdcf4 100644
---- a/src/application/review/reviewExecution/ReviewExecutionService.ts
-+++ b/src/application/review/reviewExecution/ReviewExecutionService.ts
-@@ -12,7 +12,7 @@ import type {
- } from '../../shared/port/workflow/index.js';
- import { CommentParser } from '../../shared/comment/index.js';
- import type { ReviewExecutionCommand } from './ReviewExecutionCommand.js';
--import type { ReviewExecutionDto } from './ReviewExecutionDto.js';
-+import type { ReviewExecutionDto, SuggestResolveEntry } from './ReviewExecutionDto.js';
- import { ReviewResult } from '../../../domain/review/reviewResult/index.js';
- import { Rating } from '../../../domain/review/rating/index.js';
- import { Suggestion } from '../../../domain/review/suggestion/index.js';
-@@ -44,8 +44,8 @@ interface PriorContext {
-  * suggest関連のコンテキスト
-  */
- interface SuggestContext {
--  /** 即座にresolveするdiscussion ID（diffが変更された or checklistに含まれない） */
--  immediatelyResolveIds: string[];
-+  /** 即座にresolveする対象（diffが変更された or checklistに含まれない） */
-+  immediatelyResolveEntries: SuggestResolveEntry[];
-   /** overlap判定対象の以前のsuggest（diffが未変更 かつ checklistに含まれる） */
-   priorSuggestsForOverlapCheck: SuggestDiscussion[];
- }
-@@ -187,10 +187,10 @@ export class ReviewExecutionService {
- 
-     // 再レビュー対象なし → 前回結果をそのまま返却
-     if (itemsToReview.length === 0) {
--      // suggestなしなのでoverlap判定は不要、immediatelyResolveIdsのみ
--      const suggestsToResolve = [
--        ...suggestContext.immediatelyResolveIds,
--        ...suggestContext.priorSuggestsForOverlapCheck.map((s) => s.discussionId),
-+      // 新suggestなしなのでoverlap判定は不要
-+      // immediatelyResolveEntriesのみresolveし、priorSuggestsForOverlapCheckは有効なまま残す
-+      const suggestsToResolve: SuggestResolveEntry[] = [
-+        ...suggestContext.immediatelyResolveEntries,
-       ];
-       return {
-         results: keptResults,
-@@ -320,7 +320,7 @@ export class ReviewExecutionService {
-       folderTree,
-       commentLanguage: command.commentLanguage,
-       openaiReasoningEffort: command.openaiReasoningEffort,
--      suggestEnabledRatingLabels: command.suggestEnabledRatingLabels,
-+      suggestEnabledRatingLabels: command.reviewSettings.suggestEnabledRatingLabels,
-       suggestResultFilePath,
-       fullMrDiff: mrContext.diff,
-     };
-@@ -531,7 +531,10 @@ export class ReviewExecutionService {
-     // suggest無効の場合: 全て即座にresolve
-     if (!command.reviewSettings.isSuggestEnabled()) {
-       return {
--        immediatelyResolveIds: suggestDiscussions.map((s) => s.discussionId),
-+        immediatelyResolveEntries: suggestDiscussions.map((s) => ({
-+          discussionId: s.discussionId,
-+          reason: 'Suggest feature is disabled for this review execution.',
-+        })),
-         priorSuggestsForOverlapCheck: [],
-       };
-     }
-@@ -545,34 +548,39 @@ export class ReviewExecutionService {
- 
-     // 即座にresolve対象: overlap判定対象でないもの
-     const overlapCheckIds = new Set(priorSuggestsForOverlapCheck.map((s) => s.discussionId));
--    const immediatelyResolveIds = suggestDiscussions
-+    const immediatelyResolveEntries: SuggestResolveEntry[] = suggestDiscussions
-       .filter((s) => !overlapCheckIds.has(s.discussionId))
--      .map((s) => s.discussionId);
-+      .map((s) => ({
-+        discussionId: s.discussionId,
-+        reason: s.hasChangedSinceNote
-+          ? 'This diff has been updated by a newer commit.'
-+          : 'The related check item is no longer in the current checklist.',
-+      }));
- 
-     return {
--      immediatelyResolveIds,
-+      immediatelyResolveEntries,
-       priorSuggestsForOverlapCheck,
-     };
-   }
- 
-   /**
--   * 最終的なresolve対象のdiscussion IDリストを構築する
--   * immediatelyResolveIds + overlap判定で重複と判定されたもの + 行解決に失敗したもの
-+   * 最終的なresolve対象のエントリリストを構築する
-+   * immediatelyResolveEntries + overlap判定で重複と判定されたもの + 行解決に失敗したもの
-    */
-   private buildFinalSuggestsToResolve(
-     suggestContext: SuggestContext,
-     newSuggestions: ResolvedSuggestion[],
-     mrDiff: string,
--  ): string[] {
--    const { immediatelyResolveIds, priorSuggestsForOverlapCheck } = suggestContext;
-+  ): SuggestResolveEntry[] {
-+    const { immediatelyResolveEntries, priorSuggestsForOverlapCheck } = suggestContext;
- 
-     if (priorSuggestsForOverlapCheck.length === 0) {
--      return immediatelyResolveIds;
-+      return immediatelyResolveEntries;
-     }
- 
-     // 以前のsuggestの行範囲を解決する
-     const resolvedPriors: PriorSuggestLineRange[] = [];
--    const failedResolveIds: string[] = [];
-+    const failedResolveEntries: SuggestResolveEntry[] = [];
- 
-     for (const prior of priorSuggestsForOverlapCheck) {
-       const result = this.suggestionLineResolver.resolve(
-@@ -594,7 +602,10 @@ export class ReviewExecutionService {
-         });
-       } else {
-         // 行解決失敗 = コードがdiffに存在しない → resolve対象
--        failedResolveIds.push(prior.discussionId);
-+        failedResolveEntries.push({
-+          discussionId: prior.discussionId,
-+          reason: 'The suggested code was not found in the current diff.',
-+        });
-       }
-     }
- 
-@@ -607,8 +618,12 @@ export class ReviewExecutionService {
- 
-     // overlap判定
-     const overlappingIds = resolveOverlappingSuggests(resolvedPriors, newSuggestRanges);
-+    const overlappingEntries: SuggestResolveEntry[] = overlappingIds.map((id) => ({
-+      discussionId: id,
-+      reason: 'A new suggestion overlaps with this one.',
-+    }));
- 
--    return [...immediatelyResolveIds, ...failedResolveIds, ...overlappingIds];
-+    return [...immediatelyResolveEntries, ...failedResolveEntries, ...overlappingEntries];
-   }
- 
-   /**
-diff --git a/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts b/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-index a87b764..04e4e1c 100644
---- a/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-+++ b/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-@@ -72,7 +72,6 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
-     commentLanguage: 'Japanese',
-     openaiReasoningEffort: undefined,
-     maxContextLength: undefined,
--    suggestEnabledRatingLabels: ['C'],
-     ...overrides,
-   };
- }
-@@ -154,6 +153,7 @@ describe('ReviewExecutionService', () => {
-       postNote: vi.fn(),
-       getSuggestDiscussions: vi.fn().mockResolvedValue([]),
-       postSuggestDiscussion: vi.fn().mockResolvedValue(undefined),
-+      replyToDiscussion: vi.fn().mockResolvedValue(undefined),
-       resolveDiscussion: vi.fn().mockResolvedValue(undefined),
-     };
-     workflowRunner = {
-@@ -1360,6 +1360,13 @@ describe('ReviewExecutionService', () => {
-     });
-   });
- 
-+  /**
-+   * suggestsToResolveからdiscussionIdの配列を抽出するヘルパー
-+   */
-+  function resolveIds(entries: Array<{ discussionId: string; reason: string }>): string[] {
-+    return entries.map((e) => e.discussionId);
-+  }
-+
-   describe('suggest関連', () => {
-     it('getSuggestDiscussionsがexecute内で呼び出される', async () => {
-       const command = createCommand();
-@@ -1399,7 +1406,7 @@ describe('ReviewExecutionService', () => {
- 
-       const result = await service.execute(command);
- 
--      expect(result.suggestsToResolve).toContain('disc-1');
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
-     });
- 
-     it('チェックリストに含まれない以前suggestは即座にresolve対象になる', async () => {
-@@ -1426,7 +1433,7 @@ describe('ReviewExecutionService', () => {
- 
-       const result = await service.execute(command);
- 
--      expect(result.suggestsToResolve).toContain('disc-1');
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
-     });
- 
-     it('suggestsToResolve: hasChangedSinceNote=trueまたはチェックリストに含まれないものが即座にresolve対象になる', async () => {
-@@ -1472,10 +1479,10 @@ describe('ReviewExecutionService', () => {
-       const result = await service.execute(command);
- 
-       // disc-1とdisc-3は即座にresolve、disc-2はoverlap判定対象（行解決失敗→resolve）
--      expect(result.suggestsToResolve).toContain('disc-1');
--      expect(result.suggestsToResolve).toContain('disc-3');
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-3');
-       // disc-2はsuggestionLineResolverがデフォルトで失敗するのでresolve対象
--      expect(result.suggestsToResolve).toContain('disc-2');
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-2');
-     });
- 
-     it('overlap判定: 新suggestと以前suggestの行範囲が重複する場合、以前suggestがresolve対象になる', async () => {
-@@ -1543,7 +1550,7 @@ describe('ReviewExecutionService', () => {
- 
-       const result = await service.execute(command);
- 
--      expect(result.suggestsToResolve).toContain('disc-prior');
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-prior');
-     });
- 
-     it('overlap判定: 新suggestと以前suggestの行範囲が重複しない場合、以前suggestはresolve対象にならない', async () => {
-@@ -1611,7 +1618,7 @@ describe('ReviewExecutionService', () => {
- 
-       const result = await service.execute(command);
- 
--      expect(result.suggestsToResolve).not.toContain('disc-prior');
-+      expect(resolveIds(result.suggestsToResolve)).not.toContain('disc-prior');
-     });
- 
-     it('overlap判定: 以前suggestの行解決に失敗した場合はresolve対象になる', async () => {
-@@ -1644,7 +1651,7 @@ describe('ReviewExecutionService', () => {
- 
-       const result = await service.execute(command);
- 
--      expect(result.suggestsToResolve).toContain('disc-prior');
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-prior');
-     });
- 
-     it('DtoにbaseSha, headSha, startShaが含まれる', async () => {
-@@ -1682,7 +1689,21 @@ describe('ReviewExecutionService', () => {
-     });
- 
-     it('ワークフローパラメータにsuggest関連フィールドが含まれる', async () => {
--      const command = createCommand({ suggestEnabledRatingLabels: ['B', 'C'] });
-+      const command = createCommand({
-+        reviewSettings: new ReviewSettings({
-+          additionalInstructions: '',
-+          concurrentReviewCount: null,
-+          commentFormat: '{comment}',
-+          ratings: [
-+            new Rating('A', '完全に満たしている'),
-+            new Rating('B', '概ね満たしている'),
-+            new Rating('C', '満たしていない'),
-+          ],
-+          hiddenRatingLabels: [],
-+          suggestEnabledRatingLabels: ['B', 'C'],
-+          qualityGate: QualityGate.none(),
-+        }),
-+      });
-       const mrContext = createMrContext({ diff: 'full diff content' });
-       const workflowResult = createWorkflowResult();
- 
-@@ -1700,7 +1721,6 @@ describe('ReviewExecutionService', () => {
- 
-     it('suggestEnabledRatingLabelsが空配列の場合、全ての以前suggestがresolve対象になる', async () => {
-       const command = createCommand({
--        suggestEnabledRatingLabels: [],
-         reviewSettings: new ReviewSettings({
-           additionalInstructions: '',
-           concurrentReviewCount: null,
-@@ -1737,7 +1757,7 @@ describe('ReviewExecutionService', () => {
- 
-       const result = await service.execute(command);
- 
--      expect(result.suggestsToResolve).toContain('disc-1');
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-1');
-     });
- 
-     it('リトライ実行時もsuggest関連フィールドがワークフローパラメータに含まれる', async () => {
-@@ -1746,7 +1766,7 @@ describe('ReviewExecutionService', () => {
-         new Rating('B', '概ね満たしている'),
-         new Rating('C', '満たしていない'),
-       ];
--      const command = createCommand({ suggestEnabledRatingLabels: ['C'] });
-+      const command = createCommand();
-       const mrContext = createMrContext({ commitHash: 'same-hash', diff: 'full diff' });
- 
-       const priorComment = createAikataComment(
-@@ -1899,6 +1919,71 @@ describe('ReviewExecutionService', () => {
-       expect(result.startSha).toBe('s-sha');
-     });
- 
-+    it('リトライ実行時（全項目成功で再レビュー不要）に有効なsuggestはresolveされないこと', async () => {
-+      const ratings = [
-+        new Rating('A', '完全に満たしている'),
-+        new Rating('B', '概ね満たしている'),
-+        new Rating('C', '満たしていない'),
-+      ];
-+      const command = createCommand();
-+      const mrContext = createMrContext({
-+        commitHash: 'same-hash',
-+      });
-+
-+      const priorComment = createAikataComment(
-+        [
-+          {
-+            content: 'コードの可読性',
-+            ratingLabel: 'A',
-+            ratingDefinition: '完全に満たしている',
-+            comment: '良い',
-+          },
-+          {
-+            content: 'テストカバレッジ',
-+            ratingLabel: 'B',
-+            ratingDefinition: '概ね満たしている',
-+            comment: 'OK',
-+          },
-+        ],
-+        'same-hash',
-+        ratings,
-+        '2026-01-01T00:00:00Z',
-+      );
-+
-+      // 有効なsuggest（diffが未変更かつチェックリストに含まれる）
-+      const suggestDiscussions: SuggestDiscussion[] = [
-+        {
-+          discussionId: 'disc-valid',
-+          checkItemContent: 'コードの可読性',
-+          filePath: 'src/app.ts',
-+          originalCode: 'old code',
-+          suggestedCode: 'new code',
-+          comment: 'コメント',
-+          hasChangedSinceNote: false,
-+        },
-+        {
-+          discussionId: 'disc-changed',
-+          checkItemContent: 'テストカバレッジ',
-+          filePath: 'src/test.ts',
-+          originalCode: 'old',
-+          suggestedCode: 'new',
-+          comment: 'c',
-+          hasChangedSinceNote: true, // diff変更済み → resolve対象
-+        },
-+      ];
-+
-+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
-+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
-+      vi.mocked(mrDiscussionGateway.getSuggestDiscussions).mockResolvedValue(suggestDiscussions);
-+
-+      const result = await service.execute(command);
-+
-+      // disc-changed（diff変更済み）はresolve対象
-+      expect(resolveIds(result.suggestsToResolve)).toContain('disc-changed');
-+      // disc-valid（有効なsuggest）はresolveされない
-+      expect(resolveIds(result.suggestsToResolve)).not.toContain('disc-valid');
-+    });
-+
-     it('suggestResultファイルのクリーンアップが実行される', async () => {
-       const command = createCommand();
-       const mrContext = createMrContext();
-diff --git a/src/application/shared/comment/SuggestCommentParser.ts b/src/application/shared/comment/SuggestCommentParser.ts
-index c90334e..9cb282b 100644
---- a/src/application/shared/comment/SuggestCommentParser.ts
-+++ b/src/application/shared/comment/SuggestCommentParser.ts
-@@ -50,6 +50,10 @@ export class SuggestCommentParser {
-     try {
-       const jsonStr = body.substring(dataStart + SUGGEST_DATA_PREFIX.length, dataEnd);
-       const data = JSON.parse(jsonStr);
-+      // 必須フィールドの存在チェック
-+      if (!data.checkItemContent || !data.filePath || !data.suggestedCode) {
-+        return null;
-+      }
-       return {
-         checkItemContent: data.checkItemContent,
-         filePath: data.filePath,
-diff --git a/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts b/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
-index b356b6f..48e7557 100644
---- a/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
-+++ b/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
-@@ -95,5 +95,31 @@ describe('SuggestCommentParser', () => {
-       const result = SuggestCommentParser.parse(body);
-       expect(result).toBeNull();
-     });
-+
-+    it('必須フィールド checkItemContent が欠落している場合にnullを返す', () => {
-+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"filePath":"a.ts","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
-+      const result = SuggestCommentParser.parse(body);
-+      expect(result).toBeNull();
-+    });
-+
-+    it('必須フィールド filePath が欠落している場合にnullを返す', () => {
-+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
-+      const result = SuggestCommentParser.parse(body);
-+      expect(result).toBeNull();
-+    });
-+
-+    it('必須フィールド suggestedCode が欠落している場合にnullを返す', () => {
-+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts"}${SUGGEST_DATA_SUFFIX}\n残り`;
-+      const result = SuggestCommentParser.parse(body);
-+      expect(result).toBeNull();
-+    });
-+
-+    it('オプショナルフィールド originalCode, comment が欠落している場合でもパースできる', () => {
-+      const body = `${SUGGEST_MARKER}\n${SUGGEST_DATA_PREFIX}{"checkItemContent":"test","filePath":"a.ts","suggestedCode":"x"}${SUGGEST_DATA_SUFFIX}\n残り`;
-+      const result = SuggestCommentParser.parse(body);
-+      expect(result).not.toBeNull();
-+      expect(result!.originalCode).toBe('');
-+      expect(result!.comment).toBe('');
-+    });
-   });
- });
-diff --git a/src/application/shared/port/gateway/MrDiscussionGateway.ts b/src/application/shared/port/gateway/MrDiscussionGateway.ts
-index eb4927d..781eccd 100644
---- a/src/application/shared/port/gateway/MrDiscussionGateway.ts
-+++ b/src/application/shared/port/gateway/MrDiscussionGateway.ts
-@@ -27,5 +27,11 @@ export interface MrDiscussionGateway {
-     body: string,
-     position: DiffPosition,
-   ): Promise<void>;
-+  replyToDiscussion(
-+    projectId: string,
-+    mrIid: string,
-+    discussionId: string,
-+    body: string,
-+  ): Promise<void>;
-   resolveDiscussion(projectId: string, mrIid: string, discussionId: string): Promise<void>;
- }
-diff --git a/src/cli/review/__tests__/commandBuilder.test.ts b/src/cli/review/__tests__/commandBuilder.test.ts
-index 85fbf1a..47cb4a9 100644
---- a/src/cli/review/__tests__/commandBuilder.test.ts
-+++ b/src/cli/review/__tests__/commandBuilder.test.ts
-@@ -394,7 +394,7 @@ describe('buildLocalReviewCommand', () => {
-     expect(result.commentLanguage).toBe('English');
-     expect(result.openaiReasoningEffort).toBe('high');
-     expect(result.maxContextLength).toBe(50000);
--    expect(result.suggestEnabledRatingLabels).toEqual(['C']);
-+    expect(result.reviewSettings.suggestEnabledRatingLabels).toEqual(['C']);
-   });
- 
-   it('treeMaxDepth未指定時にundefinedとなること', () => {
-@@ -499,7 +499,7 @@ describe('buildLocalReviewCommand', () => {
-       undefined,
-     );
- 
--    expect(result.suggestEnabledRatingLabels).toEqual(['B', 'C']);
-+    expect(result.reviewSettings.suggestEnabledRatingLabels).toEqual(['B', 'C']);
-   });
- 
-   it('suggestEnabledRatingLabelsが空配列の場合そのまま空配列となること', () => {
-@@ -526,7 +526,7 @@ describe('buildLocalReviewCommand', () => {
-       undefined,
-     );
- 
--    expect(result.suggestEnabledRatingLabels).toEqual([]);
-+    expect(result.reviewSettings.suggestEnabledRatingLabels).toEqual([]);
-   });
- 
-   it('openaiReasoningEffort未指定時にundefinedとなること', () => {
-diff --git a/src/cli/review/commandBuilder.ts b/src/cli/review/commandBuilder.ts
-index 2e5712e..9cd6668 100644
---- a/src/cli/review/commandBuilder.ts
-+++ b/src/cli/review/commandBuilder.ts
-@@ -133,6 +133,5 @@ export function buildLocalReviewCommand(
-     commentLanguage: options.commentLanguage,
-     openaiReasoningEffort,
-     maxContextLength,
--    suggestEnabledRatingLabels: reviewSettings.suggestEnabledRatingLabels,
-   };
- }
-diff --git a/src/cli/review/index.ts b/src/cli/review/index.ts
-index fd50992..0767ee7 100644
---- a/src/cli/review/index.ts
-+++ b/src/cli/review/index.ts
-@@ -181,7 +181,7 @@ export async function run(args: string[]): Promise<void> {
-             hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
-             qualityGateResult,
-             suggestions: resolvedSuggestions,
--            suggestDiscussionIdsToResolve: apiResult.suggestDiscussionIdsToResolve,
-+            suggestResolveEntries: apiResult.suggestResolveEntries,
-             baseSha: apiResult.baseSha,
-             headSha: apiResult.headSha,
-             startSha: apiResult.startSha,
-@@ -286,7 +286,7 @@ export async function run(args: string[]): Promise<void> {
-           hiddenRatingLabels: reviewSettings.hiddenRatingLabels,
-           qualityGateResult,
-           suggestions: reviewResult.suggestions,
--          suggestDiscussionIdsToResolve: reviewResult.suggestsToResolve,
-+          suggestResolveEntries: reviewResult.suggestsToResolve,
-           baseSha: reviewResult.baseSha,
-           headSha: reviewResult.headSha,
-           startSha: reviewResult.startSha,
-diff --git a/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts b/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-index 7a90d7e..3a7e00c 100644
---- a/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-+++ b/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-@@ -53,8 +53,8 @@ export interface ReviewApiResponse {
-     oldPath: string;
-     newPath: string;
-   }>;
--  /** 解決すべき旧suggestディスカッションID */
--  suggestDiscussionIdsToResolve: string[];
-+  /** 解決すべき旧suggestディスカッション */
-+  suggestResolveEntries: Array<{ discussionId: string; reason: string }>;
-   /** MRのdiff_refs.base_sha */
-   baseSha: string;
-   /** MRのdiff_refs.head_sha */
-diff --git a/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts b/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
-index a1393a3..fc228c0 100644
---- a/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
-+++ b/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
-@@ -72,7 +72,7 @@ describe('ReviewApiClient', () => {
-     commitHash: 'abc123',
-     commitMessage: 'feat: add feature',
-     suggestions: [],
--    suggestDiscussionIdsToResolve: [],
-+    suggestResolveEntries: [],
-     baseSha: 'base000',
-     headSha: 'head111',
-     startSha: 'start222',
-diff --git a/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts b/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
-index ce47b1f..ecd969e 100644
---- a/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
-+++ b/src/infrastructure/adapter/review/gateway/GitLabMrDiscussionGateway.ts
-@@ -137,6 +137,21 @@ export class GitLabMrDiscussionGateway implements MrDiscussionGateway {
-     });
-   }
- 
-+  /**
-+   * MRのディスカッションに返信ノートを追加する
-+   */
-+  async replyToDiscussion(
-+    projectId: string,
-+    mrIid: string,
-+    discussionId: string,
-+    body: string,
-+  ): Promise<void> {
-+    await this.client.post(
-+      `/projects/${projectId}/merge_requests/${mrIid}/discussions/${discussionId}/notes`,
-+      { body },
-+    );
-+  }
-+
-   /**
-    * MRのディスカッションをresolveする
-    */
-diff --git a/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts b/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
-index 52fefb1..280d739 100644
---- a/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
-+++ b/src/infrastructure/adapter/review/gateway/__tests__/GitLabMrDiscussionGateway.test.ts
-@@ -526,6 +526,27 @@ describe('GitLabMrDiscussionGateway', () => {
-     });
-   });
- 
-+  describe('replyToDiscussion', () => {
-+    it('正しいエンドポイントとbodyでPOSTリクエストを送信する', async () => {
-+      mockClient.post.mockResolvedValueOnce({ id: 100 });
-+
-+      await gateway.replyToDiscussion('123', '42', 'disc-reply-1', 'This is a reason.');
-+
-+      expect(mockClient.post).toHaveBeenCalledWith(
-+        '/projects/123/merge_requests/42/discussions/disc-reply-1/notes',
-+        { body: 'This is a reason.' },
-+      );
-+    });
-+
-+    it('戻り値がvoidであること', async () => {
-+      mockClient.post.mockResolvedValueOnce({ id: 101 });
-+
-+      const result = await gateway.replyToDiscussion('789', '5', 'disc-reply-2', 'Reason text');
-+
-+      expect(result).toBeUndefined();
-+    });
-+  });
-+
-   describe('resolveDiscussion', () => {
-     it('正しいエンドポイントとresolved: trueでPUTリクエストを送信する', async () => {
-       mockClient.put.mockResolvedValueOnce({ id: 'disc-1', resolved: true });
+-  - 本番環境で試してみたが、diffの登録がなかなか成功しない
+-    - 良く出るエラーは`Code not found in diff for file ~`
+-      - 更新対象コードをAgentにどの様に指定させるかもう一度よく検討する必要がある
+-    - suggest登録toolの実行に失敗した場合に、Agentは諦めてしまう
+-      - エラーメッセージにリトライを促す様な文言を付与すべき
++  - 提案対象コードの1行が長大な場合、storeSuggestツールを呼び出す際にAgentがその1行の途中までしか指定しないことがある
++    - 現状はoriginalCodeのマッチング処理は1行全て一致しないと一致したとみなさないのでエラーになる
++      - 改善方針
++        - プロンプト改善
++          - toolの利用方法で1行全て指定するように記載
++        - マッチング処理改善
++          - originalCodeにおいて、最初の行が途中から指定された場合や、最後の行が途中で途切れた場合にもマッチングできるようにする
 diff --git a/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts b/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
-index 68bc2b2..463beff 100644
+index 463beff..89a578c 100644
 --- a/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
 +++ b/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
-@@ -65,9 +65,31 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
+@@ -65,7 +65,29 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
      const matches = this.findCodeMatches(newSideLineGroups, codeLines);
  
      if (matches.length === 0) {
-+      // 完全一致失敗 → 全空白除去フォールバックを試行
-+      const normalizedMatches = this.findCodeMatchesNormalized(newSideLineGroups, originalCode);
+-      // 完全一致失敗 → 全空白除去フォールバックを試行
++      // 完全一致失敗 → 部分行マッチフォールバックを試行
++      const partialMatches = this.findCodeMatchesPartial(newSideLineGroups, codeLines);
 +
-+      if (normalizedMatches.length === 1) {
-+        const match = normalizedMatches[0]!;
++      if (partialMatches.length === 1) {
++        const match = partialMatches[0]!;
 +        return {
 +          success: true,
-+          newLine: match.startLine.newLineNum,
++          newLine: match.newLineNum,
 +          linesAbove: 0,
-+          linesBelow: match.lineCount - 1,
++          linesBelow: codeLines.length - 1,
 +          oldPath: paths.oldPath,
 +          newPath: paths.newPath,
 +        };
 +      }
 +
-+      if (normalizedMatches.length > 1) {
++      if (partialMatches.length > 1) {
 +        return {
 +          success: false,
-+          errorMessage: `Found ${normalizedMatches.length} matches (after ignoring whitespace) for the given code in '${filePath}'. Include more surrounding context lines in originalCode to uniquely identify the location.`,
++          errorMessage: `Found ${partialMatches.length} matches (partial line matching) for the given code in '${filePath}'. Include more surrounding context lines in originalCode to uniquely identify the location.`,
 +        };
 +      }
 +
-       return {
-         success: false,
--        errorMessage: `Code not found in diff for file '${filePath}'. Verify exact whitespace and that the code appears in the new side of the diff.`,
-+        errorMessage: `Code not found in diff for file '${filePath}' even after ignoring all whitespace. Verify that the code appears in the new side of the diff.`,
-       };
-     }
++      // 部分行マッチも失敗 → 全空白除去フォールバックを試行
+       const normalizedMatches = this.findCodeMatchesNormalized(newSideLineGroups, originalCode);
  
-@@ -258,4 +280,36 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
- 
+       if (normalizedMatches.length === 1) {
+@@ -281,6 +303,72 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
      return matches;
    }
-+
+ 
 +  /**
-+   * 全空白・改行を除去してコード断片のマッチを検索するフォールバック
-+   * スライディングウィンドウ方式で、diff側の連続行を結合しつつ空白除去して比較する
++   * 部分行マッチでコード断片を検索するフォールバック
++   * 最初の行がサフィックスマッチ、最後の行がプレフィックスマッチ、中間行は完全一致
++   * 単一行の場合は部分文字列マッチ
 +   * ハンク境界を跨ぐマッチは行わない
 +   */
-+  private findCodeMatchesNormalized(
-+    hunkGroups: NewSideLine[][],
-+    originalCode: string,
-+  ): { startLine: NewSideLine; lineCount: number }[] {
-+    const matches: { startLine: NewSideLine; lineCount: number }[] = [];
-+    const normalizedCode = originalCode.replace(/\s+/g, '');
-+    if (!normalizedCode) return matches;
++  private findCodeMatchesPartial(hunkGroups: NewSideLine[][], codeLines: string[]): NewSideLine[] {
++    const matches: NewSideLine[] = [];
++    const MIN_PARTIAL_LENGTH = 10;
++
++    if (codeLines.length === 0) return matches;
 +
 +    for (const group of hunkGroups) {
-+      for (let startIdx = 0; startIdx < group.length; startIdx++) {
-+        let accumulated = '';
-+        for (let endIdx = startIdx; endIdx < group.length; endIdx++) {
-+          accumulated += group[endIdx]!.content.replace(/\s+/g, '');
-+          if (accumulated === normalizedCode) {
-+            matches.push({ startLine: group[startIdx]!, lineCount: endIdx - startIdx + 1 });
-+            break;
++      for (let i = 0; i <= group.length - codeLines.length; i++) {
++        let allMatch = true;
++        let hasPartial = false;
++
++        for (let j = 0; j < codeLines.length; j++) {
++          const diffContent = group[i + j]!.content;
++          const codeLine = codeLines[j]!;
++
++          if (diffContent === codeLine) {
++            // 完全一致はOK
++            continue;
 +          }
-+          if (accumulated.length > normalizedCode.length) {
-+            break;
++
++          if (codeLines.length === 1) {
++            // 単一行: 部分文字列マッチ
++            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.includes(codeLine)) {
++              hasPartial = true;
++            } else {
++              allMatch = false;
++            }
++          } else if (j === 0) {
++            // 最初の行: サフィックスマッチ（Agentが行の途中から指定したケース）
++            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.endsWith(codeLine)) {
++              hasPartial = true;
++            } else {
++              allMatch = false;
++            }
++          } else if (j === codeLines.length - 1) {
++            // 最後の行: プレフィックスマッチ（Agentが行の途中で打ち切ったケース）
++            if (codeLine.length >= MIN_PARTIAL_LENGTH && diffContent.startsWith(codeLine)) {
++              hasPartial = true;
++            } else {
++              allMatch = false;
++            }
++          } else {
++            // 中間行: 完全一致のみ
++            allMatch = false;
 +          }
++
++          if (!allMatch) break;
++        }
++
++        // 少なくとも1つの部分マッチが含まれている場合のみ追加
++        // （全て完全一致の場合はfindCodeMatchesで既に検出済みのため除外）
++        if (allMatch && hasPartial) {
++          matches.push(group[i]!);
 +        }
 +      }
 +    }
 +
 +    return matches;
 +  }
- }
++
+   /**
+    * 全空白・改行を除去してコード断片のマッチを検索するフォールバック
+    * スライディングウィンドウ方式で、diff側の連続行を結合しつつ空白除去して比較する
 diff --git a/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts b/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
-index 2852184..0f78034 100644
+index 0f78034..8723579 100644
 --- a/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
 +++ b/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
-@@ -351,4 +351,166 @@ diff --git a/src/utils.ts b/src/utils.ts
-       expect(result.success).toBe(false);
+@@ -352,6 +352,165 @@ diff --git a/src/utils.ts b/src/utils.ts
      });
    });
+ 
++  // --- 長い行を含むテスト用diffデータ ---
++  const longLineDiff = `diff --git a/src/config.ts b/src/config.ts
++--- a/src/config.ts
+++++ b/src/config.ts
++@@ -1,5 +1,5 @@
++ import { something } from 'somewhere';
 +
-+  describe('全空白除去フォールバックマッチ', () => {
-+    it('先頭空白が異なるoriginalCodeでフォールバック成功する（単一行）', () => {
-+      // diffでは "const b = 3;" だが、agentが "  const b = 3;" を指定
-+      const result = resolver.resolve('src/index.ts', '  const b = 3;', simpleDiff);
++-const config = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
+++const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
++
++ export default config;`;
++
++  const longLineMultiHunkDiff = `diff --git a/src/config.ts b/src/config.ts
++--- a/src/config.ts
+++++ b/src/config.ts
++@@ -1,5 +1,5 @@
++ import { something } from 'somewhere';
++
++-const config = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
+++const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
++
++ export default config;
++@@ -10,3 +10,3 @@
++ const another = 'value';
++-const settings = { apiUrl: 'http://old-api.example.com', timeout: 3000, retryCount: 3, debug: false };
+++const settings = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };
++ const end = true;`;
++
++  describe('部分行マッチフォールバック', () => {
++    it('最初の行が途中から指定された場合（サフィックスマッチ）にマッチする', () => {
++      const result = resolver.resolve(
++        'src/config.ts',
++        'timeout: 5000, retryCount: 5, debug: true, verbose: true };',
++        longLineDiff,
++      );
 +
 +      expect(result).toEqual({
 +        success: true,
-+        newLine: 2,
++        newLine: 3,
 +        linesAbove: 0,
 +        linesBelow: 0,
-+        oldPath: 'src/index.ts',
-+        newPath: 'src/index.ts',
++        oldPath: 'src/config.ts',
++        newPath: 'src/config.ts',
 +      });
 +    });
 +
-+    it('先頭空白が異なるoriginalCodeでフォールバック成功する（複数行）', () => {
-+      // diffでは各行にインデントなしだが、agentが4スペースインデントで指定
++    it('最後の行が途中で途切れた場合（プレフィックスマッチ）にマッチする', () => {
 +      const result = resolver.resolve(
-+        'src/index.ts',
-+        '    const a = 1;\n    const b = 3;\n    const c = 4;',
-+        simpleDiff,
++        'src/config.ts',
++        "import { something } from 'somewhere';\n\nconst config = { apiUrl: 'http://new-api.example.com'",
++        longLineDiff,
 +      );
 +
 +      expect(result).toEqual({
@@ -899,389 +192,155 @@ index 2852184..0f78034 100644
 +        newLine: 1,
 +        linesAbove: 0,
 +        linesBelow: 2,
-+        oldPath: 'src/index.ts',
-+        newPath: 'src/index.ts',
++        oldPath: 'src/config.ts',
++        newPath: 'src/config.ts',
 +      });
 +    });
 +
-+    it('タブvs空白の差異でフォールバック成功する', () => {
-+      // diffでは "const b = 3;" だが、agentがタブでインデント
-+      const result = resolver.resolve('src/index.ts', '\tconst b = 3;', simpleDiff);
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 2,
-+        linesAbove: 0,
-+        linesBelow: 0,
-+        oldPath: 'src/index.ts',
-+        newPath: 'src/index.ts',
-+      });
-+    });
-+
-+    it('内部空白差異でフォールバック成功する', () => {
-+      // diffでは "const b = 3;" だが、agentが "const  b  =  3;" を指定
-+      const result = resolver.resolve('src/index.ts', 'const  b  =  3;', simpleDiff);
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 2,
-+        linesAbove: 0,
-+        linesBelow: 0,
-+        oldPath: 'src/index.ts',
-+        newPath: 'src/index.ts',
-+      });
-+    });
-+
-+    it('改行位置の違いでフォールバック成功する', () => {
-+      // diffでは2行だが、agentが1行にまとめて指定
++    it('単一行の部分文字列マッチにマッチする', () => {
 +      const result = resolver.resolve(
-+        'src/brand-new.ts',
-+        'export const alpha = 1; export const beta = 2;',
-+        newFileDiff,
++        'src/config.ts',
++        "apiUrl: 'http://new-api.example.com', timeout: 5000",
++        longLineDiff,
 +      );
 +
 +      expect(result).toEqual({
 +        success: true,
-+        newLine: 1,
-+        linesAbove: 0,
-+        linesBelow: 1,
-+        oldPath: '/dev/null',
-+        newPath: 'src/brand-new.ts',
-+      });
-+    });
-+
-+    it('agentが多くの行に分割した場合もフォールバック成功する（diffでは少ない行数）', () => {
-+      // diffでは "export const alpha = 1;" が1行だが、agentが2行に分割
-+      // → 正規化すると同じなのでdiff側の1行にマッチ
-+      const result = resolver.resolve('src/brand-new.ts', 'export const\nalpha = 1;', newFileDiff);
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 1,
++        newLine: 3,
 +        linesAbove: 0,
 +        linesBelow: 0,
-+        oldPath: '/dev/null',
-+        newPath: 'src/brand-new.ts',
++        oldPath: 'src/config.ts',
++        newPath: 'src/config.ts',
 +      });
 +    });
 +
-+    it('\\r\\nと\\nの差異でフォールバック成功する', () => {
++    it('最初の行と最後の行が両方部分マッチする場合にマッチする', () => {
 +      const result = resolver.resolve(
-+        'src/index.ts',
-+        'const a = 1;\r\nconst b = 3;\r\nconst c = 4;\r\n',
-+        simpleDiff,
++        'src/config.ts',
++        'timeout: 5000, retryCount: 5, debug: true, verbose: true };\n\nexport default',
++        longLineDiff,
 +      );
 +
 +      expect(result).toEqual({
 +        success: true,
-+        newLine: 1,
++        newLine: 3,
 +        linesAbove: 0,
 +        linesBelow: 2,
-+        oldPath: 'src/index.ts',
-+        newPath: 'src/index.ts',
++        oldPath: 'src/config.ts',
++        newPath: 'src/config.ts',
 +      });
 +    });
 +
-+    it('正規化マッチで複数マッチした場合エラーを返す', () => {
-+      // duplicateContentDiffにはconst val = 2;が2箇所
-+      // 空白違いで指定しても2箇所マッチ→エラー
-+      const result = resolver.resolve('src/repeat.ts', '  const val = 2;', duplicateContentDiff);
++    it('中間行が完全一致しない場合はマッチしない', () => {
++      const result = resolver.resolve(
++        'src/config.ts',
++        'timeout: 5000, retryCount: 5, debug: true, verbose: true };\nNOT_MATCHING_LINE\nexport default',
++        longLineDiff,
++      );
++
++      expect(result.success).toBe(false);
++    });
++
++    it('最小長要件を満たさない短い部分文字列はマッチしない', () => {
++      // "true" は4文字なので最小長10文字未満 → 部分マッチ対象外
++      const result = resolver.resolve('src/config.ts', 'true', longLineDiff);
++
++      expect(result.success).toBe(false);
++    });
++
++    it('部分マッチで複数マッチの場合エラーを返す', () => {
++      // longLineMultiHunkDiffでは同じ長い行が2つのハンクに存在する
++      const result = resolver.resolve(
++        'src/config.ts',
++        'timeout: 5000, retryCount: 5, debug: true, verbose: true };',
++        longLineMultiHunkDiff,
++      );
 +
 +      expect(result).toEqual({
 +        success: false,
 +        errorMessage: expect.stringContaining('2 matches'),
 +      });
-+      expect(result.errorMessage).toContain('ignoring whitespace');
++      expect(result.errorMessage).toContain('partial line matching');
 +    });
 +
-+    it('正規化マッチでも0件の場合エラーを返す', () => {
-+      const result = resolver.resolve('src/index.ts', 'completely different code', simpleDiff);
-+
-+      expect(result).toEqual({
-+        success: false,
-+        errorMessage: expect.stringContaining('Code not found in diff'),
-+      });
-+      expect(result.errorMessage).toContain('even after ignoring all whitespace');
-+    });
-+
-+    it('完全一致が成功する場合はフォールバック不使用（既存動作維持）', () => {
-+      // 完全一致でマッチする場合はlinesBelow計算がcodeLines.length-1ベース
-+      const result = resolver.resolve('src/index.ts', 'const b = 3;\nconst c = 4;', simpleDiff);
++    it('完全一致が優先される（部分マッチは不使用）', () => {
++      // 完全な行を指定した場合は完全一致で見つかるべき
++      const result = resolver.resolve(
++        'src/config.ts',
++        "const config = { apiUrl: 'http://new-api.example.com', timeout: 5000, retryCount: 5, debug: true, verbose: true };",
++        longLineDiff,
++      );
 +
 +      expect(result).toEqual({
 +        success: true,
-+        newLine: 2,
-+        linesAbove: 0,
-+        linesBelow: 1, // codeLines.length(2) - 1 = 1
-+        oldPath: 'src/index.ts',
-+        newPath: 'src/index.ts',
-+      });
-+    });
-+
-+    it('末尾空白の差異でフォールバック成功する', () => {
-+      // diffでは "const b = 3;" だが、agentが末尾にスペースを付けた
-+      const result = resolver.resolve('src/index.ts', 'const b = 3;   ', simpleDiff);
-+
-+      expect(result).toEqual({
-+        success: true,
-+        newLine: 2,
++        newLine: 3,
 +        linesAbove: 0,
 +        linesBelow: 0,
-+        oldPath: 'src/index.ts',
-+        newPath: 'src/index.ts',
++        oldPath: 'src/config.ts',
++        newPath: 'src/config.ts',
 +      });
 +    });
++
++    it('ハンク境界を跨ぐ部分マッチは行わない', () => {
++      // 1つ目のハンクの最後の行（部分マッチ）と2つ目のハンクの最初の行は連続していない
++      const result = resolver.resolve(
++        'src/config.ts',
++        "verbose: true };\nconst another = 'value';",
++        longLineMultiHunkDiff,
++      );
++
++      expect(result.success).toBe(false);
++    });
 +  });
- });
-diff --git a/src/infrastructure/adapter/review/workflow/MastraReviewWorkflowRunner.ts b/src/infrastructure/adapter/review/workflow/MastraReviewWorkflowRunner.ts
-index b756d8a..a7ea982 100644
---- a/src/infrastructure/adapter/review/workflow/MastraReviewWorkflowRunner.ts
-+++ b/src/infrastructure/adapter/review/workflow/MastraReviewWorkflowRunner.ts
-@@ -3,14 +3,30 @@ import type {
-   ReviewWorkflowParams,
-   ReviewWorkflowResult,
- } from '../../../../application/shared/port/workflow/index.js';
-+import type { SuggestionLineResolver } from '../../../../application/shared/port/suggestion/index.js';
- import { RequestContext } from '@mastra/core/request-context';
- import type { WorkflowRequestContext } from '../../../../mastra/shared/requestContext.js';
- import { mastra } from '../../../../mastra/index.js';
-+import { DiffBasedSuggestionLineResolver } from '../suggestion/index.js';
 +
-+/**
-+ * reviewワークフロー用のRequestContext型
-+ * WorkflowRequestContextにsuggest行番号リゾルバを追加
-+ */
-+interface ReviewRunnerContext extends WorkflowRequestContext {
-+  suggestionLineResolver: SuggestionLineResolver;
-+}
- 
- /**
-  * Mastra reviewWorkflowをReviewWorkflowRunnerインターフェースにラップする
-  */
- export class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
-+  private readonly suggestionLineResolver: SuggestionLineResolver;
-+
-+  constructor() {
-+    this.suggestionLineResolver = new DiffBasedSuggestionLineResolver();
-+  }
-+
-   async run(params: ReviewWorkflowParams): Promise<ReviewWorkflowResult> {
-     const {
-       userId,
-@@ -23,7 +39,7 @@ export class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
-       ...inputData
-     } = params;
- 
--    const requestContext = new RequestContext<WorkflowRequestContext>([
-+    const requestContext = new RequestContext<ReviewRunnerContext>([
-       ['userId', userId],
-       ['projectId', projectId],
-       ['aiApiKey', aiApiKey],
-@@ -31,11 +47,13 @@ export class MastraReviewWorkflowRunner implements ReviewWorkflowRunner {
-       ['aiModelName', aiModelName],
-       ['projectDir', projectDir],
-       ['openaiReasoningEffort', openaiReasoningEffort],
-+      ['suggestionLineResolver', this.suggestionLineResolver],
-     ]);
- 
-     const workflow = mastra.getWorkflow('reviewWorkflow');
-     const run = await workflow.createRun();
--    const result = await run.start({ inputData, requestContext });
-+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-+    const result = await run.start({ inputData, requestContext: requestContext as any });
- 
-     if (result.status === 'failed') {
-       throw new Error(`Workflow failed: ${result.error?.message ?? 'Unknown error'}`, {
-diff --git a/src/infrastructure/adapter/review/workflow/__tests__/MastraReviewWorkflowRunner.test.ts b/src/infrastructure/adapter/review/workflow/__tests__/MastraReviewWorkflowRunner.test.ts
-index 1f1e64c..19b5443 100644
---- a/src/infrastructure/adapter/review/workflow/__tests__/MastraReviewWorkflowRunner.test.ts
-+++ b/src/infrastructure/adapter/review/workflow/__tests__/MastraReviewWorkflowRunner.test.ts
-@@ -72,7 +72,7 @@ describe('MastraReviewWorkflowRunner', () => {
-     runner = new MastraReviewWorkflowRunner();
-   });
- 
--  it('RequestContextに7フィールドが正しく設定されること', async () => {
-+  it('RequestContextに7フィールド + suggestionLineResolverが正しく設定されること', async () => {
-     const params = createParams();
- 
-     await runner.run(params);
-@@ -91,6 +91,9 @@ describe('MastraReviewWorkflowRunner', () => {
-     expect(ctx.get('aiModelName')).toBe('openai/o4-mini');
-     expect(ctx.get('projectDir')).toBe('/test/project');
-     expect(ctx.get('openaiReasoningEffort')).toBeUndefined();
-+    // SuggestionLineResolverがRequestContext経由で注入されること
-+    expect(ctx.get('suggestionLineResolver')).toBeDefined();
-+    expect(ctx.get('suggestionLineResolver')).not.toBeNull();
-   });
- 
-   it('InputDataにRequestContext以外の全フィールドが含まれること', async () => {
+   describe('全空白除去フォールバックマッチ', () => {
+     it('先頭空白が異なるoriginalCodeでフォールバック成功する（単一行）', () => {
+       // diffでは "const b = 3;" だが、agentが "  const b = 3;" を指定
 diff --git a/src/mastra/review/agents/__tests__/reviewAgent.test.ts b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
-index 108b1fb..fea0235 100644
+index fea0235..dbe02f7 100644
 --- a/src/mastra/review/agents/__tests__/reviewAgent.test.ts
 +++ b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
-@@ -404,6 +404,27 @@ describe('buildInstructions', () => {
-     expect(result).toContain('explanation in English');
+@@ -386,7 +386,7 @@ describe('buildInstructions', () => {
+ 
+     expect(result).toContain('## Code Suggestion Guidelines');
+     expect(result).toContain('storeSuggest tool');
+-    expect(result).toContain('originalCode must exactly match');
++    expect(result).toContain('Each line in originalCode must be copied in its entirety');
+     expect(result).toContain('Do NOT duplicate suggestions');
    });
  
-+  it('suggest有効時にError recovery for storeSuggestセクションが含まれる', () => {
-+    const requestContext = createTestRequestContext({
-+      suggestEnabledRatingLabels: ['C'],
-+    });
-+
-+    const result = buildInstructions(requestContext);
-+
-+    expect(result).toContain('### Error recovery for storeSuggest');
-+    expect(result).toContain('retry');
-+  });
-+
-+  it('suggest無効時にError recovery for storeSuggestセクションが含まれない', () => {
-+    const requestContext = createTestRequestContext({
-+      suggestEnabledRatingLabels: [],
-+    });
-+
-+    const result = buildInstructions(requestContext);
-+
-+    expect(result).not.toContain('Error recovery for storeSuggest');
-+  });
-+
-   it('suggest有効時にCompletion Requirementsにsuggest手順が追加される', () => {
-     const requestContext = createTestRequestContext({
-       suggestEnabledRatingLabels: ['C'],
 diff --git a/src/mastra/review/agents/reviewAgent.ts b/src/mastra/review/agents/reviewAgent.ts
-index 8b4af1c..2c6409f 100644
+index 2c6409f..7ee789a 100644
 --- a/src/mastra/review/agents/reviewAgent.ts
 +++ b/src/mastra/review/agents/reviewAgent.ts
-@@ -186,6 +186,13 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
- - Do NOT duplicate suggestions within this session (check with getSuggests)
- - originalCode must exactly match the code in the diff (whitespace-sensitive)
- - Include sufficient context lines in originalCode to avoid ambiguity
-+- Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
-+
-+### Error recovery for storeSuggest
-+- If storeSuggest fails, carefully read the error message and retry with corrected input.
-+- If the error mentions multiple matches, include more surrounding lines in originalCode.
-+- Always retry at least once before giving up on a suggestion.
-+- When retrying, try a shorter or different code snippet if the same one keeps failing.
+@@ -156,7 +156,7 @@ If the output shows "[output truncated: ...]", use the reported line counts and
+   }${
+     suggestEnabled
+       ? `### Suggestion Tools
+-- storeSuggest: Store a code suggestion. Parameters: checkItemId, filePath, originalCode (exact code from the new side of the diff), suggestedCode (replacement), comment (explanation in ${ctx.commentLanguage})
++- storeSuggest: Store a code suggestion. Parameters: checkItemId, filePath, originalCode (code from the new side of the diff — each line must be complete, not truncated), suggestedCode (replacement), comment (explanation in ${ctx.commentLanguage})
+ - getSuggests: Retrieve all suggestions stored in this session to check for duplicates and verify completeness
  
  `
-     : ''
-diff --git a/src/mastra/review/suggestTypes.ts b/src/mastra/review/suggestTypes.ts
-index 53b4a1a..a41a6dd 100644
---- a/src/mastra/review/suggestTypes.ts
-+++ b/src/mastra/review/suggestTypes.ts
-@@ -28,7 +28,7 @@ export type StoredSuggestion = z.infer<typeof storedSuggestionSchema>;
- export function readStoredSuggestions(filePath: string): StoredSuggestion[] {
-   try {
-     const content = fs.readFileSync(filePath, 'utf-8');
--    return JSON.parse(content) as StoredSuggestion[];
-+    return z.array(storedSuggestionSchema).parse(JSON.parse(content));
-   } catch (e: unknown) {
-     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-       return [];
-diff --git a/src/mastra/review/tools/__tests__/storeSuggest.test.ts b/src/mastra/review/tools/__tests__/storeSuggest.test.ts
-index cbeb941..32e7dc7 100644
---- a/src/mastra/review/tools/__tests__/storeSuggest.test.ts
-+++ b/src/mastra/review/tools/__tests__/storeSuggest.test.ts
-@@ -358,6 +358,28 @@ describe('storeSuggest', () => {
-     expect(stored[1].checkItemContent).toBe('パフォーマンスチェック');
-   });
- 
-+  it('行番号解決失敗時のメッセージにリトライ誘導文言が含まれる', async () => {
-+    createTmpDir();
-+    const errorResolver = createErrorResolver(
-+      "Code not found in diff for file 'src/app.ts' even after ignoring all whitespace.",
-+    );
-+
-+    const result = await executeStoreSuggest(
-+      {
-+        checkItemId: 1,
-+        filePath: 'src/app.ts',
-+        originalCode: 'nonexistent code',
-+        suggestedCode: 'fixed code',
-+        comment: 'テスト',
-+      },
-+      suggestFilePath,
-+      { suggestionLineResolver: errorResolver },
-+    );
-+
-+    expect(result.success).toBe(false);
-+    expect(result.message).toContain('You SHOULD retry');
-+  });
-+
-   it('resolverまたはfullMrDiffが未設定の場合エラーが返される', async () => {
-     createTmpDir();
+@@ -184,7 +184,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
+ ### Important rules
+ - You may create multiple suggestions per check item
+ - Do NOT duplicate suggestions within this session (check with getSuggests)
+-- originalCode must exactly match the code in the diff (whitespace-sensitive)
++- Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.
+ - Include sufficient context lines in originalCode to avoid ambiguity
+ - Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
  
 diff --git a/src/mastra/review/tools/storeSuggest.ts b/src/mastra/review/tools/storeSuggest.ts
-index 53ca0eb..46f9cd8 100644
+index 46f9cd8..7f3a5a4 100644
 --- a/src/mastra/review/tools/storeSuggest.ts
 +++ b/src/mastra/review/tools/storeSuggest.ts
-@@ -127,7 +127,7 @@ export const storeSuggestTool = createTool({
-       if (!resolveResult.success) {
-         return {
-           success: false,
--          message: resolveResult.errorMessage,
-+          message: `${resolveResult.errorMessage}\n\nYou SHOULD retry: review the diff carefully, copy the exact code, and call storeSuggest again.`,
-         };
-       }
- 
-diff --git a/src/mastra/review/workflows/reviewWorkflow.ts b/src/mastra/review/workflows/reviewWorkflow.ts
-index c7f9981..aebe2c2 100644
---- a/src/mastra/review/workflows/reviewWorkflow.ts
-+++ b/src/mastra/review/workflows/reviewWorkflow.ts
-@@ -8,8 +8,16 @@ import { IndexedChecklist } from '../indexedCheckItem.js';
- import { readStoredSuggestions } from '../suggestTypes.js';
- import type { ReviewAgentRequestContext } from '../requestContext.js';
- import type { WorkflowRequestContext } from '../../shared/requestContext.js';
-+import type { SuggestionLineResolver } from '../../../application/shared/port/suggestion/index.js';
- import { DEFAULT_RATE_LIMIT_RETRY_CONFIG } from '../../../lib/rateLimitRetry.js';
--import { DiffBasedSuggestionLineResolver } from '../../../infrastructure/adapter/review/suggestion/index.js';
-+
-+/**
-+ * reviewワークフロー用のRequestContext型
-+ * WorkflowRequestContextにsuggest行番号リゾルバを追加
-+ */
-+interface ReviewWorkflowContext extends WorkflowRequestContext {
-+  suggestionLineResolver: SuggestionLineResolver | null;
-+}
- 
- /**
-  * IndexedCheckItemのZodスキーマ（ワークフロー内部用）
-@@ -170,7 +178,7 @@ const reviewExecutionStep = createStep({
-     const checkItems = inputData.items;
- 
-     // ReviewAgent用のRequestContextを組み立てる
--    const workflowCtx = requestContext.all as WorkflowRequestContext;
-+    const workflowCtx = requestContext.all as ReviewWorkflowContext;
- 
-     // 過去のレビュー結果を現在のグループのチェック項目のみにフィルタ
-     const currentGroupContents = new Set(checkItems.map((item) => item.content));
-@@ -227,7 +235,7 @@ const reviewExecutionStep = createStep({
-       ['suggestEnabledRatingLabels', initData.suggestEnabledRatingLabels],
-       ['suggestResultFilePath', suggestResultFilePath],
-       ['fullMrDiff', initData.fullMrDiff],
--      ['suggestionLineResolver', new DiffBasedSuggestionLineResolver()],
-+      ['suggestionLineResolver', workflowCtx.suggestionLineResolver ?? null],
-     ]);
- 
-     const reviewAgent = mastra.getAgent('reviewAgent');
-diff --git a/src/presentation/api/review/reviewHandler.ts b/src/presentation/api/review/reviewHandler.ts
-index 648cdc6..bb0cc01 100644
---- a/src/presentation/api/review/reviewHandler.ts
-+++ b/src/presentation/api/review/reviewHandler.ts
-@@ -284,7 +284,6 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
-           commentLanguage: request.options?.commentLanguage ?? 'Japanese',
-           openaiReasoningEffort: deps.openaiReasoningEffort,
-           maxContextLength: deps.maxContextLength,
--          suggestEnabledRatingLabels: reviewSettings.suggestEnabledRatingLabels,
-         });
- 
-         // 11. ReviewApiResponse形式でレビュー結果を構築
-@@ -311,7 +310,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
-             oldPath: s.oldPath,
-             newPath: s.newPath,
-           })),
--          suggestDiscussionIdsToResolve: reviewResult.suggestsToResolve,
-+          suggestResolveEntries: reviewResult.suggestsToResolve,
-           baseSha: reviewResult.baseSha,
-           headSha: reviewResult.headSha,
-           startSha: reviewResult.startSha,
+@@ -52,7 +52,7 @@ export const storeSuggestTool = createTool({
+     originalCode: z
+       .string()
+       .describe(
+-        'The exact original code from the new side of the diff to be replaced. Include enough context lines for unique identification.',
++        'The original code from the new side of the diff to be replaced. Each line must be copied in full from beginning to end, even if the line is very long. Include enough context lines for unique identification.',
+       ),
+     suggestedCode: z.string().describe('The proposed replacement code'),
+     comment: z.string().describe('Explanation of why this change is suggested'),
