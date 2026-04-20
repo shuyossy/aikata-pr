@@ -4,3 +4,5 @@ export { ResolvedSuggestion } from './ResolvedSuggestion.js';
 export type { ResolvedSuggestionParams } from './ResolvedSuggestion.js';
 export { resolveOverlappingSuggests } from './SuggestOverlapResolver.js';
 export type { SuggestLineRange, PriorSuggestLineRange } from './SuggestOverlapResolver.js';
+export { trimCommonLines } from './SuggestionTrimmer.js';
+export type { SuggestionTrimResult } from './SuggestionTrimmer.js';

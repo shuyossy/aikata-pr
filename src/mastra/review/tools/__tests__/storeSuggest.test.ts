@@ -380,6 +380,69 @@ describe('storeSuggest', () => {
     expect(result.message).toContain('You SHOULD retry');
   });
 
+  it('共通先頭行・末尾行がある場合トリミングされて保存される', async () => {
+    createTmpDir();
+    const resolver = createSuccessResolver({
+      newLine: 10,
+      linesAbove: 0,
+      linesBelow: 4,
+    });
+
+    const result = await executeStoreSuggest(
+      {
+        checkItemId: 1,
+        filePath: 'src/app.ts',
+        originalCode: ['common1', 'common2', 'OLD_LINE', 'common3', 'common4'].join('\n'),
+        suggestedCode: ['common1', 'common2', 'NEW_LINE', 'common3', 'common4'].join('\n'),
+        comment: 'トリミングテスト',
+      },
+      suggestFilePath,
+      { suggestionLineResolver: resolver },
+    );
+
+    expect(result.success).toBe(true);
+
+    const stored: StoredSuggestion[] = JSON.parse(fs.readFileSync(suggestFilePath, 'utf-8'));
+    expect(stored).toHaveLength(1);
+    // トリミング後: 先頭2行除去、末尾2行除去
+    expect(stored[0].originalCode).toBe('OLD_LINE');
+    expect(stored[0].suggestedCode).toBe('NEW_LINE');
+    // newLine = 10 + 2（先頭除去行数）= 12
+    expect(stored[0].newLine).toBe(12);
+    // linesBelow = トリミング後originalCode行数(1) - 1 = 0
+    expect(stored[0].linesBelow).toBe(0);
+  });
+
+  it('共通行がない場合はトリミングせず元のまま保存される', async () => {
+    createTmpDir();
+    const resolver = createSuccessResolver({
+      newLine: 10,
+      linesAbove: 0,
+      linesBelow: 0,
+    });
+
+    const result = await executeStoreSuggest(
+      {
+        checkItemId: 1,
+        filePath: 'src/app.ts',
+        originalCode: 'const app = express();',
+        suggestedCode: 'const app = express(); // fixed',
+        comment: 'トリミング不要テスト',
+      },
+      suggestFilePath,
+      { suggestionLineResolver: resolver },
+    );
+
+    expect(result.success).toBe(true);
+
+    const stored: StoredSuggestion[] = JSON.parse(fs.readFileSync(suggestFilePath, 'utf-8'));
+    expect(stored).toHaveLength(1);
+    expect(stored[0].originalCode).toBe('const app = express();');
+    expect(stored[0].suggestedCode).toBe('const app = express(); // fixed');
+    expect(stored[0].newLine).toBe(10);
+    expect(stored[0].linesBelow).toBe(0);
+  });
+
   it('resolverまたはfullMrDiffが未設定の場合エラーが返される', async () => {
     createTmpDir();
 

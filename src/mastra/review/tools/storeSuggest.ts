@@ -4,7 +4,11 @@ import * as fs from 'node:fs';
 import { readStoredSuggestions, type StoredSuggestion } from '../suggestTypes.js';
 import type { IndexedCheckItem } from '../indexedCheckItem.js';
 import type { SuggestionLineResolver } from '../../../application/shared/port/suggestion/index.js';
-import { Suggestion, MAX_ORIGINAL_CODE_LINES } from '../../../domain/review/suggestion/index.js';
+import {
+  Suggestion,
+  MAX_ORIGINAL_CODE_LINES,
+  trimCommonLines,
+} from '../../../domain/review/suggestion/index.js';
 
 // Atomics.waitによる同期スリープ用バッファ
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -131,17 +135,31 @@ export const storeSuggestTool = createTool({
         };
       }
 
+      // 6.5. 共通行をトリミングしてsuggestion範囲を最小化する
+      let finalOriginalCode = originalCode;
+      let finalSuggestedCode = suggestedCode;
+      let finalNewLine = resolveResult.newLine!;
+      let finalLinesBelow = resolveResult.linesBelow!;
+
+      const trimResult = trimCommonLines(originalCode, suggestedCode);
+      if (trimResult !== null) {
+        finalOriginalCode = trimResult.trimmedOriginalCode;
+        finalSuggestedCode = trimResult.trimmedSuggestedCode;
+        finalNewLine = resolveResult.newLine! + trimResult.leadingTrimmedCount;
+        finalLinesBelow = trimResult.trimmedOriginalCode.split('\n').length - 1;
+      }
+
       // 7. 解決された行番号情報と共に保存する
       const newSuggestion: StoredSuggestion = {
         checkItemId,
         checkItemContent: matchedItem.content,
         filePath,
-        originalCode,
-        suggestedCode,
+        originalCode: finalOriginalCode,
+        suggestedCode: finalSuggestedCode,
         comment,
-        newLine: resolveResult.newLine!,
+        newLine: finalNewLine,
         linesAbove: resolveResult.linesAbove!,
-        linesBelow: resolveResult.linesBelow!,
+        linesBelow: finalLinesBelow,
         oldPath: resolveResult.oldPath!,
         newPath: resolveResult.newPath!,
       };
