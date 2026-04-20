@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GitLabApiClient } from '../GitLabApiClient.js';
+import { GitLabApiError } from '../GitLabApiError.js';
 
 describe('GitLabApiClient', () => {
   const mockFetch = vi.fn();
@@ -22,11 +23,12 @@ describe('GitLabApiClient', () => {
   });
 
   // ヘルパー: エラーレスポンスを生成
-  const createErrorResponse = (status: number, statusText: string) => ({
+  const createErrorResponse = (status: number, statusText: string, responseBody: string = '') => ({
     ok: false,
     status,
     statusText,
     json: () => Promise.resolve({}),
+    text: () => Promise.resolve(responseBody),
   });
 
   it('GETリクエストにPRIVATE-TOKENヘッダが付与される', async () => {
@@ -64,30 +66,141 @@ describe('GitLabApiClient', () => {
     expect(result).toEqual(responseData);
   });
 
-  it('HTTPステータス401でエラーがスローされる', async () => {
-    mockFetch.mockResolvedValueOnce(createErrorResponse(401, 'Unauthorized'));
+  it('HTTPステータス401でGitLabApiErrorがスローされる', async () => {
+    mockFetch.mockResolvedValueOnce(
+      createErrorResponse(401, 'Unauthorized', '{"message":"401 Unauthorized"}'),
+    );
 
     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'invalid-token');
 
-    await expect(client.get('/projects/1')).rejects.toThrow('GitLab API error: 401 Unauthorized');
+    await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
   });
 
-  it('HTTPステータス404でエラーがスローされる', async () => {
-    mockFetch.mockResolvedValueOnce(createErrorResponse(404, 'Not Found'));
+  it('HTTPステータス404でGitLabApiErrorがスローされる', async () => {
+    mockFetch.mockResolvedValueOnce(
+      createErrorResponse(404, 'Not Found', '{"message":"404 Not Found"}'),
+    );
 
     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
-    await expect(client.get('/projects/99999')).rejects.toThrow('GitLab API error: 404 Not Found');
+    await expect(client.get('/projects/99999')).rejects.toThrow(GitLabApiError);
   });
 
-  it('POSTリクエストでHTTPエラーの場合、エラーがスローされる', async () => {
-    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
+  it('POSTリクエストでHTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
+    mockFetch.mockResolvedValueOnce(
+      createErrorResponse(500, 'Internal Server Error', '{"error":"something went wrong"}'),
+    );
 
     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
     await expect(
       client.post('/projects/1/merge_requests/1/notes', { body: 'comment' }),
-    ).rejects.toThrow('GitLab API error: 500 Internal Server Error');
+    ).rejects.toThrow(GitLabApiError);
+  });
+
+  it('エラー時にレスポンスボディがGitLabApiErrorに含まれる', async () => {
+    const errorBody = '{"message":"Something went wrong","details":"internal error"}';
+    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error', errorBody));
+
+    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+    try {
+      await client.get('/projects/1');
+      expect.fail('Expected GitLabApiError to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitLabApiError);
+      const apiError = error as GitLabApiError;
+      expect(apiError.status).toBe(500);
+      expect(apiError.responseBody).toBe(errorBody);
+      expect(apiError.method).toBe('GET');
+      expect(apiError.path).toBe('/projects/1');
+    }
+  });
+
+  it('5xxエラー時に誘導メッセージがエラーメッセージに含まれる', async () => {
+    mockFetch.mockResolvedValueOnce(
+      createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
+    );
+
+    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+    try {
+      await client.post('/projects/1/merge_requests/1/notes', { body: 'comment' });
+      expect.fail('Expected GitLabApiError to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitLabApiError);
+      const apiError = error as GitLabApiError;
+      expect(apiError.message).toContain(
+        'This may be a temporary server issue. Please wait a few minutes and re-run the job.',
+      );
+      expect(apiError.message).toContain('{"error":"server error"}');
+    }
+  });
+
+  it('POSTエラー時にリクエストボディがGitLabApiErrorに含まれる', async () => {
+    const requestBody = { body: 'comment text', position: { new_line: 10 } };
+    mockFetch.mockResolvedValueOnce(
+      createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
+    );
+
+    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+    try {
+      await client.post('/projects/1/merge_requests/1/discussions', requestBody);
+      expect.fail('Expected GitLabApiError to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitLabApiError);
+      const apiError = error as GitLabApiError;
+      expect(apiError.requestBody).toBe(JSON.stringify(requestBody));
+      expect(apiError.message).toContain('Request body:');
+    }
+  });
+
+  it('PUTエラー時にリクエストボディがGitLabApiErrorに含まれる', async () => {
+    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error', ''));
+
+    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+    try {
+      await client.put('/projects/1/merge_requests/1/discussions/disc-1', { resolved: true });
+      expect.fail('Expected GitLabApiError to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitLabApiError);
+      const apiError = error as GitLabApiError;
+      expect(apiError.requestBody).toBe('{"resolved":true}');
+    }
+  });
+
+  it('GETエラー時にリクエストボディはundefined', async () => {
+    mockFetch.mockResolvedValueOnce(createErrorResponse(404, 'Not Found'));
+
+    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+    try {
+      await client.get('/projects/999');
+      expect.fail('Expected GitLabApiError to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitLabApiError);
+      const apiError = error as GitLabApiError;
+      expect(apiError.requestBody).toBeUndefined();
+    }
+  });
+
+  it('4xxエラー時に誘導メッセージがエラーメッセージに含まれない', async () => {
+    mockFetch.mockResolvedValueOnce(
+      createErrorResponse(404, 'Not Found', '{"message":"404 Not Found"}'),
+    );
+
+    const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+    try {
+      await client.get('/projects/999');
+      expect.fail('Expected GitLabApiError to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitLabApiError);
+      const apiError = error as GitLabApiError;
+      expect(apiError.message).not.toContain('Please wait a few minutes and re-run the job');
+    }
   });
 
   it('ベースURLとパスが正しく結合される', async () => {
@@ -128,24 +241,20 @@ describe('GitLabApiClient', () => {
       expect(result).toBe(traceBody);
     });
 
-    it('HTTPステータス404でエラーがスローされる（getと同じ文言）', async () => {
+    it('HTTPステータス404でGitLabApiErrorがスローされる', async () => {
       mockFetch.mockResolvedValueOnce(createErrorResponse(404, 'Not Found'));
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
-      await expect(client.getText('/projects/1/jobs/9999/trace')).rejects.toThrow(
-        'GitLab API error: 404 Not Found',
-      );
+      await expect(client.getText('/projects/1/jobs/9999/trace')).rejects.toThrow(GitLabApiError);
     });
 
-    it('HTTPステータス500でエラーがスローされる（getと同じ文言）', async () => {
+    it('HTTPステータス500でGitLabApiErrorがスローされる', async () => {
       mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
-      await expect(client.getText('/projects/1/jobs/42/trace')).rejects.toThrow(
-        'GitLab API error: 500 Internal Server Error',
-      );
+      await expect(client.getText('/projects/1/jobs/42/trace')).rejects.toThrow(GitLabApiError);
     });
 
     it('末尾スラッシュ付きベースURLが正規化される', async () => {
@@ -198,23 +307,23 @@ describe('GitLabApiClient', () => {
       expect(response.headers.get('content-type')).toBe('application/zip');
     });
 
-    it('HTTPステータス404でエラーがスローされる（getと同じ文言）', async () => {
+    it('HTTPステータス404でGitLabApiErrorがスローされる', async () => {
       mockFetch.mockResolvedValueOnce(createErrorResponse(404, 'Not Found'));
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
       await expect(client.getResponse('/projects/1/jobs/9999/artifacts')).rejects.toThrow(
-        'GitLab API error: 404 Not Found',
+        GitLabApiError,
       );
     });
 
-    it('HTTPステータス403でエラーがスローされる（getと同じ文言）', async () => {
+    it('HTTPステータス403でGitLabApiErrorがスローされる', async () => {
       mockFetch.mockResolvedValueOnce(createErrorResponse(403, 'Forbidden'));
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
       await expect(client.getResponse('/projects/1/jobs/42/artifacts')).rejects.toThrow(
-        'GitLab API error: 403 Forbidden',
+        GitLabApiError,
       );
     });
 
@@ -260,14 +369,14 @@ describe('GitLabApiClient', () => {
       expect(result).toEqual(responseData);
     });
 
-    it('PUTリクエストでHTTPエラーの場合、エラーがスローされる', async () => {
+    it('PUTリクエストでHTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
       mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
       await expect(
         client.put('/projects/1/merge_requests/1/discussions/disc-1', { resolved: true }),
-      ).rejects.toThrow('GitLab API error: 500 Internal Server Error');
+      ).rejects.toThrow(GitLabApiError);
     });
   });
 
@@ -332,18 +441,17 @@ describe('GitLabApiClient', () => {
       );
     });
 
-    it('HTTPエラーの場合、エラーがスローされる', async () => {
+    it('HTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 403,
         statusText: 'Forbidden',
         headers: { get: () => null },
+        text: () => Promise.resolve('{"message":"403 Forbidden"}'),
       });
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
-      await expect(client.getAll('/projects/1/notes')).rejects.toThrow(
-        'GitLab API error: 403 Forbidden',
-      );
+      await expect(client.getAll('/projects/1/notes')).rejects.toThrow(GitLabApiError);
     });
   });
 });

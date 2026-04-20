@@ -1,3 +1,5 @@
+import { GitLabApiError } from './GitLabApiError.js';
+
 /**
  * GitLab APIとの通信を行うHTTPクライアント
  * PRIVATE-TOKENヘッダによる認証を自動付与する
@@ -19,9 +21,7 @@ export class GitLabApiClient {
     const response = await fetch(`${this.baseUrl}${path}`, {
       headers: { 'PRIVATE-TOKEN': this.token },
     });
-    if (!response.ok) {
-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
-    }
+    await this.throwIfNotOk(response, 'GET', path);
     return response.json() as Promise<T>;
   }
 
@@ -33,9 +33,7 @@ export class GitLabApiClient {
     const response = await fetch(`${this.baseUrl}${path}`, {
       headers: { 'PRIVATE-TOKEN': this.token },
     });
-    if (!response.ok) {
-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
-    }
+    await this.throwIfNotOk(response, 'GET', path);
     return response.text();
   }
 
@@ -48,9 +46,7 @@ export class GitLabApiClient {
     const response = await fetch(`${this.baseUrl}${path}`, {
       headers: { 'PRIVATE-TOKEN': this.token },
     });
-    if (!response.ok) {
-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
-    }
+    await this.throwIfNotOk(response, 'GET', path);
     return response;
   }
 
@@ -67,9 +63,7 @@ export class GitLabApiClient {
       const response = await fetch(url, {
         headers: { 'PRIVATE-TOKEN': this.token },
       });
-      if (!response.ok) {
-        throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
-      }
+      await this.throwIfNotOk(response, 'GET', path);
       const items = (await response.json()) as T[];
       allItems.push(...items);
 
@@ -95,17 +89,16 @@ export class GitLabApiClient {
    * POSTリクエストを送信する
    */
   async post<T>(path: string, body: unknown): Promise<T> {
+    const serializedBody = JSON.stringify(body);
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers: {
         'PRIVATE-TOKEN': this.token,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: serializedBody,
     });
-    if (!response.ok) {
-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
-    }
+    await this.throwIfNotOk(response, 'POST', path, serializedBody);
     return response.json() as Promise<T>;
   }
 
@@ -113,17 +106,38 @@ export class GitLabApiClient {
    * PUTリクエストを送信する
    */
   async put<T>(path: string, body: unknown): Promise<T> {
+    const serializedBody = JSON.stringify(body);
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'PUT',
       headers: {
         'PRIVATE-TOKEN': this.token,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: serializedBody,
     });
-    if (!response.ok) {
-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
-    }
+    await this.throwIfNotOk(response, 'PUT', path, serializedBody);
     return response.json() as Promise<T>;
+  }
+
+  /**
+   * レスポンスがエラーの場合、レスポンスボディを含むGitLabApiErrorをスローする
+   */
+  private async throwIfNotOk(
+    response: Response,
+    method: string,
+    path: string,
+    requestBody?: string,
+  ): Promise<void> {
+    if (!response.ok) {
+      const responseBody = await response.text().catch(() => '');
+      throw new GitLabApiError({
+        status: response.status,
+        statusText: response.statusText,
+        responseBody,
+        method,
+        path,
+        requestBody,
+      });
+    }
   }
 }

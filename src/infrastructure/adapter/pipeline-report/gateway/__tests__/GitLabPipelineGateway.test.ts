@@ -293,11 +293,10 @@ describe('GitLabPipelineGateway', () => {
         status: 500,
         statusText: 'Internal Server Error',
         headers: { get: () => null },
+        text: () => Promise.resolve(''),
       });
 
-      await expect(gateway.getJobs(42, 5501, { includeRetried: false })).rejects.toThrow(
-        'GitLab API error: 500 Internal Server Error',
-      );
+      await expect(gateway.getJobs(42, 5501, { includeRetried: false })).rejects.toThrow(/500/);
     });
   });
 
