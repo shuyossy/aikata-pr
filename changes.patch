@@ -1,0 +1,338 @@
+diff --git a/PBI.md b/PBI.md
+index 9268818..24d5436 100644
+--- a/PBI.md
++++ b/PBI.md
+@@ -47,15 +47,4 @@
+   - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
+     - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
+ - 指摘事項（in progressの場合のみ）
+-  - suggestやチェック結果をMRに投稿する際のフォーマット変更
+-    - 以下の様なフォーマットとする（`---`での区切りを追加）
+-    ```
+-    <${ヘッダ1}>
+-    ${項目1}
+-    ---
+-    <${ヘッダ2}>
+-    ${項目2}
+-    ---
+-    ```
+-      - suggest時`---`がMDとしてレンダリングされない様に注意する
+-    - suggest時、チェック項目のフォーマットが<br>等で改行されていないため、1行に長く伸びている様な見た目でレンダリングされてしまっている問題の解決
++  - MR discussion投稿時にパスが/dev/nullで決め打ちされることがあり、この場合500エラーで失敗する
+diff --git a/changes.patch b/changes.patch
+index 8a2bd2b..e69de29 100644
+--- a/changes.patch
++++ b/changes.patch
+@@ -1,213 +0,0 @@
+-diff --git a/PBI.md b/PBI.md
+-index 05d681d..9268818 100644
+---- a/PBI.md
+-+++ b/PBI.md
+-@@ -47,5 +47,15 @@
+-   - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
+-     - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
+- - 指摘事項（in progressの場合のみ）
+--  - 長大な行の変更の場合、discussionの作成時にエラーになる
+--    - 横展開として、suggestプロセス全体を見直し、長大な行の変更sugggestの場合でも問題なく動作するか良く確認すること
+-+  - suggestやチェック結果をMRに投稿する際のフォーマット変更
+-+    - 以下の様なフォーマットとする（`---`での区切りを追加）
+-+    ```
+-+    <${ヘッダ1}>
+-+    ${項目1}
+-+    ---
+-+    <${ヘッダ2}>
+-+    ${項目2}
+-+    ---
+-+    ```
+-+      - suggest時`---`がMDとしてレンダリングされない様に注意する
+-+    - suggest時、チェック項目のフォーマットが<br>等で改行されていないため、1行に長く伸びている様な見た目でレンダリングされてしまっている問題の解決
+-diff --git a/src/application/shared/comment/SuggestCommentFormatter.ts b/src/application/shared/comment/SuggestCommentFormatter.ts
+-index f3b23f4..bd5016c 100644
+---- a/src/application/shared/comment/SuggestCommentFormatter.ts
+-+++ b/src/application/shared/comment/SuggestCommentFormatter.ts
+-@@ -24,7 +24,8 @@ export class SuggestCommentFormatter {
+-     })}${SUGGEST_DATA_SUFFIX}`;
+- 
+-     const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);
+--    const header = `**チェック項目:** ${displayContent}`;
+-+    const escapedDisplayContent = displayContent.replace(/\n/g, '<br>');
+-+    const header = `**チェック項目:**<br>${escapedDisplayContent}`;
+-     const comment = resolved.suggestion.comment;
+-     const suggestion =
+-       '```suggestion:-' +
+-diff --git a/src/application/shared/comment/__tests__/CommentFormatter.test.ts b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+-index 421f8bf..59402bc 100644
+---- a/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+-+++ b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+-@@ -344,7 +344,7 @@ describe('CommentFormatter', () => {
+-       );
+- 
+-       expect(output).toContain(
+--        '| <カテゴリ><br>セキュリティ<br><チェック項目><br>SQLインジェクション対策 | C | 対策が不十分です |',
+-+        '| <カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>--- | C | 対策が不十分です |',
+-       );
+-     });
+-   });
+-diff --git a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
+-index f25edf6..be0785c 100644
+---- a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
+-+++ b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
+-@@ -83,7 +83,7 @@ describe('SuggestCommentFormatter', () => {
+-     it('出力にチェック項目ヘッダーが含まれる', () => {
+-       const resolved = createResolvedSuggestion({ checkItemContent: 'コードレビュー項目' });
+-       const output = SuggestCommentFormatter.format(resolved);
+--      expect(output).toContain('**チェック項目:** コードレビュー項目');
+-+      expect(output).toContain('**チェック項目:**<br>コードレビュー項目');
+-     });
+- 
+-     it('出力にコメントテキストが含まれる', () => {
+-@@ -110,14 +110,14 @@ describe('SuggestCommentFormatter', () => {
+-       expect(output).toContain('```suggestion:-5+3');
+-     });
+- 
+--    it('複数列チェック項目が<header>形式で表示される', () => {
+-+    it('複数列チェック項目が<header>形式で表示され、<br>で改行される', () => {
+-       const resolved = createResolvedSuggestion({
+-         checkItemContent:
+-           'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
+-       });
+-       const output = SuggestCommentFormatter.format(resolved);
+-       expect(output).toContain(
+--        '**チェック項目:** <カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策',
+-+        '**チェック項目:**<br><カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>---',
+-       );
+-     });
+- 
+-diff --git a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+-index f2e5fe1..1ef8c58 100644
+---- a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+-+++ b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+-@@ -9,7 +9,9 @@ describe('formatCheckItemForDisplay', () => {
+- 
+-       const result = formatCheckItemForDisplay(content);
+- 
+--      expect(result).toBe('<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策');
+-+      expect(result).toBe(
+-+        '<カテゴリ>\nセキュリティ\n---\n<チェック項目>\nSQLインジェクション対策\n---',
+-+      );
+-     });
+- 
+-     it('単一列の構造化フォーマットが<header>形式に変換される', () => {
+-@@ -17,7 +19,7 @@ describe('formatCheckItemForDisplay', () => {
+- 
+-       const result = formatCheckItemForDisplay(content);
+- 
+--      expect(result).toBe('<チェック項目>\nコード可読性');
+-+      expect(result).toBe('<チェック項目>\nコード可読性\n---');
+-     });
+- 
+-     it('3列の構造化フォーマットが正しく変換される', () => {
+-@@ -27,7 +29,7 @@ describe('formatCheckItemForDisplay', () => {
+-       const result = formatCheckItemForDisplay(content);
+- 
+-       expect(result).toBe(
+--        '<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策\n<説明>\nバインディング確認',
+-+        '<カテゴリ>\nセキュリティ\n---\n<チェック項目>\nSQLインジェクション対策\n---\n<説明>\nバインディング確認\n---',
+-       );
+-     });
+-   });
+-@@ -56,7 +58,7 @@ describe('formatCheckItemForDisplay', () => {
+- 
+-       const result = formatCheckItemForDisplay(content);
+- 
+--      expect(result).toBe('<ヘッダ1>\n行1\n行2\n<ヘッダ2>\n値2');
+-+      expect(result).toBe('<ヘッダ1>\n行1\n行2\n---\n<ヘッダ2>\n値2\n---');
+-     });
+- 
+-     it('値に2連続改行を含む場合も正しく変換される', () => {
+-@@ -64,7 +66,7 @@ describe('formatCheckItemForDisplay', () => {
+- 
+-       const result = formatCheckItemForDisplay(content);
+- 
+--      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n<ヘッダ2>\n値2');
+-+      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n---\n<ヘッダ2>\n値2\n---');
+-     });
+- 
+-     it('空値の場合も正しく変換される', () => {
+-@@ -72,7 +74,7 @@ describe('formatCheckItemForDisplay', () => {
+- 
+-       const result = formatCheckItemForDisplay(content);
+- 
+--      expect(result).toBe('<ヘッダ1>\n');
+-+      expect(result).toBe('<ヘッダ1>\n\n---');
+-     });
+- 
+-     it('空値を含む複数列の場合も正しく変換される', () => {
+-@@ -80,7 +82,7 @@ describe('formatCheckItemForDisplay', () => {
+- 
+-       const result = formatCheckItemForDisplay(content);
+- 
+--      expect(result).toBe('<ヘッダ1>\n値1\n<ヘッダ2>\n');
+-+      expect(result).toBe('<ヘッダ1>\n値1\n---\n<ヘッダ2>\n\n---');
+-     });
+-   });
+- });
+-diff --git a/src/application/shared/comment/formatCheckItemForDisplay.ts b/src/application/shared/comment/formatCheckItemForDisplay.ts
+-index 4bec74b..075b3d6 100644
+---- a/src/application/shared/comment/formatCheckItemForDisplay.ts
+-+++ b/src/application/shared/comment/formatCheckItemForDisplay.ts
+-@@ -14,7 +14,7 @@ export function formatCheckItemForDisplay(content: string): string {
+-   let match;
+- 
+-   while ((match = pattern.exec(content)) !== null) {
+--    columns.push(`<${match[1]}>\n${match[2]}`);
+-+    columns.push(`<${match[1]}>\n${match[2]}\n---`);
+-   }
+- 
+-   // 構造化フォーマットが検出されなかった場合はそのまま返す
+-diff --git a/src/mastra/review/agents/__tests__/reviewAgent.test.ts b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
+-index dbe02f7..85d7d4d 100644
+---- a/src/mastra/review/agents/__tests__/reviewAgent.test.ts
+-+++ b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
+-@@ -432,7 +432,9 @@ describe('buildInstructions', () => {
+- 
+-     const result = buildInstructions(requestContext);
+- 
+--    expect(result).toContain('4. After storing all review results, generate suggestions');
+-+    expect(result).toContain(
+-+      '4. After storing all review results, re-read the results from getReviewResults',
+-+    );
+-     expect(result).toContain('5. Call getSuggests to verify');
+-   });
+- 
+-diff --git a/src/mastra/review/agents/reviewAgent.ts b/src/mastra/review/agents/reviewAgent.ts
+-index 7ee789a..c41c1e7 100644
+---- a/src/mastra/review/agents/reviewAgent.ts
+-+++ b/src/mastra/review/agents/reviewAgent.ts
+-@@ -176,10 +176,11 @@ ${
+- For check items that receive a rating of [${suggestLabelsText}], you MUST generate concrete code suggestions using the storeSuggest tool.
+- 
+- ### How to create suggestions
+--1. Identify the specific code in the diff that needs improvement
+--2. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
+--3. Write the improved code in suggestedCode
+--4. Provide a clear explanation in comment
+-+1. Re-read your review comment for the check item (from getReviewResults) and identify the specific issue described
+-+2. Identify the specific code in the diff that relates to that issue
+-+3. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
+-+4. Write the improved code in suggestedCode that directly resolves the issue described in your review comment
+-+5. Provide a clear explanation in comment that references the same issue noted in your review
+- 
+- ### Important rules
+- - You may create multiple suggestions per check item
+-@@ -187,6 +188,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
+- - Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.
+- - Include sufficient context lines in originalCode to avoid ambiguity
+- - Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
+-+- Each suggestion MUST address the specific issue described in your review comment for that check item. Do not suggest fixes for different issues than what you identified during review.
+- 
+- ### Error recovery for storeSuggest
+- - If storeSuggest fails, carefully read the error message and retry with corrected input.
+-@@ -203,7 +205,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
+- 3. Do NOT finish until ALL check items have been reviewed and stored.${
+-     suggestEnabled
+-       ? `
+--4. After storing all review results, generate suggestions for items rated [${suggestLabelsText}] using storeSuggest.
+-+4. After storing all review results, re-read the results from getReviewResults. For each item rated [${suggestLabelsText}], generate suggestions that directly address the issue described in your review comment for that item.
+- 5. Call getSuggests to verify all suggestions are stored.`
+-       : ''
+-   }`;
+diff --git a/src/domain/review/suggestion/ResolvedSuggestion.ts b/src/domain/review/suggestion/ResolvedSuggestion.ts
+index 3862bf1..e3fa9fc 100644
+--- a/src/domain/review/suggestion/ResolvedSuggestion.ts
++++ b/src/domain/review/suggestion/ResolvedSuggestion.ts
+@@ -51,6 +51,12 @@ export class ResolvedSuggestion {
+     if (params.newPath.trim() === '') {
+       throw new Error('newPath must not be empty');
+     }
++    if (params.oldPath === '/dev/null') {
++      throw new Error('oldPath must not be /dev/null');
++    }
++    if (params.newPath === '/dev/null') {
++      throw new Error('newPath must not be /dev/null');
++    }
+ 
+     this.suggestion = params.suggestion;
+     this.newLine = params.newLine;
+diff --git a/src/domain/review/suggestion/__tests__/ResolvedSuggestion.test.ts b/src/domain/review/suggestion/__tests__/ResolvedSuggestion.test.ts
+index 88febca..d759384 100644
+--- a/src/domain/review/suggestion/__tests__/ResolvedSuggestion.test.ts
++++ b/src/domain/review/suggestion/__tests__/ResolvedSuggestion.test.ts
+@@ -127,6 +127,18 @@ describe('ResolvedSuggestion', () => {
+     );
+   });
+ 
++  it('oldPathが/dev/nullの場合はエラーになる', () => {
++    expect(() => new ResolvedSuggestion({ ...validParams, oldPath: '/dev/null' })).toThrow(
++      'oldPath must not be /dev/null',
++    );
++  });
++
++  it('newPathが/dev/nullの場合はエラーになる', () => {
++    expect(() => new ResolvedSuggestion({ ...validParams, newPath: '/dev/null' })).toThrow(
++      'newPath must not be /dev/null',
++    );
++  });
++
+   it('oldPathとnewPathが異なる場合でも生成できる（リネーム対応）', () => {
+     const resolved = new ResolvedSuggestion({
+       ...validParams,
+diff --git a/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts b/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
+index 89a578c..68436cb 100644
+--- a/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
++++ b/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
+@@ -200,6 +200,14 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
+       }
+     }
+ 
++    // GitLab APIは/dev/nullをファイルパスとして受け付けないため、実在するパスに正規化する
++    if (oldPath === '/dev/null') {
++      oldPath = newPath;
++    }
++    if (newPath === '/dev/null') {
++      newPath = oldPath;
++    }
++
+     return { oldPath, newPath };
+   }
+ 
+diff --git a/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts b/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
+index 8723579..a041f12 100644
+--- a/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
++++ b/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
+@@ -254,7 +254,7 @@ diff --git a/src/utils.ts b/src/utils.ts
+         newLine: 1,
+         linesAbove: 0,
+         linesBelow: 0,
+-        oldPath: '/dev/null',
++        oldPath: 'src/brand-new.ts',
+         newPath: 'src/brand-new.ts',
+       });
+     });
+@@ -271,7 +271,7 @@ diff --git a/src/utils.ts b/src/utils.ts
+         newLine: 2,
+         linesAbove: 0,
+         linesBelow: 1,
+-        oldPath: '/dev/null',
++        oldPath: 'src/brand-new.ts',
+         newPath: 'src/brand-new.ts',
+       });
+     });
+@@ -585,7 +585,7 @@ diff --git a/src/utils.ts b/src/utils.ts
+         newLine: 1,
+         linesAbove: 0,
+         linesBelow: 1,
+-        oldPath: '/dev/null',
++        oldPath: 'src/brand-new.ts',
+         newPath: 'src/brand-new.ts',
+       });
+     });
+@@ -600,7 +600,7 @@ diff --git a/src/utils.ts b/src/utils.ts
+         newLine: 1,
+         linesAbove: 0,
+         linesBelow: 0,
+-        oldPath: '/dev/null',
++        oldPath: 'src/brand-new.ts',
+         newPath: 'src/brand-new.ts',
+       });
+     });
