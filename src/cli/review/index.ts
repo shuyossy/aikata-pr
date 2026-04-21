@@ -81,7 +81,11 @@ export async function run(args: string[]): Promise<void> {
     if (!localMode) {
       // === APIモード ===
       // AIKATA_API_URL, AIKATA_JWTはvalidateRequiredParamsで検証済み
-      const client = new ReviewApiClient(options.aikataApiUrl!, options.aikataJwt!);
+      const aikataVersion = process.env['AIKATA_PR_VERSION'];
+      if (!aikataVersion) {
+        throw new Error('Missing required environment variable: AIKATA_PR_VERSION');
+      }
+      const client = new ReviewApiClient(options.aikataApiUrl!, options.aikataJwt!, aikataVersion);
 
       const apiRequest = buildApiReviewRequest(
         validated,

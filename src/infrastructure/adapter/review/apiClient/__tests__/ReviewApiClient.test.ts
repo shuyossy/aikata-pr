@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   ReviewApiClient,
+  VERSION_HEADER,
   type ReviewApiRequest,
   type ReviewApiResponse,
   type ReviewProgressEvent,
@@ -41,6 +42,7 @@ describe('ReviewApiClient', () => {
   const mockFetch = vi.fn();
   const API_URL = 'https://api.example.com';
   const JWT_TOKEN = 'test-jwt-token';
+  const VERSION = '1.2.3';
 
   // テスト用リクエスト
   const testRequest: ReviewApiRequest = {
@@ -95,7 +97,7 @@ describe('ReviewApiClient', () => {
     ]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
     const result = await client.executeReview(testRequest);
 
     expect(result).toEqual(testResult);
@@ -114,7 +116,7 @@ describe('ReviewApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const onProgress = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
     await client.executeReview(testRequest, onProgress);
 
     expect(onProgress).toHaveBeenCalledTimes(2);
@@ -129,7 +131,7 @@ describe('ReviewApiClient', () => {
     ]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
 
     await expect(client.executeReview(testRequest)).rejects.toThrow(
       'Review API error: Review failed',
@@ -145,7 +147,7 @@ describe('ReviewApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const onProgress = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
     const result = await client.executeReview(testRequest, onProgress);
 
     // keepaliveではonProgressが呼ばれない
@@ -158,7 +160,7 @@ describe('ReviewApiClient', () => {
     const errorBody = JSON.stringify({ error: 'Invalid request parameters' });
     mockFetch.mockResolvedValueOnce(createErrorResponse(400, errorBody));
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
 
     await expect(client.executeReview(testRequest)).rejects.toThrow(
       `API request failed with status 400: ${errorBody}`,
@@ -169,7 +171,7 @@ describe('ReviewApiClient', () => {
     const errorBody = JSON.stringify({ error: 'Unauthorized' });
     mockFetch.mockResolvedValueOnce(createErrorResponse(401, errorBody));
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
 
     await expect(client.executeReview(testRequest)).rejects.toThrow(
       `API request failed with status 401: ${errorBody}`,
@@ -183,7 +185,7 @@ describe('ReviewApiClient', () => {
     ]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
 
     await expect(client.executeReview(testRequest)).rejects.toThrow(
       'SSE stream ended without result event',
@@ -220,7 +222,7 @@ describe('ReviewApiClient', () => {
     const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
     await client.executeReview(requestWithOptions);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -229,6 +231,7 @@ describe('ReviewApiClient', () => {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${JWT_TOKEN}`,
+        [VERSION_HEADER]: VERSION,
       },
       body: JSON.stringify(requestWithOptions),
     });
@@ -240,6 +243,18 @@ describe('ReviewApiClient', () => {
     expect(sentBody.userId).toBe('alice');
   });
 
+  it('X-Aikata-Versionヘッダがリクエストに含まれること', async () => {
+    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
+    mockFetch.mockResolvedValueOnce(sseResponse);
+
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+    await client.executeReview(testRequest);
+
+    const call = mockFetch.mock.calls[0]!;
+    const headers = (call[1] as { headers: Record<string, string> }).headers;
+    expect(headers[VERSION_HEADER]).toBe(VERSION);
+  });
+
   it('レスポンスボディが空の場合にエラーがスローされること', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -247,7 +262,7 @@ describe('ReviewApiClient', () => {
       headers: new Headers(),
     });
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
 
     await expect(client.executeReview(testRequest)).rejects.toThrow('Response body is empty');
   });
@@ -258,7 +273,7 @@ describe('ReviewApiClient', () => {
     ]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
 
     await expect(client.executeReview(testRequest)).rejects.toThrow(
       'Review API error: Unknown error',
@@ -278,7 +293,7 @@ describe('ReviewApiClient', () => {
 
     const onRequestId = vi.fn();
     const onProgress = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
     await client.executeReview(testRequest, onProgress, onRequestId);
 
     expect(onRequestId).toHaveBeenCalledTimes(1);
@@ -290,7 +305,7 @@ describe('ReviewApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const onRequestId = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
     await client.executeReview(testRequest, undefined, onRequestId);
 
     expect(onRequestId).not.toHaveBeenCalled();
@@ -312,7 +327,7 @@ describe('ReviewApiClient', () => {
     const onProgress = vi.fn((event: ReviewProgressEvent) =>
       callOrder.push(`onProgress:${event.status}`),
     );
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
     await client.executeReview(testRequest, onProgress, onRequestId);
 
     // onRequestIdが必ず最初に呼ばれること
@@ -329,7 +344,7 @@ describe('ReviewApiClient', () => {
     mockFetch.mockResolvedValueOnce(errorResponse);
 
     const onRequestId = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
 
     await expect(client.executeReview(testRequest, undefined, onRequestId)).rejects.toThrow(
       /API request failed with status 500/,
@@ -358,7 +373,7 @@ describe('ReviewApiClient', () => {
     );
 
     const onProgress = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
+    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
     const result = await client.executeReview(testRequest, onProgress);
 
     expect(onProgress).toHaveBeenCalledWith({ status: 'cloning' });

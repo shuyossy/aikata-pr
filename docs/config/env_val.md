@@ -4,6 +4,7 @@
 
 | カテゴリ | 変数名 | 必須 | 既定値 | 主な制御内容 | CLIオプション | 参照箇所 |
 | --- | --- | --- | --- | --- | --- | --- |
+| バージョン | AIKATA_PR_VERSION | APIモード時必須 | latest | CLIとAPIサーバーのバージョン整合性チェック用。APIモード時にHTTPヘッダ `X-Aikata-Version` としてAPIサーバーに送信される。不一致時は409エラー | なし（環境変数のみ） | - |
 | AI | AI_API_KEY | ローカルモード時必須 | - | AI APIキー（秘密情報）。AI_API_ENDPOINT_URL、AI_MODEL_NAMEと共に全て設定するとローカルモードで動作 | なし（環境変数のみ） | - |
 | AI | AI_API_ENDPOINT_URL | ローカルモード時必須 | - | AI APIエンドポイントURL。AI_API_KEY、AI_MODEL_NAMEと共に全て設定するとローカルモードで動作 | なし（環境変数のみ） | - |
 | AI | AI_MODEL_NAME | ローカルモード時必須 | - | AIモデル名。AI_API_KEY、AI_API_ENDPOINT_URLと共に全て設定するとローカルモードで動作 | --ai-model-name | - |
@@ -42,6 +43,7 @@ APIサーバー（`docker/prod/docker-compose.yml`）で設定する環境変数
 
 | カテゴリ | 変数名 | 必須 | 既定値 | 主な制御内容 |
 | --- | --- | --- | --- | --- |
+| バージョン | AIKATA_PR_VERSION | Yes | - | APIサーバーのバージョン。CLI側から送信される `X-Aikata-Version` ヘッダと照合し、不一致時は409 Conflictを返す |
 | AI | AI_API_KEY | Yes | - | AI APIキー（APIサーバー側で一元管理） |
 | AI | AI_API_ENDPOINT_URL | Yes | - | AI APIエンドポイントURL |
 | AI | AI_MODEL_NAME | Yes | - | AIモデル名 |

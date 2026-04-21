@@ -77,6 +77,9 @@ export interface PipelineReportProgressEvent {
 /** APIサーバーがレスポンスヘッダで返すリクエストID用ヘッダ名 */
 export const REQUEST_ID_HEADER = 'X-Request-Id';
 
+/** CLI→APIサーバ間のバージョン伝達に使用するHTTPヘッダ名 */
+export const VERSION_HEADER = 'X-Aikata-Version';
+
 /**
  * PipelineReportApiClient のハンドラ定義。
  *
@@ -108,6 +111,8 @@ export interface PipelineReportApiClientConfig {
   baseUrl: string;
   /** JWTトークン。null の場合は Authorization ヘッダを付与しない（dev/debug用） */
   jwt: string | null;
+  /** CLIのバージョン（AIKATA_PR_VERSION）。APIサーバー側でバージョン整合性チェックに使用 */
+  version: string;
 }
 
 /**
@@ -125,10 +130,12 @@ export interface PipelineReportApiClientConfig {
 export class PipelineReportApiClient {
   private readonly baseUrl: string;
   private readonly jwt: string | null;
+  private readonly version: string;
 
   constructor(config: PipelineReportApiClientConfig) {
     this.baseUrl = config.baseUrl;
     this.jwt = config.jwt;
+    this.version = config.version;
   }
 
   /**
@@ -147,6 +154,7 @@ export class PipelineReportApiClient {
     // jwt が null の場合は Authorization ヘッダを付与しない
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      [VERSION_HEADER]: this.version,
     };
     if (this.jwt !== null) {
       headers['Authorization'] = `Bearer ${this.jwt}`;

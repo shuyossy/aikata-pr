@@ -306,12 +306,18 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
       }
     } else {
       // === APIモード ===
+      const aikataVersion = env['AIKATA_PR_VERSION'];
+      if (!aikataVersion) {
+        throw new Error('Missing required environment variable: AIKATA_PR_VERSION');
+      }
+
       const apiDeps = runOptions.apiDeps ?? defaultApiDeps;
       const apiRequest = buildPipelineReportApiRequest(parsed, validated, settings);
 
       const client = apiDeps.createClient({
         baseUrl: validated.aikataApiUrl!,
         jwt: validated.aikataJwt ?? null,
+        version: aikataVersion,
       });
 
       const result = await client.run(apiRequest, {

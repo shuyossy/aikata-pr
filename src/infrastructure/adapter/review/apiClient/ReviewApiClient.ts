@@ -71,8 +71,11 @@ export interface ReviewProgressEvent {
   message?: string;
 }
 
-/** APIサーバーがレスポンスヘッダで返すリクエストID用ヘッダ名 */
+/** APIサーバー���レスポンスヘッダで返すリクエストID用ヘッダ名 */
 export const REQUEST_ID_HEADER = 'X-Request-Id';
+
+/** CLI→APIサーバ間のバージョン伝達に使用するHTTPヘッダ名 */
+export const VERSION_HEADER = 'X-Aikata-Version';
 
 /**
  * CLI→APIサーバー間のSSEクライアント
@@ -82,10 +85,12 @@ export const REQUEST_ID_HEADER = 'X-Request-Id';
 export class ReviewApiClient {
   private readonly apiUrl: string;
   private readonly jwtToken: string;
+  private readonly version: string;
 
-  constructor(apiUrl: string, jwtToken: string) {
+  constructor(apiUrl: string, jwtToken: string, version: string) {
     this.apiUrl = apiUrl;
     this.jwtToken = jwtToken;
+    this.version = version;
   }
 
   /**
@@ -109,6 +114,7 @@ export class ReviewApiClient {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.jwtToken}`,
+        [VERSION_HEADER]: this.version,
       },
       body: JSON.stringify(request),
     });

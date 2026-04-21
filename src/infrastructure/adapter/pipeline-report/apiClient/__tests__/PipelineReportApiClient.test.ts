@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   PipelineReportApiClient,
+  VERSION_HEADER,
   type PipelineReportApiRequest,
   type PipelineReportApiResult,
   type PipelineReportProgressEvent,
@@ -46,6 +47,7 @@ describe('PipelineReportApiClient', () => {
   const mockFetch = vi.fn();
   const BASE_URL = 'https://api.example.com';
   const JWT_TOKEN = 'test-jwt-token';
+  const VERSION = '1.2.3';
 
   // テスト用リクエスト
   const testRequest: PipelineReportApiRequest = {
@@ -113,7 +115,11 @@ describe('PipelineReportApiClient', () => {
     ]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
     const result = await client.run(testRequest, createHandlers());
 
     expect(result).toEqual(testResult);
@@ -134,7 +140,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
     await client.run(testRequest, handlers);
 
     expect(handlers.onProgress).toHaveBeenCalledTimes(3);
@@ -155,7 +165,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
     await client.run(testRequest, handlers);
 
     expect(handlers.onProgress).toHaveBeenCalledWith(workflowEvent);
@@ -169,7 +183,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
 
     await expect(client.run(testRequest, handlers)).rejects.toThrow(
       'Pipeline report API error: Pipeline analysis failed',
@@ -190,7 +208,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
     const result = await client.run(testRequest, handlers);
 
     expect(handlers.onProgress).not.toHaveBeenCalled();
@@ -202,7 +224,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(createErrorResponse(400, errorBody));
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
 
     await expect(client.run(testRequest, handlers)).rejects.toThrow(
       `Pipeline report API request failed with status 400: ${errorBody}`,
@@ -215,7 +241,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(createErrorResponse(401, errorBody));
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
 
     await expect(client.run(testRequest, handlers)).rejects.toThrow(
       `Pipeline report API request failed with status 401: ${errorBody}`,
@@ -230,7 +260,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
 
     await expect(client.run(testRequest, handlers)).rejects.toThrow(
       'SSE stream ended without result event',
@@ -242,7 +276,11 @@ describe('PipelineReportApiClient', () => {
     const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
     await client.run(testRequest, createHandlers());
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -250,6 +288,7 @@ describe('PipelineReportApiClient', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        [VERSION_HEADER]: VERSION,
         Authorization: `Bearer ${JWT_TOKEN}`,
       },
       body: JSON.stringify(testRequest),
@@ -260,13 +299,30 @@ describe('PipelineReportApiClient', () => {
     const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
     mockFetch.mockResolvedValueOnce(sseResponse);
 
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: null });
+    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: null, version: VERSION });
     await client.run(testRequest, createHandlers());
 
     const call = mockFetch.mock.calls[0]!;
     const headers = (call[1] as { headers: Record<string, string> }).headers;
     expect(headers).not.toHaveProperty('Authorization');
     expect(headers).toHaveProperty('Content-Type', 'application/json');
+    expect(headers).toHaveProperty(VERSION_HEADER, VERSION);
+  });
+
+  it('X-Aikata-Versionヘッダがリクエストに含まれること', async () => {
+    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
+    mockFetch.mockResolvedValueOnce(sseResponse);
+
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
+    await client.run(testRequest, createHandlers());
+
+    const call = mockFetch.mock.calls[0]!;
+    const headers = (call[1] as { headers: Record<string, string> }).headers;
+    expect(headers[VERSION_HEADER]).toBe(VERSION);
   });
 
   it('レスポンスボディが空の場合にエラーがスローされること', async () => {
@@ -277,7 +333,11 @@ describe('PipelineReportApiClient', () => {
     });
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
 
     await expect(client.run(testRequest, handlers)).rejects.toThrow('Response body is empty');
     expect(handlers.onError).toHaveBeenCalled();
@@ -290,7 +350,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
 
     await expect(client.run(testRequest, handlers)).rejects.toThrow(
       'Pipeline report API error: Unknown error',
@@ -309,7 +373,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
     await client.run(testRequest, handlers);
 
     expect(handlers.onRequestId).toHaveBeenCalledTimes(1);
@@ -321,7 +389,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
     await client.run(testRequest, handlers);
 
     expect(handlers.onRequestId).not.toHaveBeenCalled();
@@ -335,7 +407,11 @@ describe('PipelineReportApiClient', () => {
     );
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
 
     await expect(client.run(testRequest, handlers)).rejects.toThrow(
       /Pipeline report API request failed with status 500/,
@@ -363,7 +439,11 @@ describe('PipelineReportApiClient', () => {
     );
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
     const result = await client.run(testRequest, handlers);
 
     expect(handlers.onProgress).toHaveBeenCalledWith({ status: 'started' });
@@ -375,7 +455,11 @@ describe('PipelineReportApiClient', () => {
     mockFetch.mockResolvedValueOnce(sseResponse);
 
     const handlers = createHandlers();
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
+    const client = new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+    });
 
     await expect(client.run(testRequest, handlers)).rejects.toThrow(
       /Failed to parse SSE event data/,

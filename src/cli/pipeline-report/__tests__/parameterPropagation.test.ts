@@ -74,6 +74,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
     delete process.env['SKILLS_PATH'];
     delete process.env['TREE_MAX_DEPTH'];
     delete process.env['PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK'];
+    delete process.env['AIKATA_PR_VERSION'];
 
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`process.exit:${code}`);
@@ -462,6 +463,10 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
   });
 
   describe('APIモード', () => {
+    beforeEach(() => {
+      process.env['AIKATA_PR_VERSION'] = 'latest';
+    });
+
     it('CLI 引数・設定ファイルの全フィールドが PipelineReportApiRequest に伝播する', async () => {
       const settingsPath = writeSettingsFile();
       const resultFilePath = path.join(tmpDir, 'api-report.md');

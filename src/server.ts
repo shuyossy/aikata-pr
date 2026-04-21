@@ -4,6 +4,7 @@ import { createJwtAuthMiddleware } from './infrastructure/adapter/auth/index.js'
 import type { JwtAuthEnv } from './infrastructure/adapter/auth/index.js';
 import {
   createRequestIdMiddleware,
+  createVersionCheckMiddleware,
   reviewApiModule,
   pipelineReportApiModule,
 } from './presentation/api/index.js';
@@ -67,6 +68,7 @@ export interface ServerDeps {
  */
 export function createApp(
   deps: ServerDeps,
+  serverVersion: string,
   jwtConfig?: JwtConfig,
 ): Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv> {
   const app = new Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv>();
@@ -75,8 +77,11 @@ export function createApp(
   // X-Request-Idヘッダがあれば継承、無ければUUID v4を生成
   app.use('*', createRequestIdMiddleware());
 
-  // ヘルスチェック（認証不要）
+  // ヘルスチェック（認証不要・バージョンチェック不要）
   app.get('/health', (c) => c.json({ status: 'ok' }));
+
+  // バージョンチェックミドルウェ��（APIルートのみ。requestIdの後に配置し、エラー応答にもrequestIdが付与される）
+  app.use('/api/*', createVersionCheckMiddleware(serverVersion));
 
   // JWT認証ミドルウェア
   if (jwtConfig) {
@@ -123,6 +128,7 @@ export async function startServer(): Promise<void> {
   const logger = getLogger();
 
   // 必須環境変数の取得
+  const serverVersion = requireEnv('AIKATA_PR_VERSION');
   const aiApiKey = requireEnv('AI_API_KEY');
   const aiApiEndpointUrl = requireEnv('AI_API_ENDPOINT_URL');
   const gitlabApiBaseUrl =
@@ -241,7 +247,7 @@ export async function startServer(): Promise<void> {
     );
   }
 
-  const app = createApp(deps, jwtConfig);
+  const app = createApp(deps, serverVersion, jwtConfig);
 
   // サーバー起動
   const port = Number(process.env['API_PORT'] ?? '3000');

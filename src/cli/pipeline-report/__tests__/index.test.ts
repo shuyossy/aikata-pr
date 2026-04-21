@@ -39,6 +39,7 @@ describe('pipeline-report CLI module', () => {
     delete process.env['MAX_CONTEXT_LENGTH'];
     delete process.env['OPENAI_REASONING_EFFORT'];
     delete process.env['CI_PROJECT_DIR'];
+    delete process.env['AIKATA_PR_VERSION'];
 
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`process.exit:${code}`);
@@ -232,6 +233,10 @@ describe('pipeline-report CLI module', () => {
   });
 
   describe('APIモード', () => {
+    beforeEach(() => {
+      process.env['AIKATA_PR_VERSION'] = 'latest';
+    });
+
     it('client.run が呼ばれ結果が resultFile に書き込まれる', async () => {
       const resultFilePath = path.join(tmpDir, 'api-report.md');
       const fakeApiResult: PipelineReportApiResult = {
