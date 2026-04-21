@@ -6,6 +6,15 @@ import path from 'node:path';
 import { GitLabApiClient } from '../../../httpClient/GitLabApiClient.js';
 import { GitLabPipelineGateway } from '../GitLabPipelineGateway.js';
 
+// GitLabApiClientのリトライ時の待機をスキップ
+vi.mock('../../../../../lib/rateLimitRetry.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../../lib/rateLimitRetry.js')>();
+  return {
+    ...actual,
+    sleep: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 /**
  * GitLabPipelineGateway のテスト
  * 実装の `GitLabApiClient` と組み合わせ、`global.fetch` をスタブしてリクエスト URL / ヘッダ
@@ -288,7 +297,8 @@ describe('GitLabPipelineGateway', () => {
     });
 
     it('HTTPエラーの場合、エラーを伝播する', async () => {
-      mockFetch.mockResolvedValueOnce({
+      // 5xxはリトライされるため、全リトライ分のレスポンスを返す
+      mockFetch.mockResolvedValue({
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',

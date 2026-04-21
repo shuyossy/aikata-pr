@@ -2,11 +2,32 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GitLabApiClient } from '../GitLabApiClient.js';
 import { GitLabApiError } from '../GitLabApiError.js';
 
+// sleepをモックして実際の待機を回避
+vi.mock('../../../../lib/rateLimitRetry.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../lib/rateLimitRetry.js')>();
+  return {
+    ...actual,
+    sleep: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+// loggerをモックしてログ出力をキャプチャ（シングルトン）
+const mockLogger = {
+  warn: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+};
+vi.mock('../../../../lib/logger.js', () => ({
+  getLogger: () => mockLogger,
+}));
+
 describe('GitLabApiClient', () => {
   const mockFetch = vi.fn();
 
   beforeEach(() => {
     mockFetch.mockReset();
+    mockLogger.warn.mockReset();
     vi.stubGlobal('fetch', mockFetch);
   });
 
@@ -87,7 +108,8 @@ describe('GitLabApiClient', () => {
   });
 
   it('POSTリクエストでHTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
-    mockFetch.mockResolvedValueOnce(
+    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
+    mockFetch.mockResolvedValue(
       createErrorResponse(500, 'Internal Server Error', '{"error":"something went wrong"}'),
     );
 
@@ -100,7 +122,8 @@ describe('GitLabApiClient', () => {
 
   it('エラー時にレスポンスボディがGitLabApiErrorに含まれる', async () => {
     const errorBody = '{"message":"Something went wrong","details":"internal error"}';
-    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error', errorBody));
+    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
+    mockFetch.mockResolvedValue(createErrorResponse(500, 'Internal Server Error', errorBody));
 
     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
@@ -118,7 +141,8 @@ describe('GitLabApiClient', () => {
   });
 
   it('5xxエラー時に誘導メッセージがエラーメッセージに含まれる', async () => {
-    mockFetch.mockResolvedValueOnce(
+    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
+    mockFetch.mockResolvedValue(
       createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
     );
 
@@ -139,7 +163,8 @@ describe('GitLabApiClient', () => {
 
   it('POSTエラー時にリクエストボディがGitLabApiErrorに含まれる', async () => {
     const requestBody = { body: 'comment text', position: { new_line: 10 } };
-    mockFetch.mockResolvedValueOnce(
+    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
+    mockFetch.mockResolvedValue(
       createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
     );
 
@@ -157,7 +182,8 @@ describe('GitLabApiClient', () => {
   });
 
   it('PUTエラー時にリクエストボディがGitLabApiErrorに含まれる', async () => {
-    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error', ''));
+    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
+    mockFetch.mockResolvedValue(createErrorResponse(500, 'Internal Server Error', ''));
 
     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
@@ -250,7 +276,8 @@ describe('GitLabApiClient', () => {
     });
 
     it('HTTPステータス500でGitLabApiErrorがスローされる', async () => {
-      mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
+      // 5xxはリトライされるため、全リトライ分のレスポンスを返す
+      mockFetch.mockResolvedValue(createErrorResponse(500, 'Internal Server Error'));
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
@@ -370,7 +397,8 @@ describe('GitLabApiClient', () => {
     });
 
     it('PUTリクエストでHTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
-      mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
+      // 5xxはリトライされるため、全リトライ分のレスポンスを返す
+      mockFetch.mockResolvedValue(createErrorResponse(500, 'Internal Server Error'));
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
 
@@ -452,6 +480,210 @@ describe('GitLabApiClient', () => {
 
       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
       await expect(client.getAll('/projects/1/notes')).rejects.toThrow(GitLabApiError);
+    });
+  });
+
+  describe('リトライ', () => {
+    // ヘルパー: ページネーション付きレスポンスを生成
+    const createPageResponse = (body: unknown, nextUrl?: string) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: () => Promise.resolve(body),
+      headers: {
+        get: (name: string) => {
+          if (name === 'link' && nextUrl) {
+            return `<${nextUrl}>; rel="next"`;
+          }
+          return null;
+        },
+      },
+    });
+
+    it('5xxエラーが3回リトライされた後にスローされる（fetchが合計4回呼ばれる）', async () => {
+      mockFetch.mockResolvedValue(
+        createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
+      );
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+      await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
+      // 初回 + 3回リトライ = 合計4回
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    it('429エラーがリトライされる', async () => {
+      mockFetch.mockResolvedValue(
+        createErrorResponse(429, 'Too Many Requests', '{"message":"rate limit exceeded"}'),
+      );
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+      await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
+      // 初回 + 3回リトライ = 合計4回
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    it('4xx（429以外）はリトライされない', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createErrorResponse(404, 'Not Found', '{"message":"404 Not Found"}'),
+      );
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+      await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
+      // リトライなし: 1回のみ
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('401はリトライされない', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createErrorResponse(401, 'Unauthorized', '{"message":"401 Unauthorized"}'),
+      );
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+      await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('ネットワークエラー（TypeError）がリトライされる', async () => {
+      mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+
+      await expect(client.get('/projects/1')).rejects.toThrow(TypeError);
+      // 初回 + 3回リトライ = 合計4回
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    it('GETリクエストで2回目のリトライで成功した場合、正常な結果が返る', async () => {
+      const responseData = { id: 1, name: 'test' };
+      mockFetch
+        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
+        .mockResolvedValueOnce(createOkResponse(responseData));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      const result = await client.get('/projects/1');
+
+      expect(result).toEqual(responseData);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('POSTリクエストでリトライ後に成功する', async () => {
+      const responseData = { id: 10, body: 'comment' };
+      mockFetch
+        .mockResolvedValueOnce(createErrorResponse(502, 'Bad Gateway'))
+        .mockResolvedValueOnce(createOkResponse(responseData));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      const result = await client.post('/projects/1/notes', { body: 'comment' });
+
+      expect(result).toEqual(responseData);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('PUTリクエストでリトライ後に成功する', async () => {
+      const responseData = { id: 'disc-1', resolved: true };
+      mockFetch
+        .mockResolvedValueOnce(createErrorResponse(503, 'Service Unavailable'))
+        .mockResolvedValueOnce(createOkResponse(responseData));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      const result = await client.put('/projects/1/discussions/disc-1', { resolved: true });
+
+      expect(result).toEqual(responseData);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('getTextでリトライ後に成功する', async () => {
+      const createOkTextResponse = (body: string) => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: () => Promise.resolve(body),
+      });
+
+      mockFetch
+        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
+        .mockResolvedValueOnce(createOkTextResponse('trace output'));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      const result = await client.getText('/projects/1/jobs/42/trace');
+
+      expect(result).toBe('trace output');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('getResponseでリトライ後に成功する', async () => {
+      const okResponse = {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        body: null,
+        headers: { get: () => null },
+      };
+
+      mockFetch
+        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
+        .mockResolvedValueOnce(okResponse);
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      const response = await client.getResponse('/projects/1/jobs/42/artifacts');
+
+      expect(response.status).toBe(200);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('getAllの個別ページでリトライ後に成功する', async () => {
+      const nextUrl = 'https://gitlab.example.com/api/v4/projects/1/notes?per_page=100&page=2';
+
+      mockFetch
+        // 1ページ目: 成功
+        .mockResolvedValueOnce(createPageResponse([{ id: 1 }], nextUrl))
+        // 2ページ目: 1回目失敗
+        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
+        // 2ページ目: 2回目成功
+        .mockResolvedValueOnce(createPageResponse([{ id: 2 }]));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      const result = await client.getAll('/projects/1/notes');
+
+      expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+      // 1ページ目(1回) + 2ページ目(失敗1回 + 成功1回) = 合計3回
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('ネットワークエラー後に成功した場合、正常な結果が返る', async () => {
+      const responseData = { id: 1 };
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockResolvedValueOnce(createOkResponse(responseData));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      const result = await client.get('/projects/1');
+
+      expect(result).toEqual(responseData);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('リトライ時に警告ログが出力される', async () => {
+      mockFetch
+        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
+        .mockResolvedValueOnce(createOkResponse({ id: 1 }));
+
+      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+      await client.get('/projects/1');
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attempt: 1,
+          maxRetries: 3,
+          method: 'GET',
+          path: '/projects/1',
+        }),
+        expect.stringContaining('GitLab API request failed, retrying after'),
+      );
     });
   });
 });
