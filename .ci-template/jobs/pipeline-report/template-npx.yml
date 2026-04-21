@@ -1,10 +1,10 @@
-# .ci-template/pipelines/pipeline-report/template-npx.yml
+# .ci-template/jobs/pipeline-report/template-npx.yml
 # 提供先プロジェクトで include して利用するCIテンプレート（npx方式、pipeline-report機能）
 #
 # 使い方:
 #   include:
 #     - project: '<本プロジェクトのパス>'
-#       file: '.ci-template/pipelines/pipeline-report/template-npx.yml'
+#       file: '.ci-template/jobs/pipeline-report/template-npx.yml'
 
 include:
   - local: '.ci-template/variable/variables.yml'

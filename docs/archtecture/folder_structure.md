@@ -9,12 +9,13 @@
   pipelines/
     template.yml            # ファサード（既存ユーザ向け後方互換、review をinclude）
     template-npx.yml        # ファサード（npx方式）
+  jobs/
     review/
-      template.yml          # review機能の実体（Docker方式）
-      template-npx.yml      # review機能の実体（npx方式）
+      template.yml          # review機能のジョブ定義（Docker方式）
+      template-npx.yml      # review機能のジョブ定義（npx方式）
     pipeline-report/
-      template.yml          # pipeline-report機能の実体（Docker方式）
-      template-npx.yml      # pipeline-report機能の実体（npx方式）
+      template.yml          # pipeline-report機能のジョブ定義（Docker方式）
+      template-npx.yml      # pipeline-report機能のジョブ定義（npx方式）
   variable/
     variables.yml           # ファサード（shared.yml + review.yml + pipeline-report.yml をinclude）
     shared.yml              # 全機能横断のCI変数デフォルト

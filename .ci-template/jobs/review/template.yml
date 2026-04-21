@@ -1,10 +1,10 @@
-# .ci-template/pipelines/review/template.yml
+# .ci-template/jobs/review/template.yml
 # 提供先プロジェクトで include して利用するCIテンプレート（Docker方式、review機能）
 #
 # 使い方:
 #   include:
 #     - project: '<本プロジェクトのパス>'
-#       file: '.ci-template/pipelines/review/template.yml'
+#       file: '.ci-template/jobs/review/template.yml'
 
 include:
   - local: '.ci-template/variable/variables.yml'

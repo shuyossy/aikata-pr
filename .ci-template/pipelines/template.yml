@@ -10,7 +10,7 @@
 # 新規ユーザは機能別ファイルを直接includeすることを推奨:
 #   include:
 #     - project: '<本プロジェクトのパス>'
-#       file: '.ci-template/pipelines/review/template.yml'
+#       file: '.ci-template/jobs/review/template.yml'
 
 include:
-  - local: '.ci-template/pipelines/review/template.yml'
+  - local: '.ci-template/jobs/review/template.yml'

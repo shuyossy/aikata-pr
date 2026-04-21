@@ -2,7 +2,7 @@ pipeline-report 機能（CI パイプライン結果の AI 分析レポート生
 
 # 業務フロー（本プロジェクトを利用するユーザ目線）
 1. 任意で `pipeline-report-settings.json`（`jobReportFormat`, `analysisInstructions`, `reportRefinementInstructions`, `includeJobPatterns`, `excludeJobPatterns`）を準備する
-2. `.gitlab-ci.yml` で `.ci-template/pipelines/pipeline-report/template.yml`（または `template-npx.yml`）を `include` する
+2. `.gitlab-ci.yml` で `.ci-template/jobs/pipeline-report/template.yml`（または `template-npx.yml`）を `include` する
    - 本ジョブは `.post` ステージで `when: always` のため、成功ジョブ・失敗ジョブを問わず同一パイプライン内の全ジョブが終了した後に実行される
 3. ジョブ実行後、生成された `aikata-pipeline-report.md` が artifacts として残る
    - ジョブのログ末尾にも同じ Markdown が出力されるため、GitLab UI 上からすぐ確認できる

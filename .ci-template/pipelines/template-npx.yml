@@ -10,7 +10,7 @@
 # 新規ユーザは機能別ファイルを直接includeすることを推奨:
 #   include:
 #     - project: '<本プロジェクトのパス>'
-#       file: '.ci-template/pipelines/review/template-npx.yml'
+#       file: '.ci-template/jobs/review/template-npx.yml'
 
 include:
-  - local: '.ci-template/pipelines/review/template-npx.yml'
+  - local: '.ci-template/jobs/review/template-npx.yml'

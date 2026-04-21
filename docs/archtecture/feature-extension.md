@@ -26,7 +26,7 @@
 1. 機能固有のドメイン・アプリケーション・Mastra・プレゼンテーション層コードを各レイヤーの `<feature>/` サブフォルダに配置する
 2. CLIモジュール (`<feature>CliModule`) と APIモジュール (`<feature>ApiModule`) を定義する
 3. `src/cli/dispatch.ts` の `defaultFeatures` 配列と `src/server.ts` の `apiFeatures` 配列に追加する
-4. `.ci-template/pipelines/<feature>/` にパイプライン定義を置く
+4. `.ci-template/jobs/<feature>/` にジョブ定義を置く
 5. `.ci-template/variable/<feature>.yml` に機能固有の変数を置く
 6. `docs/domain/<feature>/` に機能別ドキュメントを置く
 
@@ -119,7 +119,7 @@ depsはHonoコンテキスト経由でリクエストハンドラに流すため
 
 ### 5. CIテンプレート
 
-- `.ci-template/pipelines/myfeature/template.yml` と `template-npx.yml` を作成
+- `.ci-template/jobs/myfeature/template.yml` と `template-npx.yml` を作成
 - `.ci-template/variable/myfeature.yml` を作成（機能固有の変数）
 - 全機能で共通する変数は `.ci-template/variable/shared.yml` に置く
 - 既存ユーザ向けに `.ci-template/pipelines/template.yml` ファサードに `myfeature` をincludeするかどうかは要検討（機能ごとに独立したテンプレートファサードを作る方が無難）
