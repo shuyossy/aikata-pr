@@ -14,7 +14,7 @@ stages:
 
 aikata-pipeline-report:
   stage: .post
-  image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
+  image: ${AIKATA_IMAGE}:${AIKATA_PR_VERSION}
   # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
   # ローカル実行モード（上記3変数が全て設定されている場合）ではJWTは使用されない
   id_tokens:

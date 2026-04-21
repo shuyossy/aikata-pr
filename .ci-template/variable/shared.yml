@@ -1,6 +1,8 @@
 # .ci-template/variable/shared.yml
 # 全機能共通のCI変数デフォルト値
 variables:
+  # VERSION
+  AIKATA_PR_VERSION: "latest"
   # GitLab
   GITLAB_API_URL: ""
   AIKATA_PR_GITLAB_TOKEN: ""
@@ -19,9 +21,7 @@ variables:
   AIKATA_API_URL: ""
   # Container Image（Docker方式用）
   AIKATA_IMAGE: ""
-  AIKATA_IMAGE_TAG: "latest"
   # npm（npx方式用）
   AIKATA_PROJECT_ID: ""
-  AIKATA_VERSION: "latest"
   # Context Length（AI全般で使う可能性）
   MAX_CONTEXT_LENGTH: ""
