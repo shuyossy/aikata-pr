@@ -1,338 +1,1637 @@
+diff --git a/.ci-template/pipelines/pipeline-report/template-npx.yml b/.ci-template/pipelines/pipeline-report/template-npx.yml
+index 2586c41..84c8930 100644
+--- a/.ci-template/pipelines/pipeline-report/template-npx.yml
++++ b/.ci-template/pipelines/pipeline-report/template-npx.yml
+@@ -18,7 +18,7 @@ aikata-pipeline-report:
+   variables:
+     NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+   cache:
+-    key: "aikata-pr-v${AIKATA_VERSION}"
++    key: "aikata-pr-v${AIKATA_PR_VERSION}"
+     paths:
+       - .npm/
+   # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
+@@ -43,7 +43,7 @@ aikata-pipeline-report:
+     - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${AIKATA_PR_GITLAB_TOKEN}" >> .npmrc
+     # npx経由でaikata-prを実行（pipeline-reportサブコマンド、キャッシュによりバージョンが同じ場合は高速）
+     - |
+-      npx @aikata/aikata-pr@${AIKATA_VERSION} pipeline-report \
++      npx @aikata/aikata-pr@${AIKATA_PR_VERSION} pipeline-report \
+         --user-id "${USER_ID}" \
+         --project-id "${GITLAB_PROJECT_ID}" \
+         --pipeline-id "${GITLAB_PIPELINE_ID}" \
+diff --git a/.ci-template/pipelines/pipeline-report/template.yml b/.ci-template/pipelines/pipeline-report/template.yml
+index e3a17c1..fc0b0fb 100644
+--- a/.ci-template/pipelines/pipeline-report/template.yml
++++ b/.ci-template/pipelines/pipeline-report/template.yml
+@@ -14,7 +14,7 @@ stages:
+ 
+ aikata-pipeline-report:
+   stage: .post
+-  image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
++  image: ${AIKATA_IMAGE}:${AIKATA_PR_VERSION}
+   # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
+   # ローカル実行モード（上記3変数が全て設定されている場合）ではJWTは使用されない
+   id_tokens:
+diff --git a/.ci-template/pipelines/review/template-npx.yml b/.ci-template/pipelines/review/template-npx.yml
+index f513857..f3950e9 100644
+--- a/.ci-template/pipelines/review/template-npx.yml
++++ b/.ci-template/pipelines/review/template-npx.yml
+@@ -18,7 +18,7 @@ aikata-pr-review:
+   variables:
+     NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+   cache:
+-    key: "aikata-pr-v${AIKATA_VERSION}"
++    key: "aikata-pr-v${AIKATA_PR_VERSION}"
+     paths:
+       - .npm/
+   # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
+@@ -49,7 +49,7 @@ aikata-pr-review:
+     - echo "//${CI_SERVER_HOST}/api/v4/projects/${AIKATA_PROJECT_ID}/packages/npm/:_authToken=${AIKATA_PR_GITLAB_TOKEN}" >> .npmrc
+     # npx経由でaikata-prを実行（reviewサブコマンド、キャッシュによりバージョンが同じ場合は高速）
+     - |
+-      npx @aikata/aikata-pr@${AIKATA_VERSION} review \
++      npx @aikata/aikata-pr@${AIKATA_PR_VERSION} review \
+         --user-id "${USER_ID}" \
+         --project-id "${GITLAB_PROJECT_ID}" \
+         --mr-iid "${GITLAB_MR_IID}" \
+diff --git a/.ci-template/pipelines/review/template.yml b/.ci-template/pipelines/review/template.yml
+index b321cad..45a28db 100644
+--- a/.ci-template/pipelines/review/template.yml
++++ b/.ci-template/pipelines/review/template.yml
+@@ -14,7 +14,7 @@ stages:
+ 
+ aikata-pr-review:
+   stage: review
+-  image: ${AIKATA_IMAGE}:${AIKATA_IMAGE_TAG}
++  image: ${AIKATA_IMAGE}:${AIKATA_PR_VERSION}
+   # JWT生成: APIモード時（AI_API_KEY, AI_API_ENDPOINT_URL, AI_MODEL_NAMEが全て未設定の場合）にGitLabがJWTを発行する
+   # ローカル実行モード（上記3変数が全て設定されている場合）ではJWTは使用されない
+   id_tokens:
+diff --git a/.ci-template/variable/shared.yml b/.ci-template/variable/shared.yml
+index d3dde6a..33460d9 100644
+--- a/.ci-template/variable/shared.yml
++++ b/.ci-template/variable/shared.yml
+@@ -1,6 +1,8 @@
+ # .ci-template/variable/shared.yml
+ # 全機能共通のCI変数デフォルト値
+ variables:
++  # VERSION
++  AIKATA_PR_VERSION: "latest"
+   # GitLab
+   GITLAB_API_URL: ""
+   AIKATA_PR_GITLAB_TOKEN: ""
+@@ -19,9 +21,7 @@ variables:
+   AIKATA_API_URL: ""
+   # Container Image（Docker方式用）
+   AIKATA_IMAGE: ""
+-  AIKATA_IMAGE_TAG: "latest"
+   # npm（npx方式用）
+   AIKATA_PROJECT_ID: ""
+-  AIKATA_VERSION: "latest"
+   # Context Length（AI全般で使う可能性）
+   MAX_CONTEXT_LENGTH: ""
+diff --git a/.env.example b/.env.example
+index cb0918f..2cc6118 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,3 +1,6 @@
++# Version (CLI/APIサーバー間のバージョン整合性チェック用)
++# AIKATA_PR_VERSION=latest
++
+ # AI
+ AI_API_KEY=your-api-key
+ AI_API_ENDPOINT_URL=https://api.example.com/v1
 diff --git a/PBI.md b/PBI.md
-index 9268818..24d5436 100644
+index 24d5436..f097efa 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -47,15 +47,4 @@
-   - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
-     - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
- - 指摘事項（in progressの場合のみ）
--  - suggestやチェック結果をMRに投稿する際のフォーマット変更
--    - 以下の様なフォーマットとする（`---`での区切りを追加）
--    ```
--    <${ヘッダ1}>
--    ${項目1}
--    ---
--    <${ヘッダ2}>
--    ${項目2}
--    ---
--    ```
--      - suggest時`---`がMDとしてレンダリングされない様に注意する
--    - suggest時、チェック項目のフォーマットが<br>等で改行されていないため、1行に長く伸びている様な見た目でレンダリングされてしまっている問題の解決
-+  - MR discussion投稿時にパスが/dev/nullで決め打ちされることがあり、この場合500エラーで失敗する
-diff --git a/changes.patch b/changes.patch
-index 8a2bd2b..e69de29 100644
---- a/changes.patch
-+++ b/changes.patch
-@@ -1,213 +0,0 @@
--diff --git a/PBI.md b/PBI.md
--index 05d681d..9268818 100644
----- a/PBI.md
--+++ b/PBI.md
--@@ -47,5 +47,15 @@
--   - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
--     - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
-- - 指摘事項（in progressの場合のみ）
---  - 長大な行の変更の場合、discussionの作成時にエラーになる
---    - 横展開として、suggestプロセス全体を見直し、長大な行の変更sugggestの場合でも問題なく動作するか良く確認すること
--+  - suggestやチェック結果をMRに投稿する際のフォーマット変更
--+    - 以下の様なフォーマットとする（`---`での区切りを追加）
--+    ```
--+    <${ヘッダ1}>
--+    ${項目1}
--+    ---
--+    <${ヘッダ2}>
--+    ${項目2}
--+    ---
--+    ```
--+      - suggest時`---`がMDとしてレンダリングされない様に注意する
--+    - suggest時、チェック項目のフォーマットが<br>等で改行されていないため、1行に長く伸びている様な見た目でレンダリングされてしまっている問題の解決
--diff --git a/src/application/shared/comment/SuggestCommentFormatter.ts b/src/application/shared/comment/SuggestCommentFormatter.ts
--index f3b23f4..bd5016c 100644
----- a/src/application/shared/comment/SuggestCommentFormatter.ts
--+++ b/src/application/shared/comment/SuggestCommentFormatter.ts
--@@ -24,7 +24,8 @@ export class SuggestCommentFormatter {
--     })}${SUGGEST_DATA_SUFFIX}`;
-- 
--     const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);
---    const header = `**チェック項目:** ${displayContent}`;
--+    const escapedDisplayContent = displayContent.replace(/\n/g, '<br>');
--+    const header = `**チェック項目:**<br>${escapedDisplayContent}`;
--     const comment = resolved.suggestion.comment;
--     const suggestion =
--       '```suggestion:-' +
--diff --git a/src/application/shared/comment/__tests__/CommentFormatter.test.ts b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
--index 421f8bf..59402bc 100644
----- a/src/application/shared/comment/__tests__/CommentFormatter.test.ts
--+++ b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
--@@ -344,7 +344,7 @@ describe('CommentFormatter', () => {
--       );
-- 
--       expect(output).toContain(
---        '| <カテゴリ><br>セキュリティ<br><チェック項目><br>SQLインジェクション対策 | C | 対策が不十分です |',
--+        '| <カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>--- | C | 対策が不十分です |',
--       );
--     });
--   });
--diff --git a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
--index f25edf6..be0785c 100644
----- a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
--+++ b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
--@@ -83,7 +83,7 @@ describe('SuggestCommentFormatter', () => {
--     it('出力にチェック項目ヘッダーが含まれる', () => {
--       const resolved = createResolvedSuggestion({ checkItemContent: 'コードレビュー項目' });
--       const output = SuggestCommentFormatter.format(resolved);
---      expect(output).toContain('**チェック項目:** コードレビュー項目');
--+      expect(output).toContain('**チェック項目:**<br>コードレビュー項目');
--     });
-- 
--     it('出力にコメントテキストが含まれる', () => {
--@@ -110,14 +110,14 @@ describe('SuggestCommentFormatter', () => {
--       expect(output).toContain('```suggestion:-5+3');
--     });
-- 
---    it('複数列チェック項目が<header>形式で表示される', () => {
--+    it('複数列チェック項目が<header>形式で表示され、<br>で改行される', () => {
--       const resolved = createResolvedSuggestion({
--         checkItemContent:
--           'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
--       });
--       const output = SuggestCommentFormatter.format(resolved);
--       expect(output).toContain(
---        '**チェック項目:** <カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策',
--+        '**チェック項目:**<br><カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>---',
--       );
--     });
-- 
--diff --git a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
--index f2e5fe1..1ef8c58 100644
----- a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
--+++ b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
--@@ -9,7 +9,9 @@ describe('formatCheckItemForDisplay', () => {
-- 
--       const result = formatCheckItemForDisplay(content);
-- 
---      expect(result).toBe('<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策');
--+      expect(result).toBe(
--+        '<カテゴリ>\nセキュリティ\n---\n<チェック項目>\nSQLインジェクション対策\n---',
--+      );
--     });
-- 
--     it('単一列の構造化フォーマットが<header>形式に変換される', () => {
--@@ -17,7 +19,7 @@ describe('formatCheckItemForDisplay', () => {
-- 
--       const result = formatCheckItemForDisplay(content);
-- 
---      expect(result).toBe('<チェック項目>\nコード可読性');
--+      expect(result).toBe('<チェック項目>\nコード可読性\n---');
--     });
-- 
--     it('3列の構造化フォーマットが正しく変換される', () => {
--@@ -27,7 +29,7 @@ describe('formatCheckItemForDisplay', () => {
--       const result = formatCheckItemForDisplay(content);
-- 
--       expect(result).toBe(
---        '<カテゴリ>\nセキュリティ\n<チェック項目>\nSQLインジェクション対策\n<説明>\nバインディング確認',
--+        '<カテゴリ>\nセキュリティ\n---\n<チェック項目>\nSQLインジェクション対策\n---\n<説明>\nバインディング確認\n---',
--       );
--     });
--   });
--@@ -56,7 +58,7 @@ describe('formatCheckItemForDisplay', () => {
-- 
--       const result = formatCheckItemForDisplay(content);
-- 
---      expect(result).toBe('<ヘッダ1>\n行1\n行2\n<ヘッダ2>\n値2');
--+      expect(result).toBe('<ヘッダ1>\n行1\n行2\n---\n<ヘッダ2>\n値2\n---');
--     });
-- 
--     it('値に2連続改行を含む場合も正しく変換される', () => {
--@@ -64,7 +66,7 @@ describe('formatCheckItemForDisplay', () => {
-- 
--       const result = formatCheckItemForDisplay(content);
-- 
---      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n<ヘッダ2>\n値2');
--+      expect(result).toBe('<ヘッダ1>\n行1\n\n行2\n---\n<ヘッダ2>\n値2\n---');
--     });
-- 
--     it('空値の場合も正しく変換される', () => {
--@@ -72,7 +74,7 @@ describe('formatCheckItemForDisplay', () => {
-- 
--       const result = formatCheckItemForDisplay(content);
-- 
---      expect(result).toBe('<ヘッダ1>\n');
--+      expect(result).toBe('<ヘッダ1>\n\n---');
--     });
-- 
--     it('空値を含む複数列の場合も正しく変換される', () => {
--@@ -80,7 +82,7 @@ describe('formatCheckItemForDisplay', () => {
-- 
--       const result = formatCheckItemForDisplay(content);
-- 
---      expect(result).toBe('<ヘッダ1>\n値1\n<ヘッダ2>\n');
--+      expect(result).toBe('<ヘッダ1>\n値1\n---\n<ヘッダ2>\n\n---');
--     });
--   });
-- });
--diff --git a/src/application/shared/comment/formatCheckItemForDisplay.ts b/src/application/shared/comment/formatCheckItemForDisplay.ts
--index 4bec74b..075b3d6 100644
----- a/src/application/shared/comment/formatCheckItemForDisplay.ts
--+++ b/src/application/shared/comment/formatCheckItemForDisplay.ts
--@@ -14,7 +14,7 @@ export function formatCheckItemForDisplay(content: string): string {
--   let match;
-- 
--   while ((match = pattern.exec(content)) !== null) {
---    columns.push(`<${match[1]}>\n${match[2]}`);
--+    columns.push(`<${match[1]}>\n${match[2]}\n---`);
--   }
-- 
--   // 構造化フォーマットが検出されなかった場合はそのまま返す
--diff --git a/src/mastra/review/agents/__tests__/reviewAgent.test.ts b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
--index dbe02f7..85d7d4d 100644
----- a/src/mastra/review/agents/__tests__/reviewAgent.test.ts
--+++ b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
--@@ -432,7 +432,9 @@ describe('buildInstructions', () => {
-- 
--     const result = buildInstructions(requestContext);
-- 
---    expect(result).toContain('4. After storing all review results, generate suggestions');
--+    expect(result).toContain(
--+      '4. After storing all review results, re-read the results from getReviewResults',
--+    );
--     expect(result).toContain('5. Call getSuggests to verify');
--   });
-- 
--diff --git a/src/mastra/review/agents/reviewAgent.ts b/src/mastra/review/agents/reviewAgent.ts
--index 7ee789a..c41c1e7 100644
----- a/src/mastra/review/agents/reviewAgent.ts
--+++ b/src/mastra/review/agents/reviewAgent.ts
--@@ -176,10 +176,11 @@ ${
-- For check items that receive a rating of [${suggestLabelsText}], you MUST generate concrete code suggestions using the storeSuggest tool.
-- 
-- ### How to create suggestions
---1. Identify the specific code in the diff that needs improvement
---2. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
---3. Write the improved code in suggestedCode
---4. Provide a clear explanation in comment
--+1. Re-read your review comment for the check item (from getReviewResults) and identify the specific issue described
--+2. Identify the specific code in the diff that relates to that issue
--+3. Copy the exact original code (as it appears in the new side of the diff) into originalCode — include enough surrounding lines to uniquely identify the location
--+4. Write the improved code in suggestedCode that directly resolves the issue described in your review comment
--+5. Provide a clear explanation in comment that references the same issue noted in your review
-- 
-- ### Important rules
-- - You may create multiple suggestions per check item
--@@ -187,6 +188,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
-- - Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.
-- - Include sufficient context lines in originalCode to avoid ambiguity
-- - Suggestions can only target code that appears within the diff hunks (changed lines and their surrounding context lines). Code outside the diff cannot be targeted. A single suggestion cannot span across hunk boundaries.
--+- Each suggestion MUST address the specific issue described in your review comment for that check item. Do not suggest fixes for different issues than what you identified during review.
-- 
-- ### Error recovery for storeSuggest
-- - If storeSuggest fails, carefully read the error message and retry with corrected input.
--@@ -203,7 +205,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
-- 3. Do NOT finish until ALL check items have been reviewed and stored.${
--     suggestEnabled
--       ? `
---4. After storing all review results, generate suggestions for items rated [${suggestLabelsText}] using storeSuggest.
--+4. After storing all review results, re-read the results from getReviewResults. For each item rated [${suggestLabelsText}], generate suggestions that directly address the issue described in your review comment for that item.
-- 5. Call getSuggests to verify all suggestions are stored.`
--       : ''
--   }`;
-diff --git a/src/domain/review/suggestion/ResolvedSuggestion.ts b/src/domain/review/suggestion/ResolvedSuggestion.ts
-index 3862bf1..e3fa9fc 100644
---- a/src/domain/review/suggestion/ResolvedSuggestion.ts
-+++ b/src/domain/review/suggestion/ResolvedSuggestion.ts
-@@ -51,6 +51,12 @@ export class ResolvedSuggestion {
-     if (params.newPath.trim() === '') {
-       throw new Error('newPath must not be empty');
-     }
-+    if (params.oldPath === '/dev/null') {
-+      throw new Error('oldPath must not be /dev/null');
-+    }
-+    if (params.newPath === '/dev/null') {
-+      throw new Error('newPath must not be /dev/null');
-+    }
+@@ -1,4 +1,5 @@
+ 雛形
++
+ ```
+ # ID:
+ - PBI名:
+@@ -10,41 +11,24 @@
+ ```
  
-     this.suggestion = params.suggestion;
-     this.newLine = params.newLine;
-diff --git a/src/domain/review/suggestion/__tests__/ResolvedSuggestion.test.ts b/src/domain/review/suggestion/__tests__/ResolvedSuggestion.test.ts
-index 88febca..d759384 100644
---- a/src/domain/review/suggestion/__tests__/ResolvedSuggestion.test.ts
-+++ b/src/domain/review/suggestion/__tests__/ResolvedSuggestion.test.ts
-@@ -127,6 +127,18 @@ describe('ResolvedSuggestion', () => {
-     );
+ # ID: 1
+-- PBI名: レビュー機能について、レビュー結果に基づいて変更提案をsuggestできる様にする
+-- ステータス: in progress
++
++- PBI名: GitLab APIのリトライ考慮
++- ステータス: done
++- 背景
++  - GitLab APIの成功は本システムにとってクリティカルなので、失敗した場合のリトライを考慮する必要がある
++- 受け入れ基準
++  - GitLab APIの実行に失敗した場合、デフォルトで3回リトライすること
++- 注意事項
++
++# ID: 2
++
++- PBI名: CLI（CI/CDジョブ）とAPIサーバのバージョン相違考慮
++- ステータス: done
+ - 背景
+-  - レビュー結果の文言だけでは、diffのどこに問題があるのか、それをどの様に修正すれば良いのかわかりにくい
++  - CLI（CI/CDジョブ）については`include`時の`Ref`でバージョン指定可能
++  - APIサーバはデプロイしたバージョンで固定
+ - 受け入れ基準
+-  - どの評定に対してsuggestを有効にするか配列で指定できる
+-    - デフォルトは「C」のみ
+-      - ユーザが評定をカスタマイズしているにもかかわらず、デフォルトのままだとエラーになるはずなので、エラー文言は分かりやすく表示すること
+-    - 空配列の場合は、suggestを無効にする
+-  - チェックリストレビュー結果のdiscussionの後に、suggestのためのdiff discussionが投稿されている
+-    - suggestはdiffの範囲内において何個でも可能
+-    - 1つのsuggestは1つのチェックリストに紐づいており、discussionでもどのチェックリストに紐づく変更提案なのかわかる様にする
+-  - 以前のunresolveなsuggestが残っていた場合は以下の通り（チェックリストコメント同様に隠しフィールドでAIKATA-PRによるdiscussionかどうか判定する）
+-    - 既にそのdiffが後続の別コミットによって更新されていた場合は、自動でresolveする
+-      - 別コミットによって更新されているかどうかはsystem note内に「changed this」「chenged this line」「compare changes」などが含まれているかで判断可能
+-    - そのdiffがまだ更新されておらず、suggestが有効な場合はそのまま残す
+-      - ただし、今回のレビュー実行で新規作成されたsuggestと1行でも被っている場合は、その以前のsuggestを削除する
+-  - suggest有効時はレビュー実行Agentにsuggest情報の登録を可能にさせる
+-    - suggest有効時にレビュー実行Agentに追加して与えるべき情報
+-      - systemプロンプト
+-        - 指定した評定結果だったチェック項目に対して具体的なsuggestを生成するという役割や注意文言
+-          - 以前の有効なsuggestが残っていた場合、その内容以外のsuggestを生成すること
+-        - 最終的にチェック結果とsuggest内容を確認して問題ないか確認すること
+-      - userプロンプト
+-        - diffの内容
+-          - 注意事項に記載の通り、設計次第でdiffのフォーマットを変更する必要がある
+-      - tools
+-        - suggest情報登録ツール
+-          - suggest情報登録に関するパラメータを構造化し、その内容をinput schemaにして、情報を登録できるツール
+-          - パラメータのバリデーションや重複に関するチェック等を実施
+-            - 以前の有効なsuggestはあらかじめ登録しておく
+-        - suggest情報一覧取得ツール
+-          - 以前の有効なsuggest含めて、全てのsuggestを取得できるtool
++  - CLIとAPIサーバでバージョンが相違した場合はエラーとする
++    - CLIもAPIサーバも環境変数`AIKATA_PR_VERSION`でバージョンを識別可能とする
+ - 注意事項
+-  - MR diffから所定のフォーマットでスレッドを生成すればGitLabの機能で変更提案が可能になるはずなので、ドキュメント等をよく確認すること
+-    - この仕様によって、どの様にAgentにdiff情報を与え、suggest情報を登録させるのか設計が変わってくるので、非常に重要
+ - 指摘事項（in progressの場合のみ）
+-  - MR discussion投稿時にパスが/dev/nullで決め打ちされることがあり、この場合500エラーで失敗する
+diff --git a/docker/prod/docker-compose.yml b/docker/prod/docker-compose.yml
+index 20e7604..0a1b1b3 100644
+--- a/docker/prod/docker-compose.yml
++++ b/docker/prod/docker-compose.yml
+@@ -8,6 +8,7 @@ services:
+       - "${API_PORT:-3000}:3000"
+     environment:
+       - NODE_ENV=production
++      - AIKATA_PR_VERSION
+       - AI_API_KEY
+       - AI_API_ENDPOINT_URL
+       - AI_MODEL_NAME
+diff --git a/docs/config/env_val.md b/docs/config/env_val.md
+index 93986e8..91d23f4 100644
+--- a/docs/config/env_val.md
++++ b/docs/config/env_val.md
+@@ -4,6 +4,7 @@
+ 
+ | カテゴリ | 変数名 | 必須 | 既定値 | 主な制御内容 | CLIオプション | 参照箇所 |
+ | --- | --- | --- | --- | --- | --- | --- |
++| バージョン | AIKATA_PR_VERSION | APIモード時必須 | latest | CLIとAPIサーバーのバージョン整合性チェック用。APIモード時にHTTPヘッダ `X-Aikata-Version` としてAPIサーバーに送信される。不一致時は409エラー | なし（環境変数のみ） | - |
+ | AI | AI_API_KEY | ローカルモード時必須 | - | AI APIキー（秘密情報）。AI_API_ENDPOINT_URL、AI_MODEL_NAMEと共に全て設定するとローカルモードで動作 | なし（環境変数のみ） | - |
+ | AI | AI_API_ENDPOINT_URL | ローカルモード時必須 | - | AI APIエンドポイントURL。AI_API_KEY、AI_MODEL_NAMEと共に全て設定するとローカルモードで動作 | なし（環境変数のみ） | - |
+ | AI | AI_MODEL_NAME | ローカルモード時必須 | - | AIモデル名。AI_API_KEY、AI_API_ENDPOINT_URLと共に全て設定するとローカルモードで動作 | --ai-model-name | - |
+@@ -42,6 +43,7 @@ APIサーバー（`docker/prod/docker-compose.yml`）で設定する環境変数
+ 
+ | カテゴリ | 変数名 | 必須 | 既定値 | 主な制御内容 |
+ | --- | --- | --- | --- | --- |
++| バージョン | AIKATA_PR_VERSION | Yes | - | APIサーバーのバージョン。CLI側から送信される `X-Aikata-Version` ヘッダと照合し、不一致時は409 Conflictを返す |
+ | AI | AI_API_KEY | Yes | - | AI APIキー（APIサーバー側で一元管理） |
+ | AI | AI_API_ENDPOINT_URL | Yes | - | AI APIエンドポイントURL |
+ | AI | AI_MODEL_NAME | Yes | - | AIモデル名 |
+diff --git a/src/cli/pipeline-report/__tests__/index.test.ts b/src/cli/pipeline-report/__tests__/index.test.ts
+index a49ea3f..6cfef5e 100644
+--- a/src/cli/pipeline-report/__tests__/index.test.ts
++++ b/src/cli/pipeline-report/__tests__/index.test.ts
+@@ -39,6 +39,7 @@ describe('pipeline-report CLI module', () => {
+     delete process.env['MAX_CONTEXT_LENGTH'];
+     delete process.env['OPENAI_REASONING_EFFORT'];
+     delete process.env['CI_PROJECT_DIR'];
++    delete process.env['AIKATA_PR_VERSION'];
+ 
+     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+       throw new Error(`process.exit:${code}`);
+@@ -232,6 +233,10 @@ describe('pipeline-report CLI module', () => {
    });
  
-+  it('oldPathが/dev/nullの場合はエラーになる', () => {
-+    expect(() => new ResolvedSuggestion({ ...validParams, oldPath: '/dev/null' })).toThrow(
-+      'oldPath must not be /dev/null',
-+    );
-+  });
+   describe('APIモード', () => {
++    beforeEach(() => {
++      process.env['AIKATA_PR_VERSION'] = 'latest';
++    });
 +
-+  it('newPathが/dev/nullの場合はエラーになる', () => {
-+    expect(() => new ResolvedSuggestion({ ...validParams, newPath: '/dev/null' })).toThrow(
-+      'newPath must not be /dev/null',
-+    );
-+  });
-+
-   it('oldPathとnewPathが異なる場合でも生成できる（リネーム対応）', () => {
-     const resolved = new ResolvedSuggestion({
-       ...validParams,
-diff --git a/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts b/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
-index 89a578c..68436cb 100644
---- a/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
-+++ b/src/infrastructure/adapter/review/suggestion/DiffBasedSuggestionLineResolver.ts
-@@ -200,6 +200,14 @@ export class DiffBasedSuggestionLineResolver implements SuggestionLineResolver {
-       }
-     }
+     it('client.run が呼ばれ結果が resultFile に書き込まれる', async () => {
+       const resultFilePath = path.join(tmpDir, 'api-report.md');
+       const fakeApiResult: PipelineReportApiResult = {
+diff --git a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
+index a32c5c6..401e792 100644
+--- a/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
++++ b/src/cli/pipeline-report/__tests__/parameterPropagation.test.ts
+@@ -74,6 +74,7 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
+     delete process.env['SKILLS_PATH'];
+     delete process.env['TREE_MAX_DEPTH'];
+     delete process.env['PIPELINE_REPORT_SKIP_COMPLETENESS_CHECK'];
++    delete process.env['AIKATA_PR_VERSION'];
  
-+    // GitLab APIは/dev/nullをファイルパスとして受け付けないため、実在するパスに正規化する
-+    if (oldPath === '/dev/null') {
-+      oldPath = newPath;
-+    }
-+    if (newPath === '/dev/null') {
-+      newPath = oldPath;
-+    }
+     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+       throw new Error(`process.exit:${code}`);
+@@ -462,6 +463,10 @@ describe('pipeline-report CLI パラメータ伝播 E2E', () => {
+   });
+ 
+   describe('APIモード', () => {
++    beforeEach(() => {
++      process.env['AIKATA_PR_VERSION'] = 'latest';
++    });
 +
-     return { oldPath, newPath };
+     it('CLI 引数・設定ファイルの全フィールドが PipelineReportApiRequest に伝播する', async () => {
+       const settingsPath = writeSettingsFile();
+       const resultFilePath = path.join(tmpDir, 'api-report.md');
+diff --git a/src/cli/pipeline-report/index.ts b/src/cli/pipeline-report/index.ts
+index ea65eeb..0093c92 100644
+--- a/src/cli/pipeline-report/index.ts
++++ b/src/cli/pipeline-report/index.ts
+@@ -306,12 +306,18 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
+       }
+     } else {
+       // === APIモード ===
++      const aikataVersion = env['AIKATA_PR_VERSION'];
++      if (!aikataVersion) {
++        throw new Error('Missing required environment variable: AIKATA_PR_VERSION');
++      }
++
+       const apiDeps = runOptions.apiDeps ?? defaultApiDeps;
+       const apiRequest = buildPipelineReportApiRequest(parsed, validated, settings);
+ 
+       const client = apiDeps.createClient({
+         baseUrl: validated.aikataApiUrl!,
+         jwt: validated.aikataJwt ?? null,
++        version: aikataVersion,
+       });
+ 
+       const result = await client.run(apiRequest, {
+diff --git a/src/cli/review/index.ts b/src/cli/review/index.ts
+index 1b4d610..ca0fb09 100644
+--- a/src/cli/review/index.ts
++++ b/src/cli/review/index.ts
+@@ -81,7 +81,11 @@ export async function run(args: string[]): Promise<void> {
+     if (!localMode) {
+       // === APIモード ===
+       // AIKATA_API_URL, AIKATA_JWTはvalidateRequiredParamsで検証済み
+-      const client = new ReviewApiClient(options.aikataApiUrl!, options.aikataJwt!);
++      const aikataVersion = process.env['AIKATA_PR_VERSION'];
++      if (!aikataVersion) {
++        throw new Error('Missing required environment variable: AIKATA_PR_VERSION');
++      }
++      const client = new ReviewApiClient(options.aikataApiUrl!, options.aikataJwt!, aikataVersion);
+ 
+       const apiRequest = buildApiReviewRequest(
+         validated,
+diff --git a/src/infrastructure/adapter/httpClient/GitLabApiClient.ts b/src/infrastructure/adapter/httpClient/GitLabApiClient.ts
+index 056b4ec..e14e5e4 100644
+--- a/src/infrastructure/adapter/httpClient/GitLabApiClient.ts
++++ b/src/infrastructure/adapter/httpClient/GitLabApiClient.ts
+@@ -1,13 +1,25 @@
+ import { GitLabApiError } from './GitLabApiError.js';
++import { calculateBackoffDelay, sleep } from '../../../lib/rateLimitRetry.js';
++import { getLogger } from '../../../lib/logger.js';
+ 
+ /**
+  * GitLab APIとの通信を行うHTTPクライアント
+  * PRIVATE-TOKENヘッダによる認証を自動付与する
++ *
++ * リトライ可能なエラー（5xx, 429, ネットワーク障害）発生時は
++ * 指数バックオフ + ジッターで最大3回リトライする
+  */
+ export class GitLabApiClient {
+   private readonly baseUrl: string;
+   private readonly token: string;
+ 
++  /** リトライ最大回数 */
++  private static readonly MAX_RETRIES = 3;
++  /** バックオフ基本待機時間（ミリ秒） */
++  private static readonly BASE_DELAY_MS = 1000;
++  /** バックオフ最大待機時間（ミリ秒） */
++  private static readonly MAX_DELAY_MS = 10000;
++
+   constructor(baseUrl: string, token: string) {
+     // 末尾スラッシュを除去して正規化
+     this.baseUrl = baseUrl.replace(/\/$/, '');
+@@ -18,11 +30,17 @@ export class GitLabApiClient {
+    * GETリクエストを送信する
+    */
+   async get<T>(path: string): Promise<T> {
+-    const response = await fetch(`${this.baseUrl}${path}`, {
+-      headers: { 'PRIVATE-TOKEN': this.token },
+-    });
+-    await this.throwIfNotOk(response, 'GET', path);
+-    return response.json() as Promise<T>;
++    return this.executeWithRetry(
++      async () => {
++        const response = await fetch(`${this.baseUrl}${path}`, {
++          headers: { 'PRIVATE-TOKEN': this.token },
++        });
++        await this.throwIfNotOk(response, 'GET', path);
++        return response.json() as Promise<T>;
++      },
++      'GET',
++      path,
++    );
    }
  
-diff --git a/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts b/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
-index 8723579..a041f12 100644
---- a/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
-+++ b/src/infrastructure/adapter/review/suggestion/__tests__/DiffBasedSuggestionLineResolver.test.ts
-@@ -254,7 +254,7 @@ diff --git a/src/utils.ts b/src/utils.ts
-         newLine: 1,
-         linesAbove: 0,
-         linesBelow: 0,
--        oldPath: '/dev/null',
-+        oldPath: 'src/brand-new.ts',
-         newPath: 'src/brand-new.ts',
-       });
+   /**
+@@ -30,11 +48,17 @@ export class GitLabApiClient {
+    * （例: ジョブトレースなど `text/plain` レスポンス用）
+    */
+   async getText(path: string): Promise<string> {
+-    const response = await fetch(`${this.baseUrl}${path}`, {
+-      headers: { 'PRIVATE-TOKEN': this.token },
+-    });
+-    await this.throwIfNotOk(response, 'GET', path);
+-    return response.text();
++    return this.executeWithRetry(
++      async () => {
++        const response = await fetch(`${this.baseUrl}${path}`, {
++          headers: { 'PRIVATE-TOKEN': this.token },
++        });
++        await this.throwIfNotOk(response, 'GET', path);
++        return response.text();
++      },
++      'GET',
++      path,
++    );
+   }
+ 
+   /**
+@@ -43,16 +67,23 @@ export class GitLabApiClient {
+    * 呼び出し側は `response.body` をストリーム処理する責務を負う。
+    */
+   async getResponse(path: string): Promise<Response> {
+-    const response = await fetch(`${this.baseUrl}${path}`, {
+-      headers: { 'PRIVATE-TOKEN': this.token },
+-    });
+-    await this.throwIfNotOk(response, 'GET', path);
+-    return response;
++    return this.executeWithRetry(
++      async () => {
++        const response = await fetch(`${this.baseUrl}${path}`, {
++          headers: { 'PRIVATE-TOKEN': this.token },
++        });
++        await this.throwIfNotOk(response, 'GET', path);
++        return response;
++      },
++      'GET',
++      path,
++    );
+   }
+ 
+   /**
+    * ページネーション付きGETリクエストを送信する
+    * GitLab APIのLinkヘッダを辿って全ページのデータを結合する
++   * 各ページのリクエストは個別にリトライされる
+    */
+   async getAll<T>(path: string): Promise<T[]> {
+     const separator = path.includes('?') ? '&' : '?';
+@@ -60,15 +91,24 @@ export class GitLabApiClient {
+     const allItems: T[] = [];
+ 
+     while (url) {
+-      const response = await fetch(url, {
+-        headers: { 'PRIVATE-TOKEN': this.token },
+-      });
+-      await this.throwIfNotOk(response, 'GET', path);
+-      const items = (await response.json()) as T[];
+-      allItems.push(...items);
+-
+-      // Linkヘッダから次ページURLを取得
+-      url = this.extractNextPageUrl(response.headers.get('link'));
++      const currentUrl: string = url;
++      const pageResult: { items: T[]; nextUrl: string | null } = await this.executeWithRetry(
++        async () => {
++          const response = await fetch(currentUrl, {
++            headers: { 'PRIVATE-TOKEN': this.token },
++          });
++          await this.throwIfNotOk(response, 'GET', path);
++          const pageItems = (await response.json()) as T[];
++          return {
++            items: pageItems,
++            nextUrl: this.extractNextPageUrl(response.headers.get('link')),
++          };
++        },
++        'GET',
++        path,
++      );
++      allItems.push(...pageResult.items);
++      url = pageResult.nextUrl;
+     }
+ 
+     return allItems;
+@@ -90,16 +130,22 @@ export class GitLabApiClient {
+    */
+   async post<T>(path: string, body: unknown): Promise<T> {
+     const serializedBody = JSON.stringify(body);
+-    const response = await fetch(`${this.baseUrl}${path}`, {
+-      method: 'POST',
+-      headers: {
+-        'PRIVATE-TOKEN': this.token,
+-        'Content-Type': 'application/json',
++    return this.executeWithRetry(
++      async () => {
++        const response = await fetch(`${this.baseUrl}${path}`, {
++          method: 'POST',
++          headers: {
++            'PRIVATE-TOKEN': this.token,
++            'Content-Type': 'application/json',
++          },
++          body: serializedBody,
++        });
++        await this.throwIfNotOk(response, 'POST', path, serializedBody);
++        return response.json() as Promise<T>;
+       },
+-      body: serializedBody,
+-    });
+-    await this.throwIfNotOk(response, 'POST', path, serializedBody);
+-    return response.json() as Promise<T>;
++      'POST',
++      path,
++    );
+   }
+ 
+   /**
+@@ -107,16 +153,77 @@ export class GitLabApiClient {
+    */
+   async put<T>(path: string, body: unknown): Promise<T> {
+     const serializedBody = JSON.stringify(body);
+-    const response = await fetch(`${this.baseUrl}${path}`, {
+-      method: 'PUT',
+-      headers: {
+-        'PRIVATE-TOKEN': this.token,
+-        'Content-Type': 'application/json',
++    return this.executeWithRetry(
++      async () => {
++        const response = await fetch(`${this.baseUrl}${path}`, {
++          method: 'PUT',
++          headers: {
++            'PRIVATE-TOKEN': this.token,
++            'Content-Type': 'application/json',
++          },
++          body: serializedBody,
++        });
++        await this.throwIfNotOk(response, 'PUT', path, serializedBody);
++        return response.json() as Promise<T>;
+       },
+-      body: serializedBody,
+-    });
+-    await this.throwIfNotOk(response, 'PUT', path, serializedBody);
+-    return response.json() as Promise<T>;
++      'PUT',
++      path,
++    );
++  }
++
++  /**
++   * リトライ可能なエラーかどうかを判定する
++   *
++   * - GitLabApiError: 5xx（サーバーエラー）または 429（レート制限）
++   * - TypeError: fetchのネットワーク障害（DNS解決失敗、接続リセット等）
++   */
++  private isRetryableError(error: unknown): boolean {
++    if (error instanceof GitLabApiError) {
++      return error.isServerError || error.status === 429;
++    }
++    return error instanceof TypeError;
++  }
++
++  /**
++   * リトライ付きでオペレーションを実行する
++   *
++   * リトライ可能なエラー発生時は指数バックオフ + ジッターで待機し、
++   * 最大 MAX_RETRIES 回リトライする。リトライ不可能なエラーは即座にスローする。
++   */
++  private async executeWithRetry<T>(
++    operation: () => Promise<T>,
++    method: string,
++    path: string,
++  ): Promise<T> {
++    for (let attempt = 0; ; attempt++) {
++      try {
++        return await operation();
++      } catch (error) {
++        if (!this.isRetryableError(error) || attempt >= GitLabApiClient.MAX_RETRIES) {
++          throw error;
++        }
++        const delay = calculateBackoffDelay(
++          attempt,
++          GitLabApiClient.BASE_DELAY_MS,
++          GitLabApiClient.MAX_DELAY_MS,
++        );
++        try {
++          getLogger().warn(
++            {
++              attempt: attempt + 1,
++              maxRetries: GitLabApiClient.MAX_RETRIES,
++              delayMs: Math.round(delay),
++              method,
++              path,
++            },
++            `GitLab API request failed, retrying after ${Math.round(delay)}ms`,
++          );
++        } catch {
++          // ロガー未初期化時はログ出力をスキップ
++        }
++        await sleep(delay);
++      }
++    }
+   }
+ 
+   /**
+diff --git a/src/infrastructure/adapter/httpClient/__tests__/GitLabApiClient.test.ts b/src/infrastructure/adapter/httpClient/__tests__/GitLabApiClient.test.ts
+index 090e380..eb89fb6 100644
+--- a/src/infrastructure/adapter/httpClient/__tests__/GitLabApiClient.test.ts
++++ b/src/infrastructure/adapter/httpClient/__tests__/GitLabApiClient.test.ts
+@@ -2,11 +2,32 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+ import { GitLabApiClient } from '../GitLabApiClient.js';
+ import { GitLabApiError } from '../GitLabApiError.js';
+ 
++// sleepをモックして実際の待機を回避
++vi.mock('../../../../lib/rateLimitRetry.js', async (importOriginal) => {
++  const actual = await importOriginal<typeof import('../../../../lib/rateLimitRetry.js')>();
++  return {
++    ...actual,
++    sleep: vi.fn().mockResolvedValue(undefined),
++  };
++});
++
++// loggerをモックしてログ出力をキャプチャ（シングルトン）
++const mockLogger = {
++  warn: vi.fn(),
++  info: vi.fn(),
++  error: vi.fn(),
++  debug: vi.fn(),
++};
++vi.mock('../../../../lib/logger.js', () => ({
++  getLogger: () => mockLogger,
++}));
++
+ describe('GitLabApiClient', () => {
+   const mockFetch = vi.fn();
+ 
+   beforeEach(() => {
+     mockFetch.mockReset();
++    mockLogger.warn.mockReset();
+     vi.stubGlobal('fetch', mockFetch);
+   });
+ 
+@@ -87,7 +108,8 @@ describe('GitLabApiClient', () => {
+   });
+ 
+   it('POSTリクエストでHTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
+-    mockFetch.mockResolvedValueOnce(
++    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
++    mockFetch.mockResolvedValue(
+       createErrorResponse(500, 'Internal Server Error', '{"error":"something went wrong"}'),
+     );
+ 
+@@ -100,7 +122,8 @@ describe('GitLabApiClient', () => {
+ 
+   it('エラー時にレスポンスボディがGitLabApiErrorに含まれる', async () => {
+     const errorBody = '{"message":"Something went wrong","details":"internal error"}';
+-    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error', errorBody));
++    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
++    mockFetch.mockResolvedValue(createErrorResponse(500, 'Internal Server Error', errorBody));
+ 
+     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+@@ -118,7 +141,8 @@ describe('GitLabApiClient', () => {
+   });
+ 
+   it('5xxエラー時に誘導メッセージがエラーメッセージに含まれる', async () => {
+-    mockFetch.mockResolvedValueOnce(
++    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
++    mockFetch.mockResolvedValue(
+       createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
+     );
+ 
+@@ -139,7 +163,8 @@ describe('GitLabApiClient', () => {
+ 
+   it('POSTエラー時にリクエストボディがGitLabApiErrorに含まれる', async () => {
+     const requestBody = { body: 'comment text', position: { new_line: 10 } };
+-    mockFetch.mockResolvedValueOnce(
++    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
++    mockFetch.mockResolvedValue(
+       createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
+     );
+ 
+@@ -157,7 +182,8 @@ describe('GitLabApiClient', () => {
+   });
+ 
+   it('PUTエラー時にリクエストボディがGitLabApiErrorに含まれる', async () => {
+-    mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error', ''));
++    // 5xxはリトライされるため、全リトライ分のレスポンスを返す
++    mockFetch.mockResolvedValue(createErrorResponse(500, 'Internal Server Error', ''));
+ 
+     const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+@@ -250,7 +276,8 @@ describe('GitLabApiClient', () => {
      });
-@@ -271,7 +271,7 @@ diff --git a/src/utils.ts b/src/utils.ts
-         newLine: 2,
-         linesAbove: 0,
-         linesBelow: 1,
--        oldPath: '/dev/null',
-+        oldPath: 'src/brand-new.ts',
-         newPath: 'src/brand-new.ts',
-       });
+ 
+     it('HTTPステータス500でGitLabApiErrorがスローされる', async () => {
+-      mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
++      // 5xxはリトライされるため、全リトライ分のレスポンスを返す
++      mockFetch.mockResolvedValue(createErrorResponse(500, 'Internal Server Error'));
+ 
+       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+@@ -370,7 +397,8 @@ describe('GitLabApiClient', () => {
      });
-@@ -585,7 +585,7 @@ diff --git a/src/utils.ts b/src/utils.ts
-         newLine: 1,
-         linesAbove: 0,
-         linesBelow: 1,
--        oldPath: '/dev/null',
-+        oldPath: 'src/brand-new.ts',
-         newPath: 'src/brand-new.ts',
-       });
+ 
+     it('PUTリクエストでHTTPエラーの場合、GitLabApiErrorがスローされる', async () => {
+-      mockFetch.mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'));
++      // 5xxはリトライされるため、全リトライ分のレスポンスを返す
++      mockFetch.mockResolvedValue(createErrorResponse(500, 'Internal Server Error'));
+ 
+       const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
+ 
+@@ -454,4 +482,208 @@ describe('GitLabApiClient', () => {
+       await expect(client.getAll('/projects/1/notes')).rejects.toThrow(GitLabApiError);
      });
-@@ -600,7 +600,7 @@ diff --git a/src/utils.ts b/src/utils.ts
-         newLine: 1,
-         linesAbove: 0,
-         linesBelow: 0,
--        oldPath: '/dev/null',
-+        oldPath: 'src/brand-new.ts',
-         newPath: 'src/brand-new.ts',
-       });
+   });
++
++  describe('リトライ', () => {
++    // ヘルパー: ページネーション付きレスポンスを生成
++    const createPageResponse = (body: unknown, nextUrl?: string) => ({
++      ok: true,
++      status: 200,
++      statusText: 'OK',
++      json: () => Promise.resolve(body),
++      headers: {
++        get: (name: string) => {
++          if (name === 'link' && nextUrl) {
++            return `<${nextUrl}>; rel="next"`;
++          }
++          return null;
++        },
++      },
++    });
++
++    it('5xxエラーが3回リトライされた後にスローされる（fetchが合計4回呼ばれる）', async () => {
++      mockFetch.mockResolvedValue(
++        createErrorResponse(500, 'Internal Server Error', '{"error":"server error"}'),
++      );
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++      await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
++      // 初回 + 3回リトライ = 合計4回
++      expect(mockFetch).toHaveBeenCalledTimes(4);
++    });
++
++    it('429エラーがリトライされる', async () => {
++      mockFetch.mockResolvedValue(
++        createErrorResponse(429, 'Too Many Requests', '{"message":"rate limit exceeded"}'),
++      );
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++      await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
++      // 初回 + 3回リトライ = 合計4回
++      expect(mockFetch).toHaveBeenCalledTimes(4);
++    });
++
++    it('4xx（429以外）はリトライされない', async () => {
++      mockFetch.mockResolvedValueOnce(
++        createErrorResponse(404, 'Not Found', '{"message":"404 Not Found"}'),
++      );
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++      await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
++      // リトライなし: 1回のみ
++      expect(mockFetch).toHaveBeenCalledTimes(1);
++    });
++
++    it('401はリトライされない', async () => {
++      mockFetch.mockResolvedValueOnce(
++        createErrorResponse(401, 'Unauthorized', '{"message":"401 Unauthorized"}'),
++      );
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++      await expect(client.get('/projects/1')).rejects.toThrow(GitLabApiError);
++      expect(mockFetch).toHaveBeenCalledTimes(1);
++    });
++
++    it('ネットワークエラー（TypeError）がリトライされる', async () => {
++      mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++
++      await expect(client.get('/projects/1')).rejects.toThrow(TypeError);
++      // 初回 + 3回リトライ = 合計4回
++      expect(mockFetch).toHaveBeenCalledTimes(4);
++    });
++
++    it('GETリクエストで2回目のリトライで成功した場合、正常な結果が返る', async () => {
++      const responseData = { id: 1, name: 'test' };
++      mockFetch
++        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
++        .mockResolvedValueOnce(createOkResponse(responseData));
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++      const result = await client.get('/projects/1');
++
++      expect(result).toEqual(responseData);
++      expect(mockFetch).toHaveBeenCalledTimes(2);
++    });
++
++    it('POSTリクエストでリトライ後に成功する', async () => {
++      const responseData = { id: 10, body: 'comment' };
++      mockFetch
++        .mockResolvedValueOnce(createErrorResponse(502, 'Bad Gateway'))
++        .mockResolvedValueOnce(createOkResponse(responseData));
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++      const result = await client.post('/projects/1/notes', { body: 'comment' });
++
++      expect(result).toEqual(responseData);
++      expect(mockFetch).toHaveBeenCalledTimes(2);
++    });
++
++    it('PUTリクエストでリトライ後に成功する', async () => {
++      const responseData = { id: 'disc-1', resolved: true };
++      mockFetch
++        .mockResolvedValueOnce(createErrorResponse(503, 'Service Unavailable'))
++        .mockResolvedValueOnce(createOkResponse(responseData));
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++      const result = await client.put('/projects/1/discussions/disc-1', { resolved: true });
++
++      expect(result).toEqual(responseData);
++      expect(mockFetch).toHaveBeenCalledTimes(2);
++    });
++
++    it('getTextでリトライ後に成功する', async () => {
++      const createOkTextResponse = (body: string) => ({
++        ok: true,
++        status: 200,
++        statusText: 'OK',
++        text: () => Promise.resolve(body),
++      });
++
++      mockFetch
++        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
++        .mockResolvedValueOnce(createOkTextResponse('trace output'));
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++      const result = await client.getText('/projects/1/jobs/42/trace');
++
++      expect(result).toBe('trace output');
++      expect(mockFetch).toHaveBeenCalledTimes(2);
++    });
++
++    it('getResponseでリトライ後に成功する', async () => {
++      const okResponse = {
++        ok: true,
++        status: 200,
++        statusText: 'OK',
++        body: null,
++        headers: { get: () => null },
++      };
++
++      mockFetch
++        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
++        .mockResolvedValueOnce(okResponse);
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++      const response = await client.getResponse('/projects/1/jobs/42/artifacts');
++
++      expect(response.status).toBe(200);
++      expect(mockFetch).toHaveBeenCalledTimes(2);
++    });
++
++    it('getAllの個別ページでリトライ後に成功する', async () => {
++      const nextUrl = 'https://gitlab.example.com/api/v4/projects/1/notes?per_page=100&page=2';
++
++      mockFetch
++        // 1ページ目: 成功
++        .mockResolvedValueOnce(createPageResponse([{ id: 1 }], nextUrl))
++        // 2ページ目: 1回目失敗
++        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
++        // 2ページ目: 2回目成功
++        .mockResolvedValueOnce(createPageResponse([{ id: 2 }]));
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++      const result = await client.getAll('/projects/1/notes');
++
++      expect(result).toEqual([{ id: 1 }, { id: 2 }]);
++      // 1ページ目(1回) + 2ページ目(失敗1回 + 成功1回) = 合計3回
++      expect(mockFetch).toHaveBeenCalledTimes(3);
++    });
++
++    it('ネットワークエラー後に成功した場合、正常な結果が返る', async () => {
++      const responseData = { id: 1 };
++      mockFetch
++        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
++        .mockResolvedValueOnce(createOkResponse(responseData));
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++      const result = await client.get('/projects/1');
++
++      expect(result).toEqual(responseData);
++      expect(mockFetch).toHaveBeenCalledTimes(2);
++    });
++
++    it('リトライ時に警告ログが出力される', async () => {
++      mockFetch
++        .mockResolvedValueOnce(createErrorResponse(500, 'Internal Server Error'))
++        .mockResolvedValueOnce(createOkResponse({ id: 1 }));
++
++      const client = new GitLabApiClient('https://gitlab.example.com/api/v4', 'test-token');
++      await client.get('/projects/1');
++
++      expect(mockLogger.warn).toHaveBeenCalledWith(
++        expect.objectContaining({
++          attempt: 1,
++          maxRetries: 3,
++          method: 'GET',
++          path: '/projects/1',
++        }),
++        expect.stringContaining('GitLab API request failed, retrying after'),
++      );
++    });
++  });
+ });
+diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
+index 2ff3cef..f554458 100644
+--- a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
++++ b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
+@@ -77,6 +77,9 @@ export interface PipelineReportProgressEvent {
+ /** APIサーバーがレスポンスヘッダで返すリクエストID用ヘッダ名 */
+ export const REQUEST_ID_HEADER = 'X-Request-Id';
+ 
++/** CLI→APIサーバ間のバージョン伝達に使用するHTTPヘッダ名 */
++export const VERSION_HEADER = 'X-Aikata-Version';
++
+ /**
+  * PipelineReportApiClient のハンドラ定義。
+  *
+@@ -108,6 +111,8 @@ export interface PipelineReportApiClientConfig {
+   baseUrl: string;
+   /** JWTトークン。null の場合は Authorization ヘッダを付与しない（dev/debug用） */
+   jwt: string | null;
++  /** CLIのバージョン（AIKATA_PR_VERSION）。APIサーバー側でバージョン整合性チェックに使用 */
++  version: string;
+ }
+ 
+ /**
+@@ -125,10 +130,12 @@ export interface PipelineReportApiClientConfig {
+ export class PipelineReportApiClient {
+   private readonly baseUrl: string;
+   private readonly jwt: string | null;
++  private readonly version: string;
+ 
+   constructor(config: PipelineReportApiClientConfig) {
+     this.baseUrl = config.baseUrl;
+     this.jwt = config.jwt;
++    this.version = config.version;
+   }
+ 
+   /**
+@@ -147,6 +154,7 @@ export class PipelineReportApiClient {
+     // jwt が null の場合は Authorization ヘッダを付与しない
+     const headers: Record<string, string> = {
+       'Content-Type': 'application/json',
++      [VERSION_HEADER]: this.version,
+     };
+     if (this.jwt !== null) {
+       headers['Authorization'] = `Bearer ${this.jwt}`;
+diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts b/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
+index 900c1ee..c1c4963 100644
+--- a/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
++++ b/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+ import {
+   PipelineReportApiClient,
++  VERSION_HEADER,
+   type PipelineReportApiRequest,
+   type PipelineReportApiResult,
+   type PipelineReportProgressEvent,
+@@ -46,6 +47,7 @@ describe('PipelineReportApiClient', () => {
+   const mockFetch = vi.fn();
+   const BASE_URL = 'https://api.example.com';
+   const JWT_TOKEN = 'test-jwt-token';
++  const VERSION = '1.2.3';
+ 
+   // テスト用リクエスト
+   const testRequest: PipelineReportApiRequest = {
+@@ -113,7 +115,11 @@ describe('PipelineReportApiClient', () => {
+     ]);
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+     const result = await client.run(testRequest, createHandlers());
+ 
+     expect(result).toEqual(testResult);
+@@ -134,7 +140,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+     await client.run(testRequest, handlers);
+ 
+     expect(handlers.onProgress).toHaveBeenCalledTimes(3);
+@@ -155,7 +165,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+     await client.run(testRequest, handlers);
+ 
+     expect(handlers.onProgress).toHaveBeenCalledWith(workflowEvent);
+@@ -169,7 +183,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+ 
+     await expect(client.run(testRequest, handlers)).rejects.toThrow(
+       'Pipeline report API error: Pipeline analysis failed',
+@@ -190,7 +208,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+     const result = await client.run(testRequest, handlers);
+ 
+     expect(handlers.onProgress).not.toHaveBeenCalled();
+@@ -202,7 +224,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(createErrorResponse(400, errorBody));
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+ 
+     await expect(client.run(testRequest, handlers)).rejects.toThrow(
+       `Pipeline report API request failed with status 400: ${errorBody}`,
+@@ -215,7 +241,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(createErrorResponse(401, errorBody));
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+ 
+     await expect(client.run(testRequest, handlers)).rejects.toThrow(
+       `Pipeline report API request failed with status 401: ${errorBody}`,
+@@ -230,7 +260,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+ 
+     await expect(client.run(testRequest, handlers)).rejects.toThrow(
+       'SSE stream ended without result event',
+@@ -242,7 +276,11 @@ describe('PipelineReportApiClient', () => {
+     const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+     await client.run(testRequest, createHandlers());
+ 
+     expect(mockFetch).toHaveBeenCalledTimes(1);
+@@ -250,6 +288,7 @@ describe('PipelineReportApiClient', () => {
+       method: 'POST',
+       headers: {
+         'Content-Type': 'application/json',
++        [VERSION_HEADER]: VERSION,
+         Authorization: `Bearer ${JWT_TOKEN}`,
+       },
+       body: JSON.stringify(testRequest),
+@@ -260,13 +299,30 @@ describe('PipelineReportApiClient', () => {
+     const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: null });
++    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: null, version: VERSION });
+     await client.run(testRequest, createHandlers());
+ 
+     const call = mockFetch.mock.calls[0]!;
+     const headers = (call[1] as { headers: Record<string, string> }).headers;
+     expect(headers).not.toHaveProperty('Authorization');
+     expect(headers).toHaveProperty('Content-Type', 'application/json');
++    expect(headers).toHaveProperty(VERSION_HEADER, VERSION);
++  });
++
++  it('X-Aikata-Versionヘッダがリクエストに含まれること', async () => {
++    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
++    mockFetch.mockResolvedValueOnce(sseResponse);
++
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
++    await client.run(testRequest, createHandlers());
++
++    const call = mockFetch.mock.calls[0]!;
++    const headers = (call[1] as { headers: Record<string, string> }).headers;
++    expect(headers[VERSION_HEADER]).toBe(VERSION);
+   });
+ 
+   it('レスポンスボディが空の場合にエラーがスローされること', async () => {
+@@ -277,7 +333,11 @@ describe('PipelineReportApiClient', () => {
      });
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+ 
+     await expect(client.run(testRequest, handlers)).rejects.toThrow('Response body is empty');
+     expect(handlers.onError).toHaveBeenCalled();
+@@ -290,7 +350,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+ 
+     await expect(client.run(testRequest, handlers)).rejects.toThrow(
+       'Pipeline report API error: Unknown error',
+@@ -309,7 +373,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+     await client.run(testRequest, handlers);
+ 
+     expect(handlers.onRequestId).toHaveBeenCalledTimes(1);
+@@ -321,7 +389,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+     await client.run(testRequest, handlers);
+ 
+     expect(handlers.onRequestId).not.toHaveBeenCalled();
+@@ -335,7 +407,11 @@ describe('PipelineReportApiClient', () => {
+     );
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+ 
+     await expect(client.run(testRequest, handlers)).rejects.toThrow(
+       /Pipeline report API request failed with status 500/,
+@@ -363,7 +439,11 @@ describe('PipelineReportApiClient', () => {
+     );
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+     const result = await client.run(testRequest, handlers);
+ 
+     expect(handlers.onProgress).toHaveBeenCalledWith({ status: 'started' });
+@@ -375,7 +455,11 @@ describe('PipelineReportApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const handlers = createHandlers();
+-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: JWT_TOKEN });
++    const client = new PipelineReportApiClient({
++      baseUrl: BASE_URL,
++      jwt: JWT_TOKEN,
++      version: VERSION,
++    });
+ 
+     await expect(client.run(testRequest, handlers)).rejects.toThrow(
+       /Failed to parse SSE event data/,
+diff --git a/src/infrastructure/adapter/pipeline-report/gateway/__tests__/GitLabPipelineGateway.test.ts b/src/infrastructure/adapter/pipeline-report/gateway/__tests__/GitLabPipelineGateway.test.ts
+index f4bfb78..95c0ac4 100644
+--- a/src/infrastructure/adapter/pipeline-report/gateway/__tests__/GitLabPipelineGateway.test.ts
++++ b/src/infrastructure/adapter/pipeline-report/gateway/__tests__/GitLabPipelineGateway.test.ts
+@@ -6,6 +6,15 @@ import path from 'node:path';
+ import { GitLabApiClient } from '../../../httpClient/GitLabApiClient.js';
+ import { GitLabPipelineGateway } from '../GitLabPipelineGateway.js';
+ 
++// GitLabApiClientのリトライ時の待機をスキップ
++vi.mock('../../../../../lib/rateLimitRetry.js', async (importOriginal) => {
++  const actual = await importOriginal<typeof import('../../../../../lib/rateLimitRetry.js')>();
++  return {
++    ...actual,
++    sleep: vi.fn().mockResolvedValue(undefined),
++  };
++});
++
+ /**
+  * GitLabPipelineGateway のテスト
+  * 実装の `GitLabApiClient` と組み合わせ、`global.fetch` をスタブしてリクエスト URL / ヘッダ
+@@ -288,7 +297,8 @@ describe('GitLabPipelineGateway', () => {
+     });
+ 
+     it('HTTPエラーの場合、エラーを伝播する', async () => {
+-      mockFetch.mockResolvedValueOnce({
++      // 5xxはリトライされるため、全リトライ分のレスポンスを返す
++      mockFetch.mockResolvedValue({
+         ok: false,
+         status: 500,
+         statusText: 'Internal Server Error',
+diff --git a/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts b/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
+index 3a7e00c..fb57bde 100644
+--- a/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
++++ b/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
+@@ -71,9 +71,12 @@ export interface ReviewProgressEvent {
+   message?: string;
+ }
+ 
+-/** APIサーバーがレスポンスヘッダで返すリクエストID用ヘッダ名 */
++/** APIサーバー���レスポンスヘッダで返すリクエストID用ヘッダ名 */
+ export const REQUEST_ID_HEADER = 'X-Request-Id';
+ 
++/** CLI→APIサーバ間のバージョン伝達に使用するHTTPヘッダ名 */
++export const VERSION_HEADER = 'X-Aikata-Version';
++
+ /**
+  * CLI→APIサーバー間のSSEクライアント
+  * Node.js組み込みのfetchを使用してAPIサーバーのレビューエンドポイントを呼び出し、
+@@ -82,10 +85,12 @@ export const REQUEST_ID_HEADER = 'X-Request-Id';
+ export class ReviewApiClient {
+   private readonly apiUrl: string;
+   private readonly jwtToken: string;
++  private readonly version: string;
+ 
+-  constructor(apiUrl: string, jwtToken: string) {
++  constructor(apiUrl: string, jwtToken: string, version: string) {
+     this.apiUrl = apiUrl;
+     this.jwtToken = jwtToken;
++    this.version = version;
+   }
+ 
+   /**
+@@ -109,6 +114,7 @@ export class ReviewApiClient {
+       headers: {
+         'Content-Type': 'application/json',
+         Authorization: `Bearer ${this.jwtToken}`,
++        [VERSION_HEADER]: this.version,
+       },
+       body: JSON.stringify(request),
+     });
+diff --git a/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts b/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
+index fc228c0..edcf28c 100644
+--- a/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
++++ b/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+ import {
+   ReviewApiClient,
++  VERSION_HEADER,
+   type ReviewApiRequest,
+   type ReviewApiResponse,
+   type ReviewProgressEvent,
+@@ -41,6 +42,7 @@ describe('ReviewApiClient', () => {
+   const mockFetch = vi.fn();
+   const API_URL = 'https://api.example.com';
+   const JWT_TOKEN = 'test-jwt-token';
++  const VERSION = '1.2.3';
+ 
+   // テスト用リクエスト
+   const testRequest: ReviewApiRequest = {
+@@ -95,7 +97,7 @@ describe('ReviewApiClient', () => {
+     ]);
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+     const result = await client.executeReview(testRequest);
+ 
+     expect(result).toEqual(testResult);
+@@ -114,7 +116,7 @@ describe('ReviewApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const onProgress = vi.fn();
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+     await client.executeReview(testRequest, onProgress);
+ 
+     expect(onProgress).toHaveBeenCalledTimes(2);
+@@ -129,7 +131,7 @@ describe('ReviewApiClient', () => {
+     ]);
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+ 
+     await expect(client.executeReview(testRequest)).rejects.toThrow(
+       'Review API error: Review failed',
+@@ -145,7 +147,7 @@ describe('ReviewApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const onProgress = vi.fn();
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+     const result = await client.executeReview(testRequest, onProgress);
+ 
+     // keepaliveではonProgressが呼ばれない
+@@ -158,7 +160,7 @@ describe('ReviewApiClient', () => {
+     const errorBody = JSON.stringify({ error: 'Invalid request parameters' });
+     mockFetch.mockResolvedValueOnce(createErrorResponse(400, errorBody));
+ 
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+ 
+     await expect(client.executeReview(testRequest)).rejects.toThrow(
+       `API request failed with status 400: ${errorBody}`,
+@@ -169,7 +171,7 @@ describe('ReviewApiClient', () => {
+     const errorBody = JSON.stringify({ error: 'Unauthorized' });
+     mockFetch.mockResolvedValueOnce(createErrorResponse(401, errorBody));
+ 
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+ 
+     await expect(client.executeReview(testRequest)).rejects.toThrow(
+       `API request failed with status 401: ${errorBody}`,
+@@ -183,7 +185,7 @@ describe('ReviewApiClient', () => {
+     ]);
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+ 
+     await expect(client.executeReview(testRequest)).rejects.toThrow(
+       'SSE stream ended without result event',
+@@ -220,7 +222,7 @@ describe('ReviewApiClient', () => {
+     const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+     await client.executeReview(requestWithOptions);
+ 
+     expect(mockFetch).toHaveBeenCalledTimes(1);
+@@ -229,6 +231,7 @@ describe('ReviewApiClient', () => {
+       headers: {
+         'Content-Type': 'application/json',
+         Authorization: `Bearer ${JWT_TOKEN}`,
++        [VERSION_HEADER]: VERSION,
+       },
+       body: JSON.stringify(requestWithOptions),
+     });
+@@ -240,6 +243,18 @@ describe('ReviewApiClient', () => {
+     expect(sentBody.userId).toBe('alice');
+   });
+ 
++  it('X-Aikata-Versionヘッダがリクエストに含まれること', async () => {
++    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
++    mockFetch.mockResolvedValueOnce(sseResponse);
++
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
++    await client.executeReview(testRequest);
++
++    const call = mockFetch.mock.calls[0]!;
++    const headers = (call[1] as { headers: Record<string, string> }).headers;
++    expect(headers[VERSION_HEADER]).toBe(VERSION);
++  });
++
+   it('レスポンスボディが空の場合にエラーがスローされること', async () => {
+     mockFetch.mockResolvedValueOnce({
+       ok: true,
+@@ -247,7 +262,7 @@ describe('ReviewApiClient', () => {
+       headers: new Headers(),
+     });
+ 
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+ 
+     await expect(client.executeReview(testRequest)).rejects.toThrow('Response body is empty');
+   });
+@@ -258,7 +273,7 @@ describe('ReviewApiClient', () => {
+     ]);
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+ 
+     await expect(client.executeReview(testRequest)).rejects.toThrow(
+       'Review API error: Unknown error',
+@@ -278,7 +293,7 @@ describe('ReviewApiClient', () => {
+ 
+     const onRequestId = vi.fn();
+     const onProgress = vi.fn();
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+     await client.executeReview(testRequest, onProgress, onRequestId);
+ 
+     expect(onRequestId).toHaveBeenCalledTimes(1);
+@@ -290,7 +305,7 @@ describe('ReviewApiClient', () => {
+     mockFetch.mockResolvedValueOnce(sseResponse);
+ 
+     const onRequestId = vi.fn();
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+     await client.executeReview(testRequest, undefined, onRequestId);
+ 
+     expect(onRequestId).not.toHaveBeenCalled();
+@@ -312,7 +327,7 @@ describe('ReviewApiClient', () => {
+     const onProgress = vi.fn((event: ReviewProgressEvent) =>
+       callOrder.push(`onProgress:${event.status}`),
+     );
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+     await client.executeReview(testRequest, onProgress, onRequestId);
+ 
+     // onRequestIdが必ず最初に呼ばれること
+@@ -329,7 +344,7 @@ describe('ReviewApiClient', () => {
+     mockFetch.mockResolvedValueOnce(errorResponse);
+ 
+     const onRequestId = vi.fn();
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+ 
+     await expect(client.executeReview(testRequest, undefined, onRequestId)).rejects.toThrow(
+       /API request failed with status 500/,
+@@ -358,7 +373,7 @@ describe('ReviewApiClient', () => {
+     );
+ 
+     const onProgress = vi.fn();
+-    const client = new ReviewApiClient(API_URL, JWT_TOKEN);
++    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+     const result = await client.executeReview(testRequest, onProgress);
+ 
+     expect(onProgress).toHaveBeenCalledWith({ status: 'cloning' });
+diff --git a/src/presentation/api/shared/__tests__/versionCheckMiddleware.test.ts b/src/presentation/api/shared/__tests__/versionCheckMiddleware.test.ts
+new file mode 100644
+index 0000000..924b429
+--- /dev/null
++++ b/src/presentation/api/shared/__tests__/versionCheckMiddleware.test.ts
+@@ -0,0 +1,97 @@
++import { describe, it, expect } from 'vitest';
++import { Hono } from 'hono';
++import { createVersionCheckMiddleware, VERSION_HEADER } from '../versionCheckMiddleware.js';
++
++/**
++ * バージョンチェックミドルウェアのテスト用アプリを作成
++ *
++ * GET /api/echo はリクエストが通過したことを確認する用
++ */
++function createTestApp(serverVersion: string): Hono {
++  const app = new Hono();
++  app.use('/api/*', createVersionCheckMiddleware(serverVersion));
++  app.get('/api/echo', (c) => c.json({ ok: true }));
++  // ヘルスチェック相当（ミドルウェア適用外）
++  app.get('/health', (c) => c.json({ status: 'ok' }));
++  return app;
++}
++
++describe('versionCheckMiddleware', () => {
++  const SERVER_VERSION = '1.2.3';
++
++  it('一致するバージョンヘッダの場合はリクエストが通過する', async () => {
++    const app = createTestApp(SERVER_VERSION);
++
++    const res = await app.request('/api/echo', {
++      headers: { [VERSION_HEADER]: SERVER_VERSION },
++    });
++
++    expect(res.status).toBe(200);
++    const body = (await res.json()) as { ok: boolean };
++    expect(body.ok).toBe(true);
++  });
++
++  it('バージョンヘッダ未送信時は400エラーが返る', async () => {
++    const app = createTestApp(SERVER_VERSION);
++
++    const res = await app.request('/api/echo');
++
++    expect(res.status).toBe(400);
++    const body = (await res.json()) as { error: string };
++    expect(body.error).toContain('X-Aikata-Version');
++  });
++
++  it('バージョン不一致時は409エラーが返り、両バージョンが含まれる', async () => {
++    const app = createTestApp(SERVER_VERSION);
++    const clientVersion = '0.9.0';
++
++    const res = await app.request('/api/echo', {
++      headers: { [VERSION_HEADER]: clientVersion },
++    });
++
++    expect(res.status).toBe(409);
++    const body = (await res.json()) as { error: string };
++    expect(body.error).toContain(clientVersion);
++    expect(body.error).toContain(SERVER_VERSION);
++  });
++
++  it('空文字のバージョンヘッダは未送信と同じ扱いで400が返る', async () => {
++    const app = createTestApp(SERVER_VERSION);
++
++    const res = await app.request('/api/echo', {
++      headers: { [VERSION_HEADER]: '' },
++    });
++
++    expect(res.status).toBe(400);
++  });
++
++  it('空白のみのバージョンヘッダは未送信と同じ扱いで400が返る', async () => {
++    const app = createTestApp(SERVER_VERSION);
++
++    const res = await app.request('/api/echo', {
++      headers: { [VERSION_HEADER]: '   ' },
++    });
++
++    expect(res.status).toBe(400);
++  });
++
++  it('前後に空白があるバージョンヘッダはトリムされて比較される', async () => {
++    const app = createTestApp(SERVER_VERSION);
++
++    const res = await app.request('/api/echo', {
++      headers: { [VERSION_HEADER]: `  ${SERVER_VERSION}  ` },
++    });
++
++    expect(res.status).toBe(200);
++  });
++
++  it('/api/* 以外のルートにはミドルウェアが適用されない', async () => {
++    const app = createTestApp(SERVER_VERSION);
++
++    const res = await app.request('/health');
++
++    expect(res.status).toBe(200);
++    const body = (await res.json()) as { status: string };
++    expect(body.status).toBe('ok');
++  });
++});
+diff --git a/src/presentation/api/shared/index.ts b/src/presentation/api/shared/index.ts
+index 22adfae..a514fa0 100644
+--- a/src/presentation/api/shared/index.ts
++++ b/src/presentation/api/shared/index.ts
+@@ -1,3 +1,4 @@
+ export { createRequestIdMiddleware, REQUEST_ID_HEADER } from './requestIdMiddleware.js';
+ export type { RequestIdEnv } from './requestIdMiddleware.js';
++export { createVersionCheckMiddleware, VERSION_HEADER } from './versionCheckMiddleware.js';
+ export type { ApiFeatureModule } from './featureModule.js';
+diff --git a/src/presentation/api/shared/versionCheckMiddleware.ts b/src/presentation/api/shared/versionCheckMiddleware.ts
+new file mode 100644
+index 0000000..ef9ba05
+--- /dev/null
++++ b/src/presentation/api/shared/versionCheckMiddleware.ts
+@@ -0,0 +1,39 @@
++import type { MiddlewareHandler } from 'hono';
++
++/** CLI→APIサーバ間のバージョン伝達に使用するHTTPヘッダ名 */
++export const VERSION_HEADER = 'X-Aikata-Version';
++
++/**
++ * バージョンチェックミドルウェアを作成する
++ *
++ * - リクエストの `X-Aikata-Version` ヘッダとサーババージョンを比較する
++ * - ヘッダ未送信の場合は 400 Bad Request を返す
++ * - バージョン不一致の場合は 409 Conflict を返す
++ * - 一致する場合は次のミドルウェア/ハンドラに処理を委譲する
++ */
++export function createVersionCheckMiddleware(serverVersion: string): MiddlewareHandler {
++  return async (c, next) => {
++    const incoming = c.req.header(VERSION_HEADER);
++    const clientVersion = incoming?.trim();
++
++    if (!clientVersion || clientVersion.length === 0) {
++      return c.json(
++        {
++          error: `Missing ${VERSION_HEADER} header. Please update your CLI to match the server version.`,
++        },
++        400,
++      );
++    }
++
++    if (clientVersion !== serverVersion) {
++      return c.json(
++        {
++          error: `Version mismatch: client=${clientVersion}, server=${serverVersion}. Please align CLI and API server versions.`,
++        },
++        409,
++      );
++    }
++
++    await next();
++  };
++}
+diff --git a/src/server.ts b/src/server.ts
+index c097818..eb8b54e 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -4,6 +4,7 @@ import { createJwtAuthMiddleware } from './infrastructure/adapter/auth/index.js'
+ import type { JwtAuthEnv } from './infrastructure/adapter/auth/index.js';
+ import {
+   createRequestIdMiddleware,
++  createVersionCheckMiddleware,
+   reviewApiModule,
+   pipelineReportApiModule,
+ } from './presentation/api/index.js';
+@@ -67,6 +68,7 @@ export interface ServerDeps {
+  */
+ export function createApp(
+   deps: ServerDeps,
++  serverVersion: string,
+   jwtConfig?: JwtConfig,
+ ): Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv> {
+   const app = new Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv>();
+@@ -75,9 +77,12 @@ export function createApp(
+   // X-Request-Idヘッダがあれば継承、無ければUUID v4を生成
+   app.use('*', createRequestIdMiddleware());
+ 
+-  // ヘルスチェック（認証不要）
++  // ヘルスチェック（認証不要・バージョンチェック不要）
+   app.get('/health', (c) => c.json({ status: 'ok' }));
+ 
++  // バージョンチェックミドルウェ��（APIルートのみ。requestIdの後に配置し、エラー応答にもrequestIdが付与される）
++  app.use('/api/*', createVersionCheckMiddleware(serverVersion));
++
+   // JWT認証ミドルウェア
+   if (jwtConfig) {
+     app.use(
+@@ -123,6 +128,7 @@ export async function startServer(): Promise<void> {
+   const logger = getLogger();
+ 
+   // 必須環境変数の取得
++  const serverVersion = requireEnv('AIKATA_PR_VERSION');
+   const aiApiKey = requireEnv('AI_API_KEY');
+   const aiApiEndpointUrl = requireEnv('AI_API_ENDPOINT_URL');
+   const gitlabApiBaseUrl =
+@@ -241,7 +247,7 @@ export async function startServer(): Promise<void> {
+     );
+   }
+ 
+-  const app = createApp(deps, jwtConfig);
++  const app = createApp(deps, serverVersion, jwtConfig);
+ 
+   // サーバー起動
+   const port = Number(process.env['API_PORT'] ?? '3000');
