@@ -266,3 +266,15 @@ export async function startServer(): Promise<void> {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 }
+
+// 直接実行時（例: npx tsx src/server.ts）にサーバーを起動する
+const isDirectExecution =
+  import.meta.url === `file://${process.argv[1]}` ||
+  import.meta.url === new URL(process.argv[1] ?? '', 'file://').href;
+
+if (isDirectExecution) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}
