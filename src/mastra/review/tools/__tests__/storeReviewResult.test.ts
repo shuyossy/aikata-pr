@@ -22,8 +22,8 @@ const defaultRatings = [
 const executeStore = (
   input: {
     checkItemId: number;
-    ratingLabel: string;
     comment: string;
+    ratingLabel: string;
   },
   resultFilePath: string,
   ratings: Array<{ label: string; definition: string }> = defaultRatings,
@@ -61,8 +61,8 @@ describe('storeReviewResult', () => {
     const result = await executeStore(
       {
         checkItemId: 1,
-        ratingLabel: 'A',
         comment: '可読性は十分です',
+        ratingLabel: 'A',
       },
       filePath,
     );
@@ -86,8 +86,8 @@ describe('storeReviewResult', () => {
     await executeStore(
       {
         checkItemId: 1,
-        ratingLabel: 'A',
         comment: '可読性は十分です',
+        ratingLabel: 'A',
       },
       filePath,
     );
@@ -96,8 +96,8 @@ describe('storeReviewResult', () => {
     await executeStore(
       {
         checkItemId: 2,
-        ratingLabel: 'B',
         comment: 'カバレッジは75%です',
+        ratingLabel: 'B',
       },
       filePath,
     );
@@ -114,8 +114,8 @@ describe('storeReviewResult', () => {
     await executeStore(
       {
         checkItemId: 1,
-        ratingLabel: 'C',
         comment: '可読性が低いです',
+        ratingLabel: 'C',
       },
       filePath,
     );
@@ -124,8 +124,8 @@ describe('storeReviewResult', () => {
     await executeStore(
       {
         checkItemId: 1,
-        ratingLabel: 'A',
         comment: '修正後、可読性は十分です',
+        ratingLabel: 'A',
       },
       filePath,
     );
@@ -141,8 +141,8 @@ describe('storeReviewResult', () => {
     await executeStore(
       {
         checkItemId: 1,
-        ratingLabel: 'B',
         comment: '概ね問題ありません',
+        ratingLabel: 'B',
       },
       filePath,
     );
@@ -157,8 +157,8 @@ describe('storeReviewResult', () => {
     const result = await executeStore(
       {
         checkItemId: 1,
-        ratingLabel: 'X',
         comment: '問題ありません',
+        ratingLabel: 'X',
       },
       filePath,
     );
@@ -174,8 +174,8 @@ describe('storeReviewResult', () => {
     await executeStore(
       {
         checkItemId: 1,
-        ratingLabel: 'A',
         comment: '問題ありません',
+        ratingLabel: 'A',
       },
       filePath,
     );
@@ -192,8 +192,8 @@ describe('storeReviewResult', () => {
 const executeStoreWithContext = (
   input: {
     checkItemId: number;
-    ratingLabel: string;
     comment: string;
+    ratingLabel: string;
   },
   resultFilePath: string,
   checkItems: IndexedCheckItem[],
@@ -237,8 +237,8 @@ describe('storeReviewResult - チェック項目IDバリデーション', () => 
     const result = await executeStoreWithContext(
       {
         checkItemId: 1,
-        ratingLabel: 'A',
         comment: 'セキュリティは問題ありません',
+        ratingLabel: 'A',
       },
       filePath,
       checkItems,
@@ -260,8 +260,8 @@ describe('storeReviewResult - チェック項目IDバリデーション', () => 
     const result = await executeStoreWithContext(
       {
         checkItemId: 99,
-        ratingLabel: 'A',
         comment: '問題ありません',
+        ratingLabel: 'A',
       },
       filePath,
       checkItems,
@@ -282,8 +282,8 @@ describe('storeReviewResult - チェック項目IDバリデーション', () => 
     const result = await executeStore(
       {
         checkItemId: 1,
-        ratingLabel: 'A',
         comment: '問題ありません',
+        ratingLabel: 'A',
       },
       filePath,
     );

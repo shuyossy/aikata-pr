@@ -42,11 +42,18 @@ function releaseLock(lockPath: string): void {
  */
 export const storeReviewResultTool = createTool({
   id: 'store-review-result',
-  description: 'Store a review result for a single check item.',
+  description:
+    'Store a review result for a single check item. Write the comment first, then decide the ratingLabel that is consistent with what you wrote in the comment.',
   inputSchema: z.object({
     checkItemId: z.number().describe('ID of the check item (the number shown in [ID: N])'),
-    ratingLabel: z.string().describe('Rating label (e.g., A, B, C)'),
-    comment: z.string().describe('Review comment for this check item'),
+    comment: z
+      .string()
+      .describe(
+        'Review comment for this check item. Write this first — before choosing the ratingLabel — so the rating reflects the content of the comment.',
+      ),
+    ratingLabel: z
+      .string()
+      .describe('Rating label (e.g., A, B, C). Choose this based on the comment you just wrote.'),
   }),
   outputSchema: z.object({
     success: z.boolean().describe('Whether the store operation succeeded'),

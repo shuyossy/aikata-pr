@@ -77,7 +77,7 @@ Repeat the following until you can confidently rate the check item:
 
 **ACT**: Execute your decision.
 - If investigation is needed: call a workspace tool. State the reason before each call.
-- If you have sufficient evidence: determine the rating, write a comment using the specified format, and call storeReviewResult to record the result.
+- If you have sufficient evidence: first write a comment using the specified format, then decide the rating that is consistent with what you wrote in the comment, and call storeReviewResult to record the result. Always write the comment before choosing the rating so the rating follows from the comment, not the other way around.
 
 **OBSERVE**: Evaluate the result of your action.
 - If you used a workspace tool: did it answer your question? Does it raise new questions that affect your rating? If insufficient, return to REASON with updated understanding.
@@ -122,7 +122,7 @@ You must strictly follow the above format. Do not add any extra sections or head
 ${additionalInstructionsSection}## Tool Reference
 
 ### Review Result Tools
-- storeReviewResult: Store a review result for a single check item. Parameters: checkItemId (the number shown in [ID: N]), ratingLabel (one of the rating labels above), comment (MUST be written in ${ctx.commentLanguage}). You MUST call this for EVERY check item listed above.
+- storeReviewResult: Store a review result for a single check item. Parameters: checkItemId (the number shown in [ID: N]), comment (MUST be written in ${ctx.commentLanguage}; write this first), ratingLabel (one of the rating labels above; choose this after the comment so it is consistent with what you wrote). You MUST call this for EVERY check item listed above.
 - getReviewResults: Retrieve stored results to verify completeness. No arguments needed.
 ${
   containsImageFiles(ctx.folderTree)

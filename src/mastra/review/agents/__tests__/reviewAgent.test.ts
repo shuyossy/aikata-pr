@@ -264,7 +264,7 @@ describe('buildInstructions', () => {
     expect(result).toContain('Always reason and think in English');
     expect(result).toContain('you MUST write them in English');
     // storeReviewResultの説明にもコメント言語の指示が含まれる
-    expect(result).toContain('comment (MUST be written in English)');
+    expect(result).toContain('comment (MUST be written in English; write this first)');
   });
 
   it('デフォルト(Japanese)の場合もsystemプロンプトに言語指定が含まれる', () => {
@@ -275,7 +275,7 @@ describe('buildInstructions', () => {
     const result = buildInstructions(requestContext);
 
     expect(result).toContain('you MUST write them in Japanese');
-    expect(result).toContain('comment (MUST be written in Japanese)');
+    expect(result).toContain('comment (MUST be written in Japanese; write this first)');
   });
 
   it('additionalInstructionsが空の場合、Additional Instructionsセクションが含まれない', () => {
