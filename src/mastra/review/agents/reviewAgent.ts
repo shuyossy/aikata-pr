@@ -183,6 +183,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
 5. Provide a clear explanation in comment that references the same issue noted in your review
 
 ### Important rules
+- If the issue described in your review comment cannot be addressed by a concrete code change within the diff hunks (e.g., the root cause is outside the diff, or no meaningful improvement fits inside the changed lines and their surrounding context), do NOT register a suggestion for that check item. A missing suggestion is better than a forced, low-quality one that does not genuinely resolve the issue.
 - You may create multiple suggestions per check item
 - Do NOT duplicate suggestions within this session (check with getSuggests)
 - Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.

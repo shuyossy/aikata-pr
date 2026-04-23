@@ -375,6 +375,7 @@ describe('buildInstructions', () => {
     expect(result).not.toContain('Suggestion Tools');
     expect(result).not.toContain('storeSuggest');
     expect(result).not.toContain('getSuggests');
+    expect(result).not.toContain('do NOT register a suggestion');
   });
 
   it('suggest有効時にCode Suggestion Guidelinesセクションが含まれる', () => {
@@ -388,6 +389,17 @@ describe('buildInstructions', () => {
     expect(result).toContain('storeSuggest tool');
     expect(result).toContain('Each line in originalCode must be copied in its entirety');
     expect(result).toContain('Do NOT duplicate suggestions');
+  });
+
+  it('suggest有効時に、diff内に対象が無い場合は登録不要である旨のルールが含まれる', () => {
+    const requestContext = createTestRequestContext({
+      suggestEnabledRatingLabels: ['C'],
+    });
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('do NOT register a suggestion');
+    expect(result).toContain('cannot be addressed by a concrete code change within the diff hunks');
   });
 
   it('suggest有効時にSuggestion Toolsセクションが含まれる', () => {
