@@ -26,6 +26,7 @@ export class CommentPostingService {
       command.commitMessage,
       command.hiddenRatingLabels,
       command.qualityGateResult,
+      command.mrCommentTitle,
     );
 
     // 全結果が非表示評定に該当する場合はノート、それ以外はディスカッションとして投稿

@@ -188,6 +188,7 @@ export async function run(args: string[]): Promise<void> {
             baseSha: apiResult.baseSha,
             headSha: apiResult.headSha,
             startSha: apiResult.startSha,
+            mrCommentTitle: reviewSettings.mrCommentTitle,
           });
         }
 
@@ -292,6 +293,7 @@ export async function run(args: string[]): Promise<void> {
           baseSha: reviewResult.baseSha,
           headSha: reviewResult.headSha,
           startSha: reviewResult.startSha,
+          mrCommentTitle: reviewSettings.mrCommentTitle,
         });
       }
 

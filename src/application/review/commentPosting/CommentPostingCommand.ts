@@ -27,4 +27,6 @@ export interface CommentPostingCommand {
   headSha: string;
   /** MRのdiff_refs.start_sha */
   startSha: string;
+  /** MRコメントの見出しタイトル */
+  mrCommentTitle: string;
 }

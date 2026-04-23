@@ -35,6 +35,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -77,6 +78,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -106,6 +108,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -129,6 +132,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       // 折りたたみ形式であることを確認
       expect(comment).toContain('<details>');
@@ -159,6 +163,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -192,6 +197,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -218,6 +224,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -253,6 +260,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -274,6 +282,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -300,6 +309,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -324,6 +334,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -348,6 +359,7 @@ describe('CommentParser', () => {
         'test commit',
         [],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -379,6 +391,7 @@ describe('CommentParser', () => {
         'test commit',
         ['A'],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 
@@ -419,6 +432,7 @@ describe('CommentParser', () => {
         'test commit',
         ['A'],
         { passed: true, violations: [] },
+        'AIKATA-PR レビュー結果',
       );
       const parsed = CommentParser.parseComment(comment);
 

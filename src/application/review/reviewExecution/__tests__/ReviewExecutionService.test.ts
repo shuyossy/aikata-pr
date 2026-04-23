@@ -61,6 +61,7 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
       hiddenRatingLabels: [],
       suggestEnabledRatingLabels: ['C'],
       qualityGate: QualityGate.none(),
+      mrCommentTitle: 'AIKATA-PR レビュー結果',
     }),
     skillsPaths: [],
     projectDir: '/test/project',
@@ -128,6 +129,7 @@ function createAikataComment(
     'test commit',
     hiddenRatingLabels,
     { passed: true, violations: [] },
+    'AIKATA-PR レビュー結果',
   );
   return { id: 1, body, createdAt };
 }
@@ -1669,6 +1671,7 @@ describe('ReviewExecutionService', () => {
           hiddenRatingLabels: [],
           suggestEnabledRatingLabels: ['B', 'C'],
           qualityGate: QualityGate.none(),
+          mrCommentTitle: 'AIKATA-PR レビュー結果',
         }),
       });
       const mrContext = createMrContext({ diff: 'full diff content' });
@@ -1700,6 +1703,7 @@ describe('ReviewExecutionService', () => {
           hiddenRatingLabels: [],
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
+          mrCommentTitle: 'AIKATA-PR レビュー結果',
         }),
       });
       const mrContext = createMrContext();

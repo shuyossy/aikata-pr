@@ -18,6 +18,7 @@ export interface ReviewApiRequest {
     qualityGate?: {
       failureCriteria?: Array<{ ratingLabel: string; threshold: number }>;
     };
+    mrCommentTitle?: string;
   };
   options?: {
     commentLanguage?: string;

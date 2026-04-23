@@ -85,6 +85,7 @@
     - hiddenRatingLabels (string[])
     - qualityGate (QualityGate)
     - suggestEnabledRatingLabels (string[]): suggestを有効にする評定ラベル（デフォルト: ['C']、空配列で無効）
+    - mrCommentTitle (string): MRコメント見出しのタイトル文言（デフォルト: 'AIKATA-PR レビュー結果'）
   - 振る舞い
     - default(静的ファクトリ): デフォルト設定を生成
     - isSuggestEnabled(): suggestEnabledRatingLabelsが空でないか判定

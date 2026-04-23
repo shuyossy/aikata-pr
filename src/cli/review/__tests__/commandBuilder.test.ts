@@ -49,6 +49,7 @@ function createReviewSettings(
     hiddenRatingLabels: string[];
     suggestEnabledRatingLabels: string[];
     qualityGate: QualityGate;
+    mrCommentTitle: string;
   }>,
 ): ReviewSettings {
   return new ReviewSettings({
@@ -63,6 +64,7 @@ function createReviewSettings(
     hiddenRatingLabels: overrides?.hiddenRatingLabels ?? ['A'],
     suggestEnabledRatingLabels: overrides?.suggestEnabledRatingLabels ?? ['C'],
     qualityGate: overrides?.qualityGate ?? new QualityGate([{ ratingLabel: 'C', threshold: 2 }]),
+    mrCommentTitle: overrides?.mrCommentTitle ?? 'AIKATA-PR レビュー結果',
   });
 }
 
@@ -346,6 +348,23 @@ describe('buildApiReviewRequest', () => {
     const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
 
     expect(result.userId).toBe('alice');
+  });
+
+  it('mrCommentTitleがReviewSettingsからAPIリクエストに設定されること', () => {
+    const validated = {
+      userId: 'u',
+      projectId: 'p',
+      mrIid: '1',
+      gitlabToken: 't',
+      checklistPath: '/c',
+    };
+    const checklist = createChecklist();
+    const reviewSettings = createReviewSettings({ mrCommentTitle: 'API基盤チェック' });
+    const options = createCliOptions();
+
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
+
+    expect(result.reviewSettings?.mrCommentTitle).toBe('API基盤チェック');
   });
 });
 

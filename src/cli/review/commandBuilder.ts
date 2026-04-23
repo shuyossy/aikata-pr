@@ -95,6 +95,7 @@ export function buildApiReviewRequest(
           threshold: c.threshold,
         })),
       },
+      mrCommentTitle: reviewSettings.mrCommentTitle,
     },
     options: {
       commentLanguage: options.commentLanguage,

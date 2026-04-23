@@ -31,6 +31,7 @@ const reviewSettingsSchema = z.object({
       ),
     })
     .optional(),
+  mrCommentTitle: z.string().min(1).optional(),
 });
 
 /**
@@ -81,6 +82,7 @@ export class ReviewSettingsParser {
       suggestEnabledRatingLabels:
         data.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
       qualityGate,
+      mrCommentTitle: data.mrCommentTitle ?? defaults.mrCommentTitle,
     });
   }
 }

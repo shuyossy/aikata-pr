@@ -79,6 +79,7 @@ describe('CommentPostingService', () => {
     baseSha: 'base-sha-000',
     headSha: 'head-sha-111',
     startSha: 'start-sha-222',
+    mrCommentTitle: 'AIKATA-PR レビュー結果',
     ...overrides,
   });
 
@@ -100,6 +101,7 @@ describe('CommentPostingService', () => {
       command.commitMessage,
       command.hiddenRatingLabels,
       command.qualityGateResult,
+      command.mrCommentTitle,
     );
     expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledWith(
       '123',
@@ -192,6 +194,26 @@ describe('CommentPostingService', () => {
       'fix: bug fix',
       ['A'],
       qualityGateResult,
+      'AIKATA-PR レビュー結果',
+    );
+
+    formatSpy.mockRestore();
+  });
+
+  it('mrCommentTitleがCommentFormatterに透過的に渡されること', async () => {
+    const command = createCommand({ mrCommentTitle: 'API基盤チェック' });
+    const formatSpy = vi.spyOn(CommentFormatter, 'formatComment');
+
+    await service.execute(command);
+
+    expect(formatSpy).toHaveBeenCalledWith(
+      command.results,
+      command.ratings,
+      command.commitHash,
+      command.commitMessage,
+      command.hiddenRatingLabels,
+      command.qualityGateResult,
+      'API基盤チェック',
     );
 
     formatSpy.mockRestore();

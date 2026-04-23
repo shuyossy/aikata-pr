@@ -195,4 +195,14 @@ describe('buildReviewSettings', () => {
     const settings = buildReviewSettings({});
     expect(settings.qualityGate.failureCriteria).toHaveLength(0);
   });
+
+  it('mrCommentTitle指定時にその値が反映されること', () => {
+    const settings = buildReviewSettings({ mrCommentTitle: 'API基盤チェック' });
+    expect(settings.mrCommentTitle).toBe('API基盤チェック');
+  });
+
+  it('mrCommentTitle未指定の場合にデフォルト値が適用されること', () => {
+    const settings = buildReviewSettings({});
+    expect(settings.mrCommentTitle).toBe('AIKATA-PR レビュー結果');
+  });
 });

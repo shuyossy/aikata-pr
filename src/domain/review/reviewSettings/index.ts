@@ -1,1 +1,1 @@
-export { ReviewSettings } from './ReviewSettings.js';
+export { ReviewSettings, DEFAULT_MR_COMMENT_TITLE } from './ReviewSettings.js';

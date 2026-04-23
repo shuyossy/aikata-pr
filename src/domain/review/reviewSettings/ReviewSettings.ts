@@ -16,6 +16,9 @@ const DEFAULT_RATINGS = [
   new Rating('-', 'チェック項目の要件がdiffの変更内容に該当しない、または評価不能'),
 ];
 
+/** デフォルトのMRコメントタイトル */
+export const DEFAULT_MR_COMMENT_TITLE = 'AIKATA-PR レビュー結果';
+
 /** ReviewSettingsのコンストラクタパラメータ */
 interface ReviewSettingsParams {
   additionalInstructions: string;
@@ -25,6 +28,7 @@ interface ReviewSettingsParams {
   hiddenRatingLabels: string[];
   suggestEnabledRatingLabels: string[];
   qualityGate: QualityGate;
+  mrCommentTitle: string;
 }
 
 /**
@@ -39,6 +43,7 @@ export class ReviewSettings {
   readonly hiddenRatingLabels: string[];
   readonly suggestEnabledRatingLabels: string[];
   readonly qualityGate: QualityGate;
+  readonly mrCommentTitle: string;
 
   constructor(params: ReviewSettingsParams) {
     if (params.concurrentReviewCount !== null && params.concurrentReviewCount < 1) {
@@ -46,6 +51,9 @@ export class ReviewSettings {
     }
     if (params.ratings.length === 0) {
       throw new Error('ratings must not be empty');
+    }
+    if (params.mrCommentTitle.length === 0) {
+      throw new Error('mrCommentTitle must not be empty');
     }
     const ratingLabels = new Set(params.ratings.map((r) => r.label));
     for (const label of params.hiddenRatingLabels) {
@@ -72,6 +80,7 @@ export class ReviewSettings {
     this.hiddenRatingLabels = params.hiddenRatingLabels;
     this.suggestEnabledRatingLabels = params.suggestEnabledRatingLabels;
     this.qualityGate = params.qualityGate;
+    this.mrCommentTitle = params.mrCommentTitle;
   }
 
   /** suggestが有効かどうか判定する */
@@ -89,6 +98,7 @@ export class ReviewSettings {
       hiddenRatingLabels: [],
       suggestEnabledRatingLabels: ['C'],
       qualityGate: QualityGate.none(),
+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
     });
   }
 }

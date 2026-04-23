@@ -30,6 +30,7 @@ export class CommentFormatter {
     commitMessage: string,
     hiddenRatingLabels: string[],
     qualityGateResult: QualityGateResult,
+    mrCommentTitle: string,
   ): string {
     // 表示/非表示に分割（エラー結果は常に表示）
     const visibleResults = results.filter(
@@ -60,7 +61,7 @@ export class CommentFormatter {
 
     // ヘッダー
     lines.push('');
-    lines.push('## AIKATA-PR レビュー結果');
+    lines.push(`## ${mrCommentTitle}`);
     lines.push(`レビュー時最新コミット: ${commitMessage}`);
 
     // 品質ゲート警告（テーブルの上に表示）

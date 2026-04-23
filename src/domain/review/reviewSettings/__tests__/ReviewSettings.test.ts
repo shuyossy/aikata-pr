@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ReviewSettings } from '../ReviewSettings.js';
+import { ReviewSettings, DEFAULT_MR_COMMENT_TITLE } from '../ReviewSettings.js';
 import { Rating } from '../../rating/index.js';
 import { QualityGate } from '../../qualityGate/index.js';
 
@@ -15,6 +15,7 @@ describe('ReviewSettings', () => {
       hiddenRatingLabels: ['A'],
       suggestEnabledRatingLabels: ['B'],
       qualityGate,
+      mrCommentTitle: 'API基盤チェック',
     });
     expect(settings.additionalInstructions).toBe('追加指示');
     expect(settings.concurrentReviewCount).toBe(3);
@@ -23,6 +24,7 @@ describe('ReviewSettings', () => {
     expect(settings.hiddenRatingLabels).toEqual(['A']);
     expect(settings.suggestEnabledRatingLabels).toEqual(['B']);
     expect(settings.qualityGate).toBe(qualityGate);
+    expect(settings.mrCommentTitle).toBe('API基盤チェック');
   });
 
   it('concurrentReviewCountがnullの場合は正常に生成できる', () => {
@@ -34,6 +36,7 @@ describe('ReviewSettings', () => {
       hiddenRatingLabels: [],
       suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
     });
     expect(settings.concurrentReviewCount).toBeNull();
   });
@@ -48,6 +51,7 @@ describe('ReviewSettings', () => {
     expect(settings.ratings[3].label).toBe('-');
     expect(settings.hiddenRatingLabels).toEqual([]);
     expect(settings.qualityGate.failureCriteria).toEqual([]);
+    expect(settings.mrCommentTitle).toBe('AIKATA-PR レビュー結果');
   });
 
   it('concurrentReviewCountが0以下の場合はエラーになる', () => {
@@ -61,6 +65,7 @@ describe('ReviewSettings', () => {
           hiddenRatingLabels: [],
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
         }),
     ).toThrow();
     expect(
@@ -73,6 +78,7 @@ describe('ReviewSettings', () => {
           hiddenRatingLabels: [],
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
         }),
     ).toThrow();
   });
@@ -88,6 +94,7 @@ describe('ReviewSettings', () => {
           hiddenRatingLabels: [],
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
         }),
     ).toThrow();
   });
@@ -101,6 +108,7 @@ describe('ReviewSettings', () => {
       hiddenRatingLabels: [],
       suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
     });
     expect(settings.hiddenRatingLabels).toEqual([]);
   });
@@ -114,6 +122,7 @@ describe('ReviewSettings', () => {
       hiddenRatingLabels: ['A', 'B'],
       suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
     });
     expect(settings.hiddenRatingLabels).toEqual(['A', 'B']);
   });
@@ -129,6 +138,7 @@ describe('ReviewSettings', () => {
           hiddenRatingLabels: ['X'],
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
         }),
     ).toThrow();
   });
@@ -143,6 +153,7 @@ describe('ReviewSettings', () => {
       hiddenRatingLabels: [],
       suggestEnabledRatingLabels: [],
       qualityGate,
+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
     });
     expect(settings.qualityGate.failureCriteria).toHaveLength(1);
   });
@@ -158,6 +169,7 @@ describe('ReviewSettings', () => {
           hiddenRatingLabels: [],
           suggestEnabledRatingLabels: [],
           qualityGate: new QualityGate([{ ratingLabel: 'X', threshold: 1 }]),
+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
         }),
     ).toThrow();
   });
@@ -177,6 +189,7 @@ describe('ReviewSettings', () => {
         hiddenRatingLabels: [],
         suggestEnabledRatingLabels: ['B', 'C'],
         qualityGate: QualityGate.none(),
+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
       });
       expect(settings.suggestEnabledRatingLabels).toEqual(['B', 'C']);
     });
@@ -190,6 +203,7 @@ describe('ReviewSettings', () => {
         hiddenRatingLabels: [],
         suggestEnabledRatingLabels: [],
         qualityGate: QualityGate.none(),
+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
       });
       expect(settings.suggestEnabledRatingLabels).toEqual([]);
     });
@@ -205,6 +219,7 @@ describe('ReviewSettings', () => {
             hiddenRatingLabels: [],
             suggestEnabledRatingLabels: ['X'],
             qualityGate: QualityGate.none(),
+            mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
           }),
       ).toThrow('suggestEnabledRatingLabels contains unknown label: X');
     });
@@ -225,8 +240,41 @@ describe('ReviewSettings', () => {
         hiddenRatingLabels: [],
         suggestEnabledRatingLabels: [],
         qualityGate: QualityGate.none(),
+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
       });
       expect(settings.isSuggestEnabled()).toBe(false);
+    });
+  });
+
+  describe('mrCommentTitle', () => {
+    it('任意の文字列を受け取って保持する', () => {
+      const settings = new ReviewSettings({
+        additionalInstructions: '',
+        concurrentReviewCount: null,
+        commentFormat: '{comment}',
+        ratings: [new Rating('A', 'def')],
+        hiddenRatingLabels: [],
+        suggestEnabledRatingLabels: [],
+        qualityGate: QualityGate.none(),
+        mrCommentTitle: 'フロントエンドチェック',
+      });
+      expect(settings.mrCommentTitle).toBe('フロントエンドチェック');
+    });
+
+    it('空文字の場合はエラーになる', () => {
+      expect(
+        () =>
+          new ReviewSettings({
+            additionalInstructions: '',
+            concurrentReviewCount: null,
+            commentFormat: '{comment}',
+            ratings: [new Rating('A', 'def')],
+            hiddenRatingLabels: [],
+            suggestEnabledRatingLabels: [],
+            qualityGate: QualityGate.none(),
+            mrCommentTitle: '',
+          }),
+      ).toThrow('mrCommentTitle must not be empty');
     });
   });
 });

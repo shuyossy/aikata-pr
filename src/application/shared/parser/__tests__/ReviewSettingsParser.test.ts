@@ -173,4 +173,22 @@ describe('ReviewSettingsParser', () => {
     });
     expect(() => ReviewSettingsParser.parse(json)).toThrow();
   });
+
+  describe('mrCommentTitle', () => {
+    it('指定された値がReviewSettingsに反映される', () => {
+      const json = JSON.stringify({ mrCommentTitle: 'API基盤チェック' });
+      const settings = ReviewSettingsParser.parse(json);
+      expect(settings.mrCommentTitle).toBe('API基盤チェック');
+    });
+
+    it('未指定の場合はデフォルト値が適用される', () => {
+      const settings = ReviewSettingsParser.parse('{}');
+      expect(settings.mrCommentTitle).toBe(ReviewSettings.default().mrCommentTitle);
+    });
+
+    it('空文字が指定された場合はバリデーションエラーになる', () => {
+      const json = JSON.stringify({ mrCommentTitle: '' });
+      expect(() => ReviewSettingsParser.parse(json)).toThrow();
+    });
+  });
 });

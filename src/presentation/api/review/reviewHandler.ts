@@ -59,6 +59,7 @@ export const reviewRequestSchema = z.object({
             .optional(),
         })
         .optional(),
+      mrCommentTitle: z.string().min(1).optional(),
     })
     .optional(),
   options: z
@@ -407,5 +408,6 @@ export function buildReviewSettings(settings: ReviewRequest['reviewSettings']): 
     suggestEnabledRatingLabels:
       settings.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
     qualityGate,
+    mrCommentTitle: settings.mrCommentTitle ?? defaults.mrCommentTitle,
   });
 }

@@ -56,6 +56,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       // テーブルヘッダの確認
@@ -66,7 +67,7 @@ describe('CommentFormatter', () => {
       expect(output).toContain('| テストカバレッジ | B | カバレッジを改善してください |');
     });
 
-    it('ヘッダー「## AIKATA-PR レビュー結果」が含まれている', () => {
+    it('mrCommentTitle引数がMarkdownのH2ヘッダーとして出力される', () => {
       const results = [
         ReviewResult.success(
           new CheckItem('チェック項目1'),
@@ -82,9 +83,33 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('## AIKATA-PR レビュー結果');
+    });
+
+    it('mrCommentTitleに任意文字列を渡すとそれがH2ヘッダーに反映される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          'コメント1',
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment(
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        [],
+        PASSED_GATE,
+        'API基盤チェック',
+      );
+
+      expect(output).toContain('## API基盤チェック');
+      expect(output).not.toContain('## AIKATA-PR レビュー結果');
     });
 
     it('ヘッダーの下にコミットメッセージが表示される', () => {
@@ -103,6 +128,7 @@ describe('CommentFormatter', () => {
         'feat: implement login',
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('レビュー時最新コミット: feat: implement login');
@@ -124,6 +150,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain(REVIEW_MARKER);
@@ -145,6 +172,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       // メタデータマーカーの存在確認
@@ -179,6 +207,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('| エラーのチェック項目 | エラー | Timeout occurred |');
@@ -194,6 +223,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('<details>');
@@ -212,6 +242,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).not.toContain('<details>');
@@ -235,6 +266,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('| 条件A \\| 条件B の確認 | A | 問題ありません |');
@@ -256,6 +288,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('| 可読性 | A | if (a \\| b) のパターンに注意 |');
@@ -273,6 +306,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
@@ -294,6 +328,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('| 可読性 | A | 1行目<br>2行目<br>3行目 |');
@@ -318,6 +353,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
@@ -341,6 +377,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain(
@@ -371,6 +408,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('| チェック項目1 | A | コメント1 |');
@@ -398,6 +436,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         ['A'],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
@@ -425,6 +464,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         ['A'],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       // メタデータのJSON部分を抽出してパース
@@ -455,6 +495,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         ['A'],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('| エラー項目 | エラー | タイムアウト |');
@@ -477,6 +518,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         ['A'],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
@@ -499,6 +541,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
@@ -526,6 +569,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         ['A'],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       // A評定の結果が非表示になるため、visible件数はFOLD_THRESHOLD以下
@@ -550,6 +594,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         PASSED_GATE,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).not.toContain('Quality Gate Failed');
@@ -576,6 +621,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         gateResult,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('> **⚠ Quality Gate Failed**');
@@ -600,6 +646,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         gateResult,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('> - Rating "C" : 2 (threshold: 1)');
@@ -621,6 +668,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         [],
         gateResult,
+        'AIKATA-PR レビュー結果',
       );
 
       // 警告がdetails開始タグの前に表示される
@@ -650,6 +698,7 @@ describe('CommentFormatter', () => {
         commitMessage,
         ['A'],
         gateResult,
+        'AIKATA-PR レビュー結果',
       );
 
       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
