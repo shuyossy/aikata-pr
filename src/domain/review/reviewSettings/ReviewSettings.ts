@@ -1,4 +1,4 @@
-import { Rating } from '../rating/index.js';
+import { Rating, OUT_OF_SCOPE_RATING, OUT_OF_SCOPE_RATING_LABEL } from '../rating/index.js';
 import { QualityGate } from '../qualityGate/index.js';
 
 /** デフォルトのコメントフォーマット */
@@ -13,7 +13,9 @@ const DEFAULT_RATINGS = [
   new Rating('A', 'チェック項目の要件を完全に満たしている'),
   new Rating('B', '概ね満たしているが軽微な指摘がある'),
   new Rating('C', '要件を満たしていない'),
-  new Rating('-', 'チェック項目の要件がdiffの変更内容に該当しない、または評価不能'),
+  // out-of-scope評定は予約定数を再利用（ユーザが評定リストから外した場合でも
+  // storeReviewResult / CommentParser 側でフォールバック格納可能）
+  OUT_OF_SCOPE_RATING,
 ];
 
 /** デフォルトのMRコメントタイトル */
@@ -56,18 +58,21 @@ export class ReviewSettings {
       throw new Error('mrCommentTitle must not be empty');
     }
     const ratingLabels = new Set(params.ratings.map((r) => r.label));
+    // out-of-scope の予約フォールバックラベルは ratings に未登録でも常に許容する
+    const isAcceptedLabel = (label: string): boolean =>
+      ratingLabels.has(label) || label === OUT_OF_SCOPE_RATING_LABEL;
     for (const label of params.hiddenRatingLabels) {
-      if (!ratingLabels.has(label)) {
+      if (!isAcceptedLabel(label)) {
         throw new Error(`hiddenRatingLabels contains unknown label: ${label}`);
       }
     }
     for (const label of params.suggestEnabledRatingLabels) {
-      if (!ratingLabels.has(label)) {
+      if (!isAcceptedLabel(label)) {
         throw new Error(`suggestEnabledRatingLabels contains unknown label: ${label}`);
       }
     }
     for (const criterion of params.qualityGate.failureCriteria) {
-      if (!ratingLabels.has(criterion.ratingLabel)) {
+      if (!isAcceptedLabel(criterion.ratingLabel)) {
         throw new Error(
           `qualityGate failureCriteria contains unknown rating label: ${criterion.ratingLabel}`,
         );

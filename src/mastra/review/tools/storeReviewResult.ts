@@ -3,6 +3,10 @@ import { z } from 'zod';
 import * as fs from 'node:fs';
 import { readStoredResults, type StoredReviewResult } from '../types.js';
 import type { IndexedCheckItem } from '../indexedCheckItem.js';
+import {
+  OUT_OF_SCOPE_RATING_LABEL,
+  OUT_OF_SCOPE_RATING_DEFINITION,
+} from '../../../domain/review/rating/index.js';
 
 // Atomics.waitによる同期スリープ用バッファ
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -70,7 +74,14 @@ export const storeReviewResultTool = createTool({
       | Array<{ label: string; definition: string }>
       | undefined;
     const matchedRating = ratings?.find((r) => r.label === ratingLabel);
-    if (!matchedRating) {
+    // ユーザ定義の評定リストにヒットしなかった場合でも、out-of-scope の予約フォールバック
+    // ラベルは常に受理する（ユーザが評定リストから '-' を外している場合のフォールバック）
+    let resolvedDefinition: string;
+    if (matchedRating) {
+      resolvedDefinition = matchedRating.definition;
+    } else if (ratingLabel === OUT_OF_SCOPE_RATING_LABEL) {
+      resolvedDefinition = OUT_OF_SCOPE_RATING_DEFINITION;
+    } else {
       const validLabels = ratings?.map((r) => r.label).join(', ') ?? 'none';
       return {
         success: false,
@@ -100,7 +111,7 @@ export const storeReviewResultTool = createTool({
       const newResult: StoredReviewResult = {
         checkItemId,
         ratingLabel,
-        ratingDefinition: matchedRating.definition,
+        ratingDefinition: resolvedDefinition,
         comment,
         isError: false,
       };

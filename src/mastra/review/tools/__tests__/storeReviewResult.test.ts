@@ -184,6 +184,47 @@ describe('storeReviewResult', () => {
     expect(stored[0].isError).toBe(false);
     expect(stored[0].errorMessage).toBeUndefined();
   });
+
+  it("ratingsに '-' が含まれていなくても予約フォールバックラベル '-' は受理される", async () => {
+    createTmpDir();
+    // ユーザ設定の評定リストには '-' が含まれない
+    const result = await executeStore(
+      {
+        checkItemId: 1,
+        comment: '本チェック項目は今回のdiffの対象範囲外です',
+        ratingLabel: '-',
+      },
+      filePath,
+      defaultRatings,
+    );
+
+    expect(result.success).toBe(true);
+    const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    expect(stored).toHaveLength(1);
+    expect(stored[0].ratingLabel).toBe('-');
+    // 予約フォールバックの定義文がratingDefinitionに採用される
+    expect(stored[0].ratingDefinition).toBe(
+      'チェック項目の要件がdiffの変更内容に該当しない、または評価不能',
+    );
+  });
+
+  it("ユーザがratingsに '-' を独自定義している場合、ユーザ定義のdefinitionが優先される", async () => {
+    createTmpDir();
+    const customRatings = [...defaultRatings, { label: '-', definition: 'カスタム定義: 該当なし' }];
+    const result = await executeStore(
+      {
+        checkItemId: 1,
+        comment: '対象外です',
+        ratingLabel: '-',
+      },
+      filePath,
+      customRatings,
+    );
+
+    expect(result.success).toBe(true);
+    const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    expect(stored[0].ratingDefinition).toBe('カスタム定義: 該当なし');
+  });
 });
 
 /**

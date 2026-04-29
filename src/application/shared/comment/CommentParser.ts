@@ -1,6 +1,10 @@
 import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/review/reviewResult/index.js';
 import { CheckItem } from '../../../domain/review/checkItem/index.js';
-import { Rating } from '../../../domain/review/rating/index.js';
+import {
+  Rating,
+  OUT_OF_SCOPE_RATING,
+  OUT_OF_SCOPE_RATING_LABEL,
+} from '../../../domain/review/rating/index.js';
 import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './CommentFormatter.js';
 
 /** メタデータのJSON構造 */
@@ -162,12 +166,17 @@ export class CommentParser {
 
   /**
    * ラベルに一致するRatingをメタデータの定義から検索する
+   * out-of-scope の予約フォールバックラベルは ratings に未登録でも常に受理する
+   * （ユーザが評定リストから '-' を外している状況での再レビュー時クラッシュを防ぐ）
    */
   private static findRating(label: string, ratings: Rating[]): Rating {
     const found = ratings.find((r) => r.label === label);
-    if (!found) {
-      throw new Error(`Rating definition not found for label: ${label}`);
+    if (found) {
+      return found;
     }
-    return found;
+    if (label === OUT_OF_SCOPE_RATING_LABEL) {
+      return OUT_OF_SCOPE_RATING;
+    }
+    throw new Error(`Rating definition not found for label: ${label}`);
   }
 }

@@ -246,6 +246,51 @@ describe('ReviewSettings', () => {
     });
   });
 
+  describe("予約フォールバックラベル '-' の許容", () => {
+    it("ratingsに '-' を含めなくても hiddenRatingLabels: ['-'] を指定できる", () => {
+      const settings = new ReviewSettings({
+        additionalInstructions: '',
+        concurrentReviewCount: null,
+        commentFormat: '{comment}',
+        ratings: [new Rating('A', 'def'), new Rating('C', 'def3')],
+        hiddenRatingLabels: ['-'],
+        suggestEnabledRatingLabels: [],
+        qualityGate: QualityGate.none(),
+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      });
+      expect(settings.hiddenRatingLabels).toEqual(['-']);
+    });
+
+    it("ratingsに '-' を含めなくても suggestEnabledRatingLabels: ['-'] を指定できる", () => {
+      const settings = new ReviewSettings({
+        additionalInstructions: '',
+        concurrentReviewCount: null,
+        commentFormat: '{comment}',
+        ratings: [new Rating('A', 'def'), new Rating('C', 'def3')],
+        hiddenRatingLabels: [],
+        suggestEnabledRatingLabels: ['-'],
+        qualityGate: QualityGate.none(),
+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      });
+      expect(settings.suggestEnabledRatingLabels).toEqual(['-']);
+    });
+
+    it("ratingsに '-' を含めなくても qualityGate.failureCriteria に '-' を指定できる", () => {
+      const qualityGate = new QualityGate([{ ratingLabel: '-', threshold: 5 }]);
+      const settings = new ReviewSettings({
+        additionalInstructions: '',
+        concurrentReviewCount: null,
+        commentFormat: '{comment}',
+        ratings: [new Rating('A', 'def'), new Rating('C', 'def3')],
+        hiddenRatingLabels: [],
+        suggestEnabledRatingLabels: [],
+        qualityGate,
+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      });
+      expect(settings.qualityGate.failureCriteria[0].ratingLabel).toBe('-');
+    });
+  });
+
   describe('mrCommentTitle', () => {
     it('任意の文字列を受け取って保持する', () => {
       const settings = new ReviewSettings({

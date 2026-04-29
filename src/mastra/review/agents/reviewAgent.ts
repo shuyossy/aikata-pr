@@ -13,6 +13,10 @@ import { getSuggestsTool } from '../tools/getSuggests.js';
 import { containsImageFiles } from '../../../lib/imageFormat.js';
 import { buildUserPromptTemplate } from '../../../application/shared/prompt/index.js';
 import { WORKSPACE_TOOLS_CONFIG } from '../../shared/workspaceToolsConfig.js';
+import {
+  OUT_OF_SCOPE_RATING_LABEL,
+  OUT_OF_SCOPE_RATING_DEFINITION,
+} from '../../../domain/review/rating/index.js';
 
 // 後方互換のため shared から re-export
 export { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
@@ -44,7 +48,17 @@ export function buildInstructions(
 ): string {
   const ctx = requestContext.all;
 
-  const ratingsText = ctx.ratings.map((r) => `- ${r.label}: ${r.definition}`).join('\n');
+  // ユーザ設定の評定リストに out-of-scope予約ラベル '-' が含まれていない場合のみ、
+  // フォールバック行を末尾に追加する（含まれていればユーザ定義をそのまま尊重）
+  const hasUserOutOfScopeLabel = ctx.ratings.some((r) => r.label === OUT_OF_SCOPE_RATING_LABEL);
+  const userRatingLines = ctx.ratings.map((r) => `- ${r.label}: ${r.definition}`);
+  const ratingsText = hasUserOutOfScopeLabel
+    ? userRatingLines.join('\n')
+    : [
+        ...userRatingLines,
+        `- ${OUT_OF_SCOPE_RATING_LABEL}: ${OUT_OF_SCOPE_RATING_DEFINITION} (reserved fallback — always available)`,
+      ].join('\n');
+
   const checkItemsText = ctx.checkItems
     .map((item) => `[ID: ${item.id}]\n${item.content}`)
     .join('\n\n');
@@ -63,6 +77,16 @@ export function buildInstructions(
   return `You are an expert MR (Merge Request) code review specialist. You will receive an MR diff, the project folder tree, and a set of check items. Your job is to evaluate each check item against the MR and provide a rating and comment.${suggestRoleSuffix}
 
 Always reason and think in English. When writing review comments, you MUST write them in ${ctx.commentLanguage}.
+
+## Review Principles
+
+Apply the following principles when reviewing each check item:
+
+- Follow established best practices for code review and documentation review. Use professional judgment to focus on what genuinely affects quality, correctness, maintainability, and clarity, rather than surfacing trivial or speculative concerns.
+- If the diff has no content that is genuinely relevant to a given check item, do NOT force a review. Forcing reviews onto unrelated diffs produces noise that misleads the reviewer and erodes trust in the review output. In that case, select an out-of-scope rating using the following priority:
+    1. First, look at the Rating Criteria below. If a user-configured rating's definition explicitly covers the "out of scope / not applicable" case, use that rating (this takes priority over the reserved fallback).
+    2. Otherwise, use the reserved fallback rating label "${OUT_OF_SCOPE_RATING_LABEL}" (out of scope / not applicable). This reserved label is always accepted, even when it is not listed in the Rating Criteria.
+  In either case, clearly state in the comment that this check item is out of scope for the diff and explain briefly why. Storing such an out-of-scope result satisfies the completion requirement for that item.
 
 ## Reasoning Framework (ReAct)
 

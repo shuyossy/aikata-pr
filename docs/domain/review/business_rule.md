@@ -212,6 +212,19 @@
     - 行範囲が重複しない以前のsuggestはそのまま残す
   - 関連するユースケースorエンティティ: SuggestOverlapResolver, ReviewExecutionService
 
+- AIレビュー方針ルール
+  - 目的/背景
+    - レビュー結果がノイズになるとユーザの認知負担を増やしレビュー結果への信頼を損なうため、対象外項目は無理にレビューしない
+    - 細かい指示を毎回与えなくてもベストプラクティスに沿ったレビューを行わせる
+  - 条件
+    - チェック項目の要件がdiffの変更内容に対して評価対象外（無関係）と判断される場合
+    - それ以外の場合は通常通りレビューを実施する
+  - 結果(アクション)
+    - 評価対象外の場合: ユーザ定義の評定リスト内に out-of-scope（該当なし／評価対象外）相当の評定があればそれを優先利用、なければ予約フォールバックラベル `-` を選び、コメントで対象外である旨と理由を明示する
+    - 予約フォールバックラベル `-` は ReviewSettings.ratings に含まれていなくても storeReviewResult / CommentParser / ReviewSettings の3箇所で常時受理される
+    - レビュー実施時はコード/ドキュメントレビューのベストプラクティスに沿う
+  - 関連するユースケースorエンティティ: reviewAgent, ReviewSettings, Rating, storeReviewResultTool, CommentParser
+
 - サジェスト行番号解決ルール
   - 目的/背景
     - Agentが生成したコード断片からGitLab APIのdiff discussion投稿に必要なposition情報を算出するため

@@ -142,6 +142,49 @@ describe('buildInstructions', () => {
     expect(result).toContain('C: Does not satisfy requirements');
   });
 
+  it("ratingsに '-' が含まれない場合、Rating Criteriaセクションに予約フォールバック行が末尾追加される", () => {
+    const requestContext = createTestRequestContext({
+      ratings: [
+        { label: 'A', definition: 'Fully satisfies' },
+        { label: 'C', definition: 'Not satisfied' },
+      ],
+    });
+
+    const result = buildInstructions(requestContext);
+    // Rating Criteria セクション内に予約フォールバック行があるか確認
+    const sectionMatch = result.match(/## Rating Criteria\n([\s\S]*?)\n## /);
+    expect(sectionMatch).not.toBeNull();
+    const ratingCriteriaSection = sectionMatch![1];
+
+    expect(ratingCriteriaSection).toContain('A: Fully satisfies');
+    expect(ratingCriteriaSection).toContain('C: Not satisfied');
+    // 予約フォールバック行が含まれること
+    expect(ratingCriteriaSection).toMatch(/^- -:/m);
+    expect(ratingCriteriaSection).toContain('reserved fallback — always available');
+  });
+
+  it("ratingsに '-' が含まれる場合、Rating Criteriaに予約フォールバック行は重複追加されない（ユーザ定義が尊重される）", () => {
+    const requestContext = createTestRequestContext({
+      ratings: [
+        { label: 'A', definition: 'Fully satisfies' },
+        { label: '-', definition: 'カスタム該当なし定義' },
+      ],
+    });
+
+    const result = buildInstructions(requestContext);
+    const sectionMatch = result.match(/## Rating Criteria\n([\s\S]*?)\n## /);
+    expect(sectionMatch).not.toBeNull();
+    const ratingCriteriaSection = sectionMatch![1];
+
+    // ユーザ定義のdefinitionは含まれる
+    expect(ratingCriteriaSection).toContain('カスタム該当なし定義');
+    // Rating Criteriaセクション内には予約フォールバック注記行が含まれない
+    expect(ratingCriteriaSection).not.toContain('reserved fallback — always available');
+    // - -: で始まる行が1行のみであることを確認（ユーザ定義の1行のみ）
+    const dashLines = ratingCriteriaSection.split('\n').filter((line) => /^- -:/.test(line));
+    expect(dashLines).toHaveLength(1);
+  });
+
   it('コメントフォーマットがsystemプロンプトに含まれる', () => {
     const requestContext = createTestRequestContext({
       commentFormat: '## Review\n{comment}',
@@ -203,6 +246,36 @@ describe('buildInstructions', () => {
 
     expect(result).toMatch(/MUST review/i);
     expect(result).toMatch(/Do NOT finish/i);
+  });
+
+  it('Review Principlesセクションが含まれ、ベストプラクティス遵守の指示がある', () => {
+    const requestContext = createTestRequestContext();
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toContain('## Review Principles');
+    expect(result).toMatch(/best practices/i);
+  });
+
+  it('対象外チェック項目を強制レビューしないようにする指示が含まれる', () => {
+    const requestContext = createTestRequestContext();
+
+    const result = buildInstructions(requestContext);
+
+    expect(result).toMatch(/do NOT force a review/i);
+    expect(result).toMatch(/out of scope/i);
+  });
+
+  it('out-of-scope評定の選択順序（ユーザ定義優先→予約フォールバック）が示される', () => {
+    const requestContext = createTestRequestContext();
+
+    const result = buildInstructions(requestContext);
+
+    // ユーザ定義評定を優先する旨
+    expect(result).toMatch(/user-configured rating/i);
+    // 予約フォールバックラベル '-' への言及
+    expect(result).toContain('"-"');
+    expect(result).toMatch(/reserved fallback/i);
   });
 
   it('MR情報（title, description, branches, diff）がsystemプロンプトに含まれない', () => {
