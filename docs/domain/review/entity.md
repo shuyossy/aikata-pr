@@ -35,6 +35,8 @@
     - definition (string)
   - 振る舞い
     - equals(other: Rating): 同値比較
+  - 予約ラベル
+    - `-` (OUT_OF_SCOPE_RATING_LABEL): out-of-scope（評価対象外）用の予約フォールバック評定。ユーザのReviewSettings.ratingsに含まれていなくてもAIによる格納・パースが常に許容される。ユーザが`-`を独自定義で含めている場合はそちらが優先される。
 
 - レビュー結果
   - 識別子: ReviewResult
@@ -74,9 +76,9 @@
   - 不変条件
     - concurrentReviewCountがnullまたは1以上
     - ratingsが空でないこと
-    - hiddenRatingLabelsの各ラベルがratingsに存在すること
-    - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること
-    - suggestEnabledRatingLabelsの各ラベルがratingsに存在すること
+    - hiddenRatingLabelsの各ラベルがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
+    - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
+    - suggestEnabledRatingLabelsの各ラベルがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
   - 属性
     - additionalInstructions (string)
     - concurrentReviewCount (number | null)
