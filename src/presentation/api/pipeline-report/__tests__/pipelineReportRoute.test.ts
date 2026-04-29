@@ -14,6 +14,10 @@ import type {
   CloneResult,
 } from '../../../../application/shared/port/clone/index.js';
 import type { RateLimiterPort } from '../../../../application/shared/port/rateLimiter/index.js';
+import type {
+  JobResultStore,
+  JobResultRecord,
+} from '../../../../application/shared/port/jobResultStore/index.js';
 import type { PipelineAnalysisResult } from '../../../../application/pipeline-report/pipelineAnalysis/PipelineAnalysisService.js';
 import type { GitLabIdTokenPayload } from '../../../../infrastructure/adapter/auth/index.js';
 import { Pipeline } from '../../../../domain/pipeline-report/pipeline/index.js';
@@ -133,6 +137,30 @@ function createMockServiceFactory(overrides?: {
 }
 
 /**
+ * モックJobResultStoreを作成するヘルパー
+ *
+ * 内部Mapで保存・取得・Idempotency-Key索引を再現する
+ */
+function createMockJobResultStore(): JobResultStore & {
+  saveCalls: JobResultRecord[];
+} {
+  const recordsByJobId = new Map<string, JobResultRecord>();
+  const recordsByKey = new Map<string, JobResultRecord>();
+  const saveCalls: JobResultRecord[] = [];
+  return {
+    saveCalls,
+    save: vi.fn(async (record: JobResultRecord) => {
+      saveCalls.push(record);
+      recordsByJobId.set(record.jobId, record);
+      recordsByKey.set(record.idempotencyKey, record);
+    }),
+    load: vi.fn(async (jobId: string) => recordsByJobId.get(jobId) ?? null),
+    loadByIdempotencyKey: vi.fn(async (key: string) => recordsByKey.get(key) ?? null),
+    sweepExpired: vi.fn(async () => 0),
+  };
+}
+
+/**
  * モック RateLimiter
  */
 function createMockRateLimiter(): RateLimiterPort {
@@ -157,6 +185,8 @@ function createTestApp(
     cloneManager: createMockCloneManager(),
     serviceFactory: createMockServiceFactory(),
     rateLimiter: createMockRateLimiter(),
+    jobResultStore: createMockJobResultStore(),
+    jobResultTtlMs: 86_400_000,
     gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
     aiApiKey: 'test-api-key',
     aiApiEndpointUrl: 'https://ai.example.com',
@@ -222,7 +252,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: 'invalid json',
       });
 
@@ -238,7 +268,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(body),
       });
 
@@ -254,7 +284,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(body),
       });
 
@@ -268,7 +298,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(body),
       });
 
@@ -283,7 +313,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
 
@@ -324,7 +354,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
       // SSE ストリームを最後まで消費しないと handler の処理が完了しないため、明示的に読み切る
@@ -358,7 +388,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
       await res.text();
@@ -400,7 +430,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
       await res.text();
@@ -416,7 +446,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
       await res.text();
@@ -442,7 +472,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
       await res.text();
@@ -457,7 +487,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
       await res.text();
@@ -483,7 +513,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
 
@@ -508,7 +538,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(body),
       });
 
@@ -527,7 +557,7 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
 
@@ -547,11 +577,117 @@ describe('pipelineReportRoute', () => {
 
       const res = await app.request('/pipeline-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
 
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe('POST /pipeline-report — Idempotency-Key', () => {
+    it('X-Idempotency-Keyヘッダ未指定で400エラーが返ること', async () => {
+      const app = createTestApp();
+      const res = await app.request('/pipeline-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['error']).toContain('X-Idempotency-Key');
+    });
+
+    it('既存success ジョブを Idempotency-Key 一致で検出し、AI処理を再実行せず結果を返すこと', async () => {
+      const store = createMockJobResultStore();
+      const cachedPayload = { reportContent: 'cached report', completenessVerified: true };
+      await store.save({
+        jobId: 'existing-job-id',
+        idempotencyKey: 'shared-key',
+        feature: 'pipeline-report',
+        status: 'success',
+        userId: 'test-user',
+        payload: cachedPayload,
+        createdAt: '2026-04-29T00:00:00.000Z',
+        updatedAt: '2026-04-29T00:00:00.000Z',
+        expiresAt: '2026-04-30T00:00:00.000Z',
+      });
+      const executor: PipelineAnalysisExecutor = {
+        analyze: vi
+          .fn<PipelineAnalysisExecutor['analyze']>()
+          .mockResolvedValue(createDefaultAnalysisResult()),
+      };
+      const app = createTestApp({
+        jobResultStore: store,
+        serviceFactory: createMockServiceFactory({ executor }),
+      });
+
+      const res = await app.request('/pipeline-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'shared-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+
+      const events = parseSSEEvents(await res.text());
+      const resultEvent = events.find((e) => e.event === 'result');
+      expect(resultEvent).toBeDefined();
+      const resultData = JSON.parse(resultEvent!.data);
+      expect(resultData).toEqual(cachedPayload);
+      expect(executor.analyze).not.toHaveBeenCalled();
+    });
+
+    it('既存pending ジョブを Idempotency-Key 一致で検出し、duplicatedイベントを送信して処理を打ち切ること', async () => {
+      const store = createMockJobResultStore();
+      await store.save({
+        jobId: 'pending-job-id',
+        idempotencyKey: 'pending-key',
+        feature: 'pipeline-report',
+        status: 'pending',
+        userId: 'test-user',
+        createdAt: '2026-04-29T00:00:00.000Z',
+        updatedAt: '2026-04-29T00:00:00.000Z',
+        expiresAt: '2026-04-30T00:00:00.000Z',
+      });
+      const executor: PipelineAnalysisExecutor = {
+        analyze: vi
+          .fn<PipelineAnalysisExecutor['analyze']>()
+          .mockResolvedValue(createDefaultAnalysisResult()),
+      };
+      const app = createTestApp({
+        jobResultStore: store,
+        serviceFactory: createMockServiceFactory({ executor }),
+      });
+
+      const res = await app.request('/pipeline-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'pending-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+
+      const events = parseSSEEvents(await res.text());
+      const duplicated = events
+        .filter((e) => e.event === 'progress')
+        .map((e) => JSON.parse(e.data) as { status?: string; existingJobId?: string })
+        .find((d) => d.status === 'duplicated');
+      expect(duplicated).toBeDefined();
+      expect(duplicated!.existingJobId).toBe('pending-job-id');
+      expect(executor.analyze).not.toHaveBeenCalled();
+    });
+
+    it('正常系: 完了時に success レコードが永続化されること', async () => {
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
+
+      const res = await app.request('/pipeline-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'normal-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      await res.text();
+
+      expect(store.saveCalls.length).toBe(2);
+      expect(store.saveCalls[0].status).toBe('pending');
+      expect(store.saveCalls[1].status).toBe('success');
     });
   });
 });

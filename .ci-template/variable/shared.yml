@@ -25,3 +25,14 @@ variables:
   AIKATA_PROJECT_ID: ""
   # Context Length（AI全般で使う可能性）
   MAX_CONTEXT_LENGTH: ""
+  # === SSE接続耐性（CLI側、APIモード時に有効） ===
+  # fetchリトライ
+  JOB_FETCH_RETRY_COUNT: "5"
+  JOB_FETCH_RETRY_BASE_MS: "1000"
+  JOB_FETCH_RETRY_MAX_MS: "16000"
+  # SSE進捗イベント無音許容時間
+  SSE_IDLE_TIMEOUT_MS: "60000"
+  # フォールバックポーリング設定
+  JOB_RESULT_POLL_INTERVAL_MS: "5000"
+  JOB_RESULT_POLL_TIMEOUT_MS: "2100000"
+  JOB_RESULT_POLL_NOT_FOUND_GRACE_MS: "60000"

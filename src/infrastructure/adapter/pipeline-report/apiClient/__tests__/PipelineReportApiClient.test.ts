@@ -2,14 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   PipelineReportApiClient,
   VERSION_HEADER,
+  IDEMPOTENCY_KEY_HEADER,
   type PipelineReportApiRequest,
   type PipelineReportApiResult,
   type PipelineReportProgressEvent,
 } from '../PipelineReportApiClient.js';
+import {
+  ApiServerConnectionError,
+  ApiServerJobNotStartedError,
+} from '../../../httpClient/jobResultPolling.js';
 
-/**
- * SSE形式のレスポンスを生成するヘルパー
- */
 function createSSEResponse(
   events: Array<{ event: string; data: string }>,
   status = 200,
@@ -28,9 +30,6 @@ function createSSEResponse(
   });
 }
 
-/**
- * エラーレスポンスを生成するヘルパー
- */
 function createErrorResponse(
   status: number,
   body: string,
@@ -43,13 +42,29 @@ function createErrorResponse(
   });
 }
 
+function createJobResultResponse(status: number, body: Record<string, unknown> | string): Response {
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  return new Response(text, {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+const FAST_RESILIENCE = {
+  fetchRetry: { retryCount: 5, baseMs: 1, maxMs: 2 },
+  sseIdleTimeoutMs: 100,
+  pollIntervalMs: 1,
+  pollMaxIntervalMs: 2,
+  pollTotalTimeoutMs: 1_000,
+  pollNotFoundGraceMs: 50,
+};
+
 describe('PipelineReportApiClient', () => {
   const mockFetch = vi.fn();
   const BASE_URL = 'https://api.example.com';
   const JWT_TOKEN = 'test-jwt-token';
   const VERSION = '1.2.3';
 
-  // テスト用リクエスト
   const testRequest: PipelineReportApiRequest = {
     userId: 'alice',
     gitlabToken: 'gitlab-token',
@@ -58,7 +73,8 @@ describe('PipelineReportApiClient', () => {
     selfJobId: null,
     settings: {
       jobReportFormat: '## {jobName}\n{status}',
-      additionalInstructions: null,
+      analysisInstructions: null,
+      reportRefinementInstructions: null,
       includeJobPatterns: [],
       excludeJobPatterns: [],
     },
@@ -69,7 +85,6 @@ describe('PipelineReportApiClient', () => {
     treeMaxDepth: undefined,
   };
 
-  // テスト用結果ペイロード
   const testResult: PipelineReportApiResult = {
     reportContent: '# Pipeline Report\n\n## Job #1\n- status: success\n',
     completenessVerified: true,
@@ -98,6 +113,15 @@ describe('PipelineReportApiClient', () => {
     };
   }
 
+  function createClient(): PipelineReportApiClient {
+    return new PipelineReportApiClient({
+      baseUrl: BASE_URL,
+      jwt: JWT_TOKEN,
+      version: VERSION,
+      resilience: FAST_RESILIENCE,
+    });
+  }
+
   beforeEach(() => {
     mockFetch.mockReset();
     vi.stubGlobal('fetch', mockFetch);
@@ -107,363 +131,351 @@ describe('PipelineReportApiClient', () => {
     vi.restoreAllMocks();
   });
 
-  it('正常なSSEレスポンスから最終結果を取得できること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify({ status: 'started' }) },
-      { event: 'result', data: JSON.stringify(testResult) },
-      { event: 'done', data: '{}' },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+  describe('正常系: SSEストリーム経由', () => {
+    it('SSEレスポンスから最終結果を取得できること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([
+          { event: 'progress', data: JSON.stringify({ status: 'started' }) },
+          { event: 'result', data: JSON.stringify(testResult) },
+          { event: 'done', data: '{}' },
+        ]),
+      );
 
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-    const result = await client.run(testRequest, createHandlers());
-
-    expect(result).toEqual(testResult);
-  });
-
-  it('progressイベントでonProgressコールバックが呼ばれること', async () => {
-    const progressEvents: PipelineReportProgressEvent[] = [
-      { status: 'fetching_pipeline', message: 'Fetching pipeline metadata' },
-      { status: 'cloning', message: 'Cloning repository' },
-      { status: 'analyzing', message: 'Executing pipeline analysis' },
-    ];
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify(progressEvents[0]) },
-      { event: 'progress', data: JSON.stringify(progressEvents[1]) },
-      { event: 'progress', data: JSON.stringify(progressEvents[2]) },
-      { event: 'result', data: JSON.stringify(testResult) },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-    await client.run(testRequest, handlers);
-
-    expect(handlers.onProgress).toHaveBeenCalledTimes(3);
-    expect(handlers.onProgress).toHaveBeenNthCalledWith(1, progressEvents[0]);
-    expect(handlers.onProgress).toHaveBeenNthCalledWith(2, progressEvents[1]);
-    expect(handlers.onProgress).toHaveBeenNthCalledWith(3, progressEvents[2]);
-  });
-
-  it('workflow詳細進捗も progressイベントとして onProgressに渡ること', async () => {
-    const workflowEvent = {
-      status: 'workflow',
-      workflow: { type: 'retry', reason: 'incomplete', retryCount: 1 },
-    };
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify(workflowEvent) },
-      { event: 'result', data: JSON.stringify(testResult) },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-    await client.run(testRequest, handlers);
-
-    expect(handlers.onProgress).toHaveBeenCalledWith(workflowEvent);
-  });
-
-  it('errorイベントでエラーがスローされonErrorが呼ばれること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify({ status: 'analyzing' }) },
-      { event: 'error', data: JSON.stringify({ error: 'Pipeline analysis failed' }) },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
+      const result = await createClient().run(testRequest, createHandlers());
+      expect(result).toEqual(testResult);
     });
 
-    await expect(client.run(testRequest, handlers)).rejects.toThrow(
-      'Pipeline report API error: Pipeline analysis failed',
-    );
-    expect(handlers.onError).toHaveBeenCalledTimes(1);
-    expect((handlers.onError.mock.calls[0]?.[0] as Error).message).toContain(
-      'Pipeline report API error',
-    );
-  });
+    it('progressイベントでonProgressコールバックが呼ばれること', async () => {
+      const events: PipelineReportProgressEvent[] = [
+        { status: 'fetching_pipeline' },
+        { status: 'cloning' },
+        { status: 'analyzing' },
+      ];
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([
+          { event: 'progress', data: JSON.stringify(events[0]) },
+          { event: 'progress', data: JSON.stringify(events[1]) },
+          { event: 'progress', data: JSON.stringify(events[2]) },
+          { event: 'result', data: JSON.stringify(testResult) },
+        ]),
+      );
 
-  it('keepalive / done イベントが無視されること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'keepalive', data: '{}' },
-      { event: 'keepalive', data: '{}' },
-      { event: 'result', data: JSON.stringify(testResult) },
-      { event: 'done', data: '{}' },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-    const result = await client.run(testRequest, handlers);
-
-    expect(handlers.onProgress).not.toHaveBeenCalled();
-    expect(result).toEqual(testResult);
-  });
-
-  it('HTTP 400エラーで適切なエラーメッセージが返りonErrorが呼ばれること', async () => {
-    const errorBody = JSON.stringify({ error: 'Validation error' });
-    mockFetch.mockResolvedValueOnce(createErrorResponse(400, errorBody));
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
+      const handlers = createHandlers();
+      await createClient().run(testRequest, handlers);
+      expect(handlers.onProgress).toHaveBeenCalledTimes(3);
     });
 
-    await expect(client.run(testRequest, handlers)).rejects.toThrow(
-      `Pipeline report API request failed with status 400: ${errorBody}`,
-    );
-    expect(handlers.onError).toHaveBeenCalled();
-  });
+    it('errorイベントでエラーがスローされonErrorが呼ばれること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([
+          { event: 'error', data: JSON.stringify({ error: 'Pipeline analysis failed' }) },
+        ]),
+      );
 
-  it('HTTP 401エラーで適切なエラーメッセージが返ること', async () => {
-    const errorBody = JSON.stringify({ error: 'Unauthorized' });
-    mockFetch.mockResolvedValueOnce(createErrorResponse(401, errorBody));
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
+      const handlers = createHandlers();
+      await expect(createClient().run(testRequest, handlers)).rejects.toThrow(
+        'Pipeline report API error: Pipeline analysis failed',
+      );
+      expect(handlers.onError).toHaveBeenCalled();
     });
 
-    await expect(client.run(testRequest, handlers)).rejects.toThrow(
-      `Pipeline report API request failed with status 401: ${errorBody}`,
-    );
-  });
+    it('keepalive イベントが無視されること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([
+          { event: 'keepalive', data: '{}' },
+          { event: 'result', data: JSON.stringify(testResult) },
+          { event: 'done', data: '{}' },
+        ]),
+      );
 
-  it('resultイベントなしでストリーム終了時にエラーになること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify({ status: 'analyzing' }) },
-      { event: 'done', data: '{}' },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
+      const handlers = createHandlers();
+      const result = await createClient().run(testRequest, handlers);
+      expect(handlers.onProgress).not.toHaveBeenCalled();
+      expect(result).toEqual(testResult);
     });
 
-    await expect(client.run(testRequest, handlers)).rejects.toThrow(
-      'SSE stream ended without result event',
-    );
-    expect(handlers.onError).toHaveBeenCalled();
-  });
+    it('チャンク分割されたSSEストリームを正しくパースできること', async () => {
+      const chunk1 = 'event: progress\ndata: {"status":"started"}\n\neve';
+      const chunk2 = 'nt: result\ndata: ' + JSON.stringify(testResult) + '\n\n';
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(chunk1));
+          controller.enqueue(new TextEncoder().encode(chunk2));
+          controller.close();
+        },
+      });
+      mockFetch.mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      );
 
-  it('正しいURL、ヘッダー、ボディでfetchが呼ばれること（JWTあり）', async () => {
-    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-    await client.run(testRequest, createHandlers());
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE_URL}/api/v1/pipeline-report`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [VERSION_HEADER]: VERSION,
-        Authorization: `Bearer ${JWT_TOKEN}`,
-      },
-      body: JSON.stringify(testRequest),
+      const result = await createClient().run(testRequest, createHandlers());
+      expect(result).toEqual(testResult);
     });
   });
 
-  it('jwtがnullの場合はAuthorizationヘッダが付与されないこと', async () => {
-    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+  describe('リクエストヘッダ', () => {
+    it('JWTありで正しいヘッダ・ボディが送られること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+      );
 
-    const client = new PipelineReportApiClient({ baseUrl: BASE_URL, jwt: null, version: VERSION });
-    await client.run(testRequest, createHandlers());
+      await createClient().run(testRequest, createHandlers());
 
-    const call = mockFetch.mock.calls[0]!;
-    const headers = (call[1] as { headers: Record<string, string> }).headers;
-    expect(headers).not.toHaveProperty('Authorization');
-    expect(headers).toHaveProperty('Content-Type', 'application/json');
-    expect(headers).toHaveProperty(VERSION_HEADER, VERSION);
+      const call = mockFetch.mock.calls[0]!;
+      expect(call[0]).toBe(`${BASE_URL}/api/v1/pipeline-report`);
+      const init = call[1] as { method: string; headers: Record<string, string>; body: string };
+      expect(init.method).toBe('POST');
+      expect(init.headers['Content-Type']).toBe('application/json');
+      expect(init.headers[VERSION_HEADER]).toBe(VERSION);
+      expect(init.headers['Authorization']).toBe(`Bearer ${JWT_TOKEN}`);
+      expect(init.headers[IDEMPOTENCY_KEY_HEADER]).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+    });
+
+    it('jwtがnullの場合はAuthorizationヘッダが付与されないこと', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+      );
+
+      const client = new PipelineReportApiClient({
+        baseUrl: BASE_URL,
+        jwt: null,
+        version: VERSION,
+        resilience: FAST_RESILIENCE,
+      });
+      await client.run(testRequest, createHandlers());
+
+      const headers = (mockFetch.mock.calls[0]![1] as { headers: Record<string, string> }).headers;
+      expect(headers).not.toHaveProperty('Authorization');
+    });
+
+    it('リクエストセット内のリトライで同じIdempotency-Keyが使われること', async () => {
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('Network error'))
+        .mockRejectedValueOnce(new TypeError('Network error'))
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+        );
+
+      await createClient().run(testRequest, createHandlers());
+
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(3);
+      const keys = calls.map(
+        (c) => (c[1] as { headers: Record<string, string> }).headers[IDEMPOTENCY_KEY_HEADER],
+      );
+      expect(keys[0]).toBe(keys[1]);
+      expect(keys[1]).toBe(keys[2]);
+    });
   });
 
-  it('X-Aikata-Versionヘッダがリクエストに含まれること', async () => {
-    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+  describe('fetchリトライ', () => {
+    it('ネットワークエラー時にリトライして成功すること', async () => {
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('ECONNREFUSED'))
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+        );
 
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
+      const result = await createClient().run(testRequest, createHandlers());
+      expect(result).toEqual(testResult);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
-    await client.run(testRequest, createHandlers());
 
-    const call = mockFetch.mock.calls[0]!;
-    const headers = (call[1] as { headers: Record<string, string> }).headers;
-    expect(headers[VERSION_HEADER]).toBe(VERSION);
+    it('5xxエラー時にリトライして成功すること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(createErrorResponse(503, 'Service Unavailable'))
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+        );
+
+      const result = await createClient().run(testRequest, createHandlers());
+      expect(result).toEqual(testResult);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('全リトライ失敗時に ApiServerConnectionError がthrowされること', async () => {
+      mockFetch.mockRejectedValue(new TypeError('ECONNREFUSED'));
+
+      await expect(createClient().run(testRequest, createHandlers())).rejects.toBeInstanceOf(
+        ApiServerConnectionError,
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(6);
+    });
+
+    it('4xxエラーはリトライせず即throwされること', async () => {
+      mockFetch.mockResolvedValueOnce(createErrorResponse(400, 'Bad Request'));
+
+      await expect(createClient().run(testRequest, createHandlers())).rejects.toThrow(
+        'Pipeline report API request failed with status 400',
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('レスポンスボディが空の場合にエラーがスローされること', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      body: null,
-      headers: new Headers(),
+  describe('SSEフォールバックポーリング', () => {
+    it('SSEがresult未受信のまま終了 → GET /jobs/{id} で結果取得できること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse(
+            [
+              { event: 'progress', data: JSON.stringify({ status: 'analyzing' }) },
+              { event: 'done', data: '{}' },
+            ],
+            200,
+            { 'X-Request-Id': 'job-123' },
+          ),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'job-123',
+            feature: 'pipeline-report',
+            status: 'success',
+            payload: testResult,
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
+
+      const result = await createClient().run(testRequest, createHandlers());
+      expect(result).toEqual(testResult);
+      expect(mockFetch.mock.calls[1]![0]).toContain('/api/v1/jobs/job-123');
     });
 
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
+    it('duplicated イベント受信時に既存ジョブをポーリングして結果取得できること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse(
+            [
+              {
+                event: 'progress',
+                data: JSON.stringify({ status: 'duplicated', existingJobId: 'old-job-456' }),
+              },
+            ],
+            200,
+            { 'X-Request-Id': 'job-789' },
+          ),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'old-job-456',
+            feature: 'pipeline-report',
+            status: 'success',
+            payload: testResult,
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
+
+      const result = await createClient().run(testRequest, createHandlers());
+      expect(result).toEqual(testResult);
+      expect(mockFetch.mock.calls[1]![0]).toContain('/api/v1/jobs/old-job-456');
     });
 
-    await expect(client.run(testRequest, handlers)).rejects.toThrow('Response body is empty');
-    expect(handlers.onError).toHaveBeenCalled();
+    it('ポーリングで連続404が続くとApiServerJobNotStartedErrorがthrowされること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'done', data: '{}' }], 200, {
+            'X-Request-Id': 'never-started',
+          }),
+        )
+        .mockResolvedValue(createJobResultResponse(404, { error: 'Not found' }));
+
+      await expect(createClient().run(testRequest, createHandlers())).rejects.toBeInstanceOf(
+        ApiServerJobNotStartedError,
+      );
+    });
+
+    it('jobIdが取得できないままSSE終了した場合、エラーがthrowされること', async () => {
+      mockFetch.mockResolvedValueOnce(createSSEResponse([{ event: 'done', data: '{}' }], 200));
+
+      const handlers = createHandlers();
+      await expect(createClient().run(testRequest, handlers)).rejects.toThrow(
+        /no jobId is available for polling/,
+      );
+      expect(handlers.onError).toHaveBeenCalled();
+    });
+
+    it('ポーリング中にfailed status が返ればエラーがthrowされonErrorが呼ばれること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'done', data: '{}' }], 200, { 'X-Request-Id': 'job-fail' }),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'job-fail',
+            feature: 'pipeline-report',
+            status: 'failed',
+            errorMessage: 'AI exploded',
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
+
+      const handlers = createHandlers();
+      await expect(createClient().run(testRequest, handlers)).rejects.toThrow('AI exploded');
+      expect(handlers.onError).toHaveBeenCalled();
+    });
   });
 
-  it('errorイベントでメッセージがない場合にUnknown errorが表示されること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'error', data: JSON.stringify({ code: 'INTERNAL' }) },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+  describe('レスポンスヘッダ', () => {
+    it('レスポンスヘッダのX-Request-IdがonRequestIdコールバックに渡されること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }], 200, {
+          'X-Request-Id': 'server-uuid',
+        }),
+      );
 
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
+      const handlers = createHandlers();
+      await createClient().run(testRequest, handlers);
+      expect(handlers.onRequestId).toHaveBeenCalledWith('server-uuid');
     });
 
-    await expect(client.run(testRequest, handlers)).rejects.toThrow(
-      'Pipeline report API error: Unknown error',
-    );
+    it('X-Request-Idが無いレスポンスではonRequestIdが呼ばれないこと', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+      );
+
+      const handlers = createHandlers();
+      await createClient().run(testRequest, handlers);
+      expect(handlers.onRequestId).not.toHaveBeenCalled();
+    });
   });
 
-  it('レスポンスヘッダのX-Request-IdがonRequestIdコールバックに渡されること', async () => {
-    const sseResponse = createSSEResponse(
-      [
-        { event: 'progress', data: JSON.stringify({ status: 'started' }) },
-        { event: 'result', data: JSON.stringify(testResult) },
-      ],
-      200,
-      { 'X-Request-Id': 'server-generated-uuid-123' },
-    );
-    mockFetch.mockResolvedValueOnce(sseResponse);
+  describe('SSE idle timeout', () => {
+    it('SSEイベントが一定時間来ないとフォールバックポーリングへ移行すること', async () => {
+      const stream = new ReadableStream({
+        start() {
+          // データを送らない
+        },
+      });
+      mockFetch
+        .mockResolvedValueOnce(
+          new Response(stream, {
+            status: 200,
+            headers: {
+              'content-type': 'text/event-stream',
+              'X-Request-Id': 'job-idle',
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'job-idle',
+            feature: 'pipeline-report',
+            status: 'success',
+            payload: testResult,
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
 
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
+      const result = await createClient().run(testRequest, createHandlers());
+      expect(result).toEqual(testResult);
     });
-    await client.run(testRequest, handlers);
-
-    expect(handlers.onRequestId).toHaveBeenCalledTimes(1);
-    expect(handlers.onRequestId).toHaveBeenCalledWith('server-generated-uuid-123');
-  });
-
-  it('X-Request-Idが無いレスポンスではonRequestIdが呼ばれないこと', async () => {
-    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-    await client.run(testRequest, handlers);
-
-    expect(handlers.onRequestId).not.toHaveBeenCalled();
-  });
-
-  it('HTTPエラー応答にX-Request-Idが含まれる場合もonRequestIdが呼ばれること', async () => {
-    mockFetch.mockResolvedValueOnce(
-      createErrorResponse(500, JSON.stringify({ error: 'Internal error' }), {
-        'X-Request-Id': 'req-on-error',
-      }),
-    );
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-
-    await expect(client.run(testRequest, handlers)).rejects.toThrow(
-      /Pipeline report API request failed with status 500/,
-    );
-    expect(handlers.onRequestId).toHaveBeenCalledWith('req-on-error');
-  });
-
-  it('チャンク分割されたSSEストリームを正しくパースできること', async () => {
-    const chunk1 = 'event: progress\ndata: {"status":"started"}\n\neve';
-    const chunk2 = 'nt: result\ndata: ' + JSON.stringify(testResult) + '\n\n';
-
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(chunk1));
-        controller.enqueue(new TextEncoder().encode(chunk2));
-        controller.close();
-      },
-    });
-
-    mockFetch.mockResolvedValueOnce(
-      new Response(stream, {
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-      }),
-    );
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-    const result = await client.run(testRequest, handlers);
-
-    expect(handlers.onProgress).toHaveBeenCalledWith({ status: 'started' });
-    expect(result).toEqual(testResult);
-  });
-
-  it('壊れたJSONがSSEデータに含まれる場合にエラーがスローされること', async () => {
-    const sseResponse = createSSEResponse([{ event: 'progress', data: '{not-json' }]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const handlers = createHandlers();
-    const client = new PipelineReportApiClient({
-      baseUrl: BASE_URL,
-      jwt: JWT_TOKEN,
-      version: VERSION,
-    });
-
-    await expect(client.run(testRequest, handlers)).rejects.toThrow(
-      /Failed to parse SSE event data/,
-    );
-    expect(handlers.onError).toHaveBeenCalled();
   });
 });

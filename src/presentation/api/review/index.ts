@@ -15,6 +15,7 @@ export {
 export type {
   ReviewRequest,
   ReviewHandlerDeps,
+  ReviewHandlerContext,
   SSEEvent,
   PerRequestServiceFactory,
   MrInfoFetcher,

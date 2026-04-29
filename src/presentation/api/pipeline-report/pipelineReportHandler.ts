@@ -20,6 +20,13 @@ import {
 } from '../../../application/pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
 import { PipelineReportSettings } from '../../../domain/pipeline-report/pipelineReportSettings/index.js';
 import { getLogger } from '../../../lib/logger.js';
+import type {
+  JobResultStore,
+  PendingJobResultRecord,
+  SuccessJobResultRecord,
+  FailedJobResultRecord,
+} from '../../../application/shared/port/jobResultStore/index.js';
+import { buildPendingJobRecord, handleExistingIdempotentJob } from '../shared/jobResult/index.js';
 
 /**
  * pipeline-report リクエストのバリデーションスキーマ
@@ -121,6 +128,10 @@ export interface PipelineReportHandlerDeps {
   serviceFactory: PipelineReportServiceFactory;
   /** レートリミッター（review と共有インスタンス） */
   rateLimiter: RateLimiterPort;
+  /** ジョブ結果ストア（review と共有インスタンス） */
+  jobResultStore: JobResultStore;
+  /** ジョブ結果の保持期間（ミリ秒） */
+  jobResultTtlMs: number;
   /** ai API の共通情報（api key / endpoint / model） */
   aiApiKey: string;
   aiApiEndpointUrl: string;
@@ -134,6 +145,16 @@ export interface PipelineReportHandlerDeps {
   analysisTimeoutMs?: number;
   /** AIモデルのコンテキスト長（トークン数）。未設定時は圧縮しない */
   maxContextLength?: number;
+}
+
+/**
+ * PipelineReportHandlerが受け取るリクエスト単位の実行コンテキスト
+ */
+export interface PipelineReportHandlerContext {
+  /** ジョブID（= X-Request-Id） */
+  jobId: string;
+  /** クライアント生成のIdempotency-Key */
+  idempotencyKey: string;
 }
 
 /**
@@ -230,10 +251,43 @@ export function buildPipelineReportSettings(
  * 6. finally で CloneManager cleanup（ArtifactCacheManager は service 側で finally cleanup する）
  */
 export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
-  return async (request: PipelineReportRequest, stream: SSEStreamingApi): Promise<void> => {
+  return async (
+    request: PipelineReportRequest,
+    stream: SSEStreamingApi,
+    context: PipelineReportHandlerContext,
+  ): Promise<void> => {
     const logger = getLogger();
     const state: { cleanup: (() => Promise<void>) | null } = { cleanup: null };
     const projectIdStr = String(request.projectId);
+
+    // 1. Idempotency-Key検査: 既存ジョブがあればAI処理を再実行せず結果を返す
+    const existingJobOutcome = await handleExistingIdempotentJob({
+      jobResultStore: deps.jobResultStore,
+      stream,
+      idempotencyKey: context.idempotencyKey,
+      userId: request.userId,
+      logger,
+    });
+    if (existingJobOutcome === 'handled-and-stop') {
+      return;
+    }
+
+    // 2. pending状態のレコードを保存（best-effort、Idempotency-Key検知の起点）
+    const pendingRecord: PendingJobResultRecord = buildPendingJobRecord({
+      jobId: context.jobId,
+      idempotencyKey: context.idempotencyKey,
+      feature: 'pipeline-report',
+      userId: request.userId,
+      ttlMs: deps.jobResultTtlMs,
+    });
+    try {
+      await deps.jobResultStore.save(pendingRecord);
+    } catch (err) {
+      logger.warn(
+        { err },
+        'Failed to save pending job record (continuing best-effort, Idempotency-Key dedup may not work for retries)',
+      );
+    }
 
     // レートリミッターにプロジェクトを登録（参照カウント方式）
     deps.rateLimiter.registerProject(projectIdStr);
@@ -368,6 +422,27 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
           },
         };
 
+        // 結果を永続化（result送信の直前。SSE切断時はGET /jobs/{jobId}で再取得可能）
+        const successRecord: SuccessJobResultRecord = {
+          jobId: pendingRecord.jobId,
+          idempotencyKey: pendingRecord.idempotencyKey,
+          feature: pendingRecord.feature,
+          userId: pendingRecord.userId,
+          createdAt: pendingRecord.createdAt,
+          updatedAt: new Date().toISOString(),
+          expiresAt: pendingRecord.expiresAt,
+          status: 'success',
+          payload: apiResponse,
+        };
+        try {
+          await deps.jobResultStore.save(successRecord);
+        } catch (err) {
+          logger.warn(
+            { err },
+            'Failed to save success job record (continuing best-effort, fallback polling may return stale state)',
+          );
+        }
+
         await stream.writeSSE({
           event: 'result',
           data: JSON.stringify(apiResponse),
@@ -405,6 +480,24 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error({ err: error }, 'Pipeline report handler error');
+
+      // エラーも永続化してフォールバックポーリングで取得可能にする
+      const failedRecord: FailedJobResultRecord = {
+        jobId: pendingRecord.jobId,
+        idempotencyKey: pendingRecord.idempotencyKey,
+        feature: pendingRecord.feature,
+        userId: pendingRecord.userId,
+        createdAt: pendingRecord.createdAt,
+        updatedAt: new Date().toISOString(),
+        expiresAt: pendingRecord.expiresAt,
+        status: 'failed',
+        errorMessage,
+      };
+      try {
+        await deps.jobResultStore.save(failedRecord);
+      } catch (saveErr) {
+        logger.warn({ err: saveErr }, 'Failed to save failed job record (best-effort)');
+      }
 
       try {
         await stream.writeSSE({

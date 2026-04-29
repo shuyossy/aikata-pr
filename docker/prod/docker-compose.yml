@@ -24,6 +24,15 @@ services:
       - CLONE_MAX_DISK_MB
       - AIKATA_LOG_LEVEL
       - GITLAB_API_URL
+      # === SSE接続耐性（ジョブ結果ストア） ===
+      - JOB_RESULT_STORE_DIR=/var/lib/aikata-pr/job-results
+      - JOB_RESULT_TTL_MS
+      - JOB_RESULT_SWEEP_INTERVAL_MS
     volumes:
       - /tmp/aikata-pr-clones:/tmp/aikata-pr-clones
+      # ジョブ結果（SSE接続耐性）の永続化先。コンテナ再起動でも保持
+      - aikata-pr-job-results:/var/lib/aikata-pr/job-results
     restart: unless-stopped
+
+volumes:
+  aikata-pr-job-results:

@@ -23,6 +23,11 @@ import {
 import { GitLabMrDiscussionGateway } from '../../infrastructure/adapter/review/gateway/index.js';
 import { LocalProjectTreeGateway } from '../../infrastructure/adapter/gateway/index.js';
 import { ReviewApiClient } from '../../infrastructure/adapter/review/apiClient/index.js';
+import {
+  ApiServerConnectionError,
+  ApiServerJobNotStartedError,
+  JobResultPollTimeoutError,
+} from '../../infrastructure/adapter/httpClient/index.js';
 import { MastraReviewWorkflowRunner } from '../../infrastructure/adapter/review/workflow/index.js';
 import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
 import { ReviewSettings } from '../../domain/review/reviewSettings/index.js';
@@ -85,7 +90,14 @@ export async function run(args: string[]): Promise<void> {
       if (!aikataVersion) {
         throw new Error('Missing required environment variable: AIKATA_PR_VERSION');
       }
-      const client = new ReviewApiClient(options.aikataApiUrl!, options.aikataJwt!, aikataVersion);
+      // SSE接続耐性オプションを環境変数から取得（未指定時はApiClientのデフォルト値）
+      const resilience = buildApiClientResilienceOptions(process.env);
+      const client = new ReviewApiClient(
+        options.aikataApiUrl!,
+        options.aikataJwt!,
+        aikataVersion,
+        resilience,
+      );
 
       const apiRequest = buildApiReviewRequest(
         validated,
@@ -332,8 +344,57 @@ export async function run(args: string[]): Promise<void> {
     } else {
       logger.error(errorBindings, `Review failed: ${String(error)}`);
     }
+    // ユーザフレンドリーなサマリ出力（SSE接続耐性関連のエラーのみ）
+    printUserFacingErrorSummary(error);
     flushLogger();
     process.exit(1);
+  }
+}
+
+/**
+ * 環境変数からSSE接続耐性オプションを構築する
+ */
+function buildApiClientResilienceOptions(env: NodeJS.ProcessEnv): {
+  fetchRetry?: { retryCount?: number; baseMs?: number; maxMs?: number };
+  sseIdleTimeoutMs?: number;
+  pollIntervalMs?: number;
+  pollMaxIntervalMs?: number;
+  pollTotalTimeoutMs?: number;
+  pollNotFoundGraceMs?: number;
+} {
+  const opts: ReturnType<typeof buildApiClientResilienceOptions> = {};
+  const fetchRetry: { retryCount?: number; baseMs?: number; maxMs?: number } = {};
+  if (env['JOB_FETCH_RETRY_COUNT']) fetchRetry.retryCount = Number(env['JOB_FETCH_RETRY_COUNT']);
+  if (env['JOB_FETCH_RETRY_BASE_MS']) fetchRetry.baseMs = Number(env['JOB_FETCH_RETRY_BASE_MS']);
+  if (env['JOB_FETCH_RETRY_MAX_MS']) fetchRetry.maxMs = Number(env['JOB_FETCH_RETRY_MAX_MS']);
+  if (Object.keys(fetchRetry).length > 0) opts.fetchRetry = fetchRetry;
+
+  if (env['SSE_IDLE_TIMEOUT_MS']) opts.sseIdleTimeoutMs = Number(env['SSE_IDLE_TIMEOUT_MS']);
+  if (env['JOB_RESULT_POLL_INTERVAL_MS'])
+    opts.pollIntervalMs = Number(env['JOB_RESULT_POLL_INTERVAL_MS']);
+  if (env['JOB_RESULT_POLL_TIMEOUT_MS'])
+    opts.pollTotalTimeoutMs = Number(env['JOB_RESULT_POLL_TIMEOUT_MS']);
+  if (env['JOB_RESULT_POLL_NOT_FOUND_GRACE_MS'])
+    opts.pollNotFoundGraceMs = Number(env['JOB_RESULT_POLL_NOT_FOUND_GRACE_MS']);
+  return opts;
+}
+
+/**
+ * SSE接続耐性関連エラーをユーザ向けに親切に表示する
+ *
+ * stderrに直接書き込む（loggerのスタックトレースとは別経路で簡潔なサマリを表示）
+ */
+function printUserFacingErrorSummary(error: unknown): void {
+  if (error instanceof ApiServerConnectionError) {
+    process.stderr.write(
+      `\n[aikata-pr] ${error.message}\n[aikata-pr] (See logs above for technical details)\n\n`,
+    );
+  } else if (error instanceof ApiServerJobNotStartedError) {
+    process.stderr.write(
+      `\n[aikata-pr] ${error.message}\n[aikata-pr] (See logs above for technical details)\n\n`,
+    );
+  } else if (error instanceof JobResultPollTimeoutError) {
+    process.stderr.write(`\n[aikata-pr] ${error.message}\n\n`);
   }
 }
 

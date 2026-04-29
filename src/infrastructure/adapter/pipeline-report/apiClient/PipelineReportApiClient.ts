@@ -1,3 +1,12 @@
+import { randomUUID } from 'node:crypto';
+import {
+  fetchWithRetry,
+  pollJobResult,
+  DEFAULT_FETCH_RETRY,
+  DEFAULT_POLL_OPTIONS,
+} from '../../httpClient/jobResultPolling.js';
+import type { FetchRetryOptions } from '../../httpClient/jobResultPolling.js';
+
 /**
  * pipeline-report APIリクエストの型
  *
@@ -61,12 +70,16 @@ export interface PipelineReportApiResult {
  * APIサーバー側は以下の形式でSSEを送出する:
  * - 固定フェーズ: `{ status: 'started' | 'fetching_pipeline' | 'cloning' | 'analyzing' }`
  * - ワークフロー内の詳細進捗: `{ status: 'workflow', workflow: <PipelineAnalysisProgressEvent> }`
+ * - Idempotency-Key検知: `{ status: 'duplicated', existingJobId: string }`
  *
- * 本クライアントは両者を区別せず、そのまま呼び出し元にコールバックで流す。
+ * 本クライアントは duplicated を内部処理（フォールバックポーリング起動）し、
+ * その他は呼び出し元にコールバックで流す。
  */
 export interface PipelineReportProgressEvent {
   status: string;
   message?: string;
+  /** Idempotency-Key一致で既存ジョブが見つかった時に existingJobId を含む */
+  existingJobId?: string;
   /** workflow フェーズの場合に含まれるMastra Workflow進捗 */
   workflow?:
     | { type: 'phase'; phase: string }
@@ -79,6 +92,9 @@ export const REQUEST_ID_HEADER = 'X-Request-Id';
 
 /** CLI→APIサーバ間のバージョン伝達に使用するHTTPヘッダ名 */
 export const VERSION_HEADER = 'X-Aikata-Version';
+
+/** クライアント生成のIdempotency-Keyヘッダ名 */
+export const IDEMPOTENCY_KEY_HEADER = 'X-Idempotency-Key';
 
 /**
  * PipelineReportApiClient のハンドラ定義。
@@ -104,6 +120,18 @@ export interface PipelineReportApiClientHandlers {
 }
 
 /**
+ * PipelineReportApiClient のSSE接続耐性に関する設定。全項目省略可能。
+ */
+export interface PipelineReportApiClientResilienceOptions {
+  fetchRetry?: Partial<FetchRetryOptions>;
+  sseIdleTimeoutMs?: number;
+  pollIntervalMs?: number;
+  pollMaxIntervalMs?: number;
+  pollTotalTimeoutMs?: number;
+  pollNotFoundGraceMs?: number;
+}
+
+/**
  * PipelineReportApiClientの設定
  */
 export interface PipelineReportApiClientConfig {
@@ -113,6 +141,8 @@ export interface PipelineReportApiClientConfig {
   jwt: string | null;
   /** CLIのバージョン（AIKATA_PR_VERSION）。APIサーバー側でバージョン整合性チェックに使用 */
   version: string;
+  /** SSE接続耐性オプション */
+  resilience?: PipelineReportApiClientResilienceOptions;
 }
 
 /**
@@ -121,21 +151,24 @@ export interface PipelineReportApiClientConfig {
  * Node.js組み込みのfetchを使用してAPIサーバーの `/api/v1/pipeline-report` を呼び出し、
  * SSEレスポンスストリームをパースして最終的なレポート結果を返す。
  *
- * 仕様:
- * - `progress` イベント → handlers.onProgress にそのまま転送
- * - `result` イベント → Promise を resolve（返値の元ネタ）
- * - `error` イベント → handlers.onError に通知しつつ Error を throw
- * - `keepalive` / `done` イベントは無視
+ * SSE接続耐性:
+ * - リクエストセット開始時に Idempotency-Key（UUID v4）を1度だけ生成、リトライ全体で同じキーを使用
+ * - fetch 失敗時に最大5回（デフォルト）リトライ
+ * - SSE idle timeout（最後のイベント受信から60秒無音）でフォールバックポーリングへ移行
+ * - SSE result 未受信終端 → フォールバックポーリングへ移行
+ * - サーバから duplicated イベント受信 → フォールバックポーリング（既存jobId）へ移行
  */
 export class PipelineReportApiClient {
   private readonly baseUrl: string;
   private readonly jwt: string | null;
   private readonly version: string;
+  private readonly resilience: PipelineReportApiClientResilienceOptions;
 
   constructor(config: PipelineReportApiClientConfig) {
     this.baseUrl = config.baseUrl;
     this.jwt = config.jwt;
     this.version = config.version;
+    this.resilience = config.resilience ?? {};
   }
 
   /**
@@ -143,28 +176,40 @@ export class PipelineReportApiClient {
    *
    * @param request - pipeline-reportリクエスト
    * @param handlers - 進捗・エラー・requestId 受信コールバック（全て必須）
-   * @returns 最終的な `result` イベントのペイロード
+   * @returns 最終的な `result` イベントのペイロード（SSE切断時はGET /jobs/{id}フォールバック経由）
    */
   async run(
     request: PipelineReportApiRequest,
     handlers: PipelineReportApiClientHandlers,
   ): Promise<PipelineReportApiResult> {
     const url = `${this.baseUrl}/api/v1/pipeline-report`;
+    const idempotencyKey = randomUUID();
 
     // jwt が null の場合は Authorization ヘッダを付与しない
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       [VERSION_HEADER]: this.version,
+      [IDEMPOTENCY_KEY_HEADER]: idempotencyKey,
     };
     if (this.jwt !== null) {
       headers['Authorization'] = `Bearer ${this.jwt}`;
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(request),
-    });
+    const fetchRetryOptions: FetchRetryOptions = {
+      ...DEFAULT_FETCH_RETRY,
+      ...this.resilience.fetchRetry,
+    };
+
+    // fetchリトライ（接続失敗・5xxを最大N回再送、同じIdempotency-Keyで送信するためAI処理は重複しない）
+    const response = await fetchWithRetry(
+      url,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request),
+      },
+      fetchRetryOptions,
+    );
 
     // X-Request-Idヘッダの抽出（エラー応答でも付与される想定のため、!response.okより先に取得）
     const requestId = response.headers.get(REQUEST_ID_HEADER);
@@ -172,7 +217,7 @@ export class PipelineReportApiClient {
       handlers.onRequestId(requestId);
     }
 
-    // 非SSEエラー（400, 401, 500等）
+    // 非SSEエラー（5xxはfetchWithRetryで処理済みのためここには来ない、4xxのみ）
     if (!response.ok) {
       const body = await response.text();
       const err = new Error(
@@ -189,76 +234,150 @@ export class PipelineReportApiClient {
     }
 
     // SSEストリームをパース
-    return this.parseSSEStream(response.body, handlers);
+    const sseOutcome = await this.parseSSEStream(response.body, handlers);
+
+    if (sseOutcome.kind === 'result') {
+      return sseOutcome.payload;
+    }
+
+    // duplicated か stream-ended-without-result → フォールバックポーリング
+    const fallbackJobId = sseOutcome.kind === 'duplicated' ? sseOutcome.existingJobId : requestId;
+    if (!fallbackJobId) {
+      const err = new Error(
+        'SSE stream ended without result event and no jobId is available for polling',
+      );
+      handlers.onError(err);
+      throw err;
+    }
+
+    try {
+      return (await pollJobResult(
+        {
+          apiUrl: this.baseUrl,
+          jobId: fallbackJobId,
+          jwtToken: this.jwt,
+          version: this.version,
+          userId: request.userId,
+          intervalMs: this.resilience.pollIntervalMs ?? DEFAULT_POLL_OPTIONS.intervalMs,
+          maxIntervalMs: this.resilience.pollMaxIntervalMs ?? DEFAULT_POLL_OPTIONS.maxIntervalMs,
+          totalTimeoutMs: this.resilience.pollTotalTimeoutMs ?? DEFAULT_POLL_OPTIONS.totalTimeoutMs,
+          notFoundGraceMs:
+            this.resilience.pollNotFoundGraceMs ?? DEFAULT_POLL_OPTIONS.notFoundGraceMs,
+        },
+        VERSION_HEADER,
+      )) as PipelineReportApiResult;
+    } catch (err) {
+      handlers.onError(err instanceof Error ? err : new Error(String(err)));
+      throw err;
+    }
   }
 
   /**
    * SSEストリームをパースしてpipeline-report結果を返す
+   *
+   * 戻り値:
+   * - { kind: 'result', payload }: result イベント受信成功
+   * - { kind: 'duplicated', existingJobId }: サーバからduplicated進捗を受信
+   * - { kind: 'stream-ended', reason }: ストリームが result/duplicated を受け取らずに終了
+   *
+   * errorイベントは throw する
    */
   private async parseSSEStream(
     body: ReadableStream<Uint8Array>,
     handlers: PipelineReportApiClientHandlers,
-  ): Promise<PipelineReportApiResult> {
+  ): Promise<
+    | { kind: 'result'; payload: PipelineReportApiResult }
+    | { kind: 'duplicated'; existingJobId: string }
+    | { kind: 'stream-ended'; reason: 'idle-timeout' | 'reader-closed' }
+  > {
     const reader = body.getReader();
     const decoder = new TextDecoder();
+    const idleTimeoutMs = this.resilience.sseIdleTimeoutMs ?? 60_000;
     let buffer = '';
     let currentEvent = '';
     let currentData = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const idleTimer = new Promise<'idle-timeout'>((resolve) =>
+          setTimeout(() => resolve('idle-timeout'), idleTimeoutMs),
+        );
+        const result = await Promise.race([reader.read(), idleTimer]);
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      // 最後の不完全な行をバッファに保持
-      buffer = lines.pop() ?? '';
+        if (result === 'idle-timeout') {
+          await reader.cancel().catch(() => {});
+          return { kind: 'stream-ended', reason: 'idle-timeout' };
+        }
 
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith('data: ')) {
-          currentData = line.slice(6);
-        } else if (line === '') {
-          // 空行 = イベント区切り
-          if (currentEvent && currentData) {
-            let parsed: Record<string, unknown>;
-            try {
-              parsed = JSON.parse(currentData) as Record<string, unknown>;
-            } catch {
-              const err = new Error(
-                `Failed to parse SSE event data for event "${currentEvent}": ${currentData}`,
-              );
-              handlers.onError(err);
-              throw err;
-            }
+        const { done, value } = result;
+        if (done) break;
 
-            switch (currentEvent) {
-              case 'progress':
-                handlers.onProgress(parsed as unknown as PipelineReportProgressEvent);
-                break;
-              case 'result':
-                return parsed as unknown as PipelineReportApiResult;
-              case 'error': {
-                const message = (parsed['error'] as string) ?? 'Unknown error';
-                const err = new Error(`Pipeline report API error: ${message}`);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            currentData = line.slice(6);
+          } else if (line === '') {
+            if (currentEvent && currentData) {
+              let parsed: Record<string, unknown>;
+              try {
+                parsed = JSON.parse(currentData) as Record<string, unknown>;
+              } catch {
+                const err = new Error(
+                  `Failed to parse SSE event data for event "${currentEvent}": ${currentData}`,
+                );
                 handlers.onError(err);
                 throw err;
               }
-              case 'keepalive':
-              case 'done':
-                // 無視
-                break;
+
+              switch (currentEvent) {
+                case 'progress': {
+                  const progressEvent = parsed as unknown as PipelineReportProgressEvent;
+                  if (progressEvent.status === 'duplicated' && progressEvent.existingJobId) {
+                    handlers.onProgress(progressEvent);
+                    await reader.cancel().catch(() => {});
+                    return {
+                      kind: 'duplicated',
+                      existingJobId: progressEvent.existingJobId,
+                    };
+                  }
+                  handlers.onProgress(progressEvent);
+                  break;
+                }
+                case 'result':
+                  return {
+                    kind: 'result',
+                    payload: parsed as unknown as PipelineReportApiResult,
+                  };
+                case 'error': {
+                  const message = (parsed['error'] as string) ?? 'Unknown error';
+                  const err = new Error(`Pipeline report API error: ${message}`);
+                  handlers.onError(err);
+                  throw err;
+                }
+                case 'keepalive':
+                case 'done':
+                  // 無視
+                  break;
+              }
             }
+            currentEvent = '';
+            currentData = '';
           }
-          currentEvent = '';
-          currentData = '';
         }
       }
-    }
 
-    const err = new Error('SSE stream ended without result event');
-    handlers.onError(err);
-    throw err;
+      return { kind: 'stream-ended', reason: 'reader-closed' };
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // 既にcancel/close済みなら無視
+      }
+    }
   }
 }

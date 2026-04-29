@@ -14,6 +14,10 @@ import type {
   CloneResult,
 } from '../../../../application/shared/port/clone/index.js';
 import type { RateLimiterPort } from '../../../../application/shared/port/rateLimiter/index.js';
+import type {
+  JobResultStore,
+  JobResultRecord,
+} from '../../../../application/shared/port/jobResultStore/index.js';
 import type { ReviewExecutionDto } from '../../../../application/review/reviewExecution/index.js';
 import type { GitLabIdTokenPayload } from '../../../../infrastructure/adapter/auth/index.js';
 import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
@@ -112,6 +116,30 @@ function createMockServiceFactory(overrides?: {
 }
 
 /**
+ * モックJobResultStoreを作成するヘルパー
+ *
+ * 内部Mapで保存・取得・Idempotency-Key索引を再現する
+ */
+function createMockJobResultStore(): JobResultStore & {
+  saveCalls: JobResultRecord[];
+} {
+  const recordsByJobId = new Map<string, JobResultRecord>();
+  const recordsByKey = new Map<string, JobResultRecord>();
+  const saveCalls: JobResultRecord[] = [];
+  return {
+    saveCalls,
+    save: vi.fn(async (record: JobResultRecord) => {
+      saveCalls.push(record);
+      recordsByJobId.set(record.jobId, record);
+      recordsByKey.set(record.idempotencyKey, record);
+    }),
+    load: vi.fn(async (jobId: string) => recordsByJobId.get(jobId) ?? null),
+    loadByIdempotencyKey: vi.fn(async (key: string) => recordsByKey.get(key) ?? null),
+    sweepExpired: vi.fn(async () => 0),
+  };
+}
+
+/**
  * モックRateLimiterを作成するヘルパー
  */
 function createMockRateLimiter(): RateLimiterPort {
@@ -138,6 +166,8 @@ function createTestApp(
     cloneManager: createMockCloneManager(),
     serviceFactory: createMockServiceFactory(),
     rateLimiter: createMockRateLimiter(),
+    jobResultStore: createMockJobResultStore(),
+    jobResultTtlMs: 86_400_000,
     gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
     aiApiKey: 'test-api-key',
     aiApiEndpointUrl: 'https://ai.example.com',
@@ -206,7 +236,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: 'invalid json',
       });
 
@@ -221,7 +251,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -244,7 +274,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -266,7 +296,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -288,7 +318,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -303,7 +333,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -318,7 +348,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -340,7 +370,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -361,7 +391,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -378,7 +408,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -406,7 +436,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -439,7 +469,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -479,7 +509,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -506,7 +536,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -526,7 +556,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -549,7 +579,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -569,7 +599,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -594,7 +624,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -627,7 +657,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -669,7 +699,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -689,7 +719,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -766,7 +796,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
       await res.text(); // ストリーム消費
@@ -829,7 +859,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
       await res.text();
@@ -862,7 +892,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
       await res.text();
@@ -889,7 +919,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
       await res.text();
@@ -910,7 +940,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
       await res.text();
@@ -958,7 +988,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
 
@@ -1029,7 +1059,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
       });
       await res.text();
@@ -1055,7 +1085,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
       });
       await res.text();
@@ -1081,7 +1111,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify({ ...createValidRequestBody(), userId: 'bob' }),
       });
       await res.text();
@@ -1104,7 +1134,11 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Request-Id': customId },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Id': customId,
+          'X-Idempotency-Key': 'test-idem-key',
+        },
         body: JSON.stringify(createValidRequestBody()),
       });
       await res.text();
@@ -1125,7 +1159,7 @@ describe('reviewRoute', () => {
 
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
       });
       await res.text();
@@ -1134,6 +1168,226 @@ describe('reviewRoute', () => {
         (l) => l['msg'] === 'userId in request body does not match JWT user_login claim',
       );
       expect(warning).toBeUndefined();
+    });
+  });
+
+  describe('POST /review - Idempotency-Key', () => {
+    it('X-Idempotency-Keyヘッダ未指定で400エラーが返ること', async () => {
+      const app = createTestApp();
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['error']).toContain('X-Idempotency-Key');
+    });
+
+    it('X-Idempotency-Keyヘッダが空文字で400エラーが返ること', async () => {
+      const app = createTestApp();
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': '   ' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('既存success ジョブを Idempotency-Key 一致で検出し、AI処理を再実行せず結果を返すこと', async () => {
+      const store = createMockJobResultStore();
+      // 事前に success レコードを保存
+      const cachedPayload = { results: [{ checkItemContent: 'cached', ratingLabel: 'A' }] };
+      await store.save({
+        jobId: 'existing-job-id',
+        idempotencyKey: 'shared-key',
+        feature: 'review',
+        status: 'success',
+        userId: 'test-user',
+        payload: cachedPayload,
+        createdAt: '2026-04-29T00:00:00.000Z',
+        updatedAt: '2026-04-29T00:00:00.000Z',
+        expiresAt: '2026-04-30T00:00:00.000Z',
+      });
+
+      const reviewExecutor: ReviewExecutor = {
+        execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
+      };
+      const app = createTestApp({
+        jobResultStore: store,
+        serviceFactory: createMockServiceFactory({ reviewExecutor }),
+      });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'shared-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      const events = parseSSEEvents(text);
+
+      // resultイベントにキャッシュペイロードが含まれること
+      const resultEvent = events.find((e) => e.event === 'result');
+      expect(resultEvent).toBeDefined();
+      const resultData = JSON.parse(resultEvent!.data);
+      expect(resultData).toEqual(cachedPayload);
+
+      // AIレビュー処理が呼ばれていないこと
+      expect(reviewExecutor.execute).not.toHaveBeenCalled();
+    });
+
+    it('既存failed ジョブを Idempotency-Key 一致で検出し、errorイベントを返してAI処理を再実行しないこと', async () => {
+      const store = createMockJobResultStore();
+      await store.save({
+        jobId: 'failed-job-id',
+        idempotencyKey: 'failed-key',
+        feature: 'review',
+        status: 'failed',
+        userId: 'test-user',
+        errorMessage: 'previous AI failure',
+        createdAt: '2026-04-29T00:00:00.000Z',
+        updatedAt: '2026-04-29T00:00:00.000Z',
+        expiresAt: '2026-04-30T00:00:00.000Z',
+      });
+
+      const reviewExecutor: ReviewExecutor = {
+        execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
+      };
+      const app = createTestApp({
+        jobResultStore: store,
+        serviceFactory: createMockServiceFactory({ reviewExecutor }),
+      });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'failed-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+
+      const events = parseSSEEvents(await res.text());
+      const errorEvent = events.find((e) => e.event === 'error');
+      expect(errorEvent).toBeDefined();
+      const errorData = JSON.parse(errorEvent!.data);
+      expect(errorData.error).toBe('previous AI failure');
+      expect(reviewExecutor.execute).not.toHaveBeenCalled();
+    });
+
+    it('既存pending ジョブを Idempotency-Key 一致で検出し、duplicatedイベントを送信して処理を打ち切ること', async () => {
+      const store = createMockJobResultStore();
+      await store.save({
+        jobId: 'pending-job-id',
+        idempotencyKey: 'pending-key',
+        feature: 'review',
+        status: 'pending',
+        userId: 'test-user',
+        createdAt: '2026-04-29T00:00:00.000Z',
+        updatedAt: '2026-04-29T00:00:00.000Z',
+        expiresAt: '2026-04-30T00:00:00.000Z',
+      });
+
+      const reviewExecutor: ReviewExecutor = {
+        execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
+      };
+      const app = createTestApp({
+        jobResultStore: store,
+        serviceFactory: createMockServiceFactory({ reviewExecutor }),
+      });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'pending-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+
+      const events = parseSSEEvents(await res.text());
+      const duplicated = events
+        .filter((e) => e.event === 'progress')
+        .map((e) => JSON.parse(e.data) as { status?: string; existingJobId?: string })
+        .find((d) => d.status === 'duplicated');
+      expect(duplicated).toBeDefined();
+      expect(duplicated!.existingJobId).toBe('pending-job-id');
+      expect(reviewExecutor.execute).not.toHaveBeenCalled();
+    });
+
+    it('既存ジョブのuserIdが要求userIdと不一致なら、AI処理せずerrorイベントを返すこと', async () => {
+      const store = createMockJobResultStore();
+      await store.save({
+        jobId: 'other-user-job',
+        idempotencyKey: 'collision-key',
+        feature: 'review',
+        status: 'success',
+        userId: 'different-user',
+        payload: { secret: 'belongs to someone else' },
+        createdAt: '2026-04-29T00:00:00.000Z',
+        updatedAt: '2026-04-29T00:00:00.000Z',
+        expiresAt: '2026-04-30T00:00:00.000Z',
+      });
+
+      const reviewExecutor: ReviewExecutor = {
+        execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
+      };
+      const app = createTestApp({
+        jobResultStore: store,
+        serviceFactory: createMockServiceFactory({ reviewExecutor }),
+      });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'collision-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+
+      const events = parseSSEEvents(await res.text());
+      const errorEvent = events.find((e) => e.event === 'error');
+      expect(errorEvent).toBeDefined();
+      // result イベントは送られない
+      const resultEvent = events.find((e) => e.event === 'result');
+      expect(resultEvent).toBeUndefined();
+      expect(reviewExecutor.execute).not.toHaveBeenCalled();
+    });
+
+    it('正常系: 完了時に success レコードが永続化されること', async () => {
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'normal-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      await res.text();
+
+      // pending と success の2つの save が呼ばれているはず
+      expect(store.saveCalls.length).toBe(2);
+      expect(store.saveCalls[0].status).toBe('pending');
+      expect(store.saveCalls[1].status).toBe('success');
+      expect(store.saveCalls[1].idempotencyKey).toBe('normal-key');
+    });
+
+    it('異常系: AI実行失敗時に failed レコードが永続化されること', async () => {
+      const store = createMockJobResultStore();
+      const failingExecutor: ReviewExecutor = {
+        execute: vi.fn<ReviewExecutor['execute']>().mockRejectedValue(new Error('AI exploded')),
+      };
+      const app = createTestApp({
+        jobResultStore: store,
+        serviceFactory: createMockServiceFactory({ reviewExecutor: failingExecutor }),
+      });
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'failing-key' },
+        body: JSON.stringify(createValidRequestBody()),
+      });
+      await res.text();
+
+      const failedSave = store.saveCalls.find((r) => r.status === 'failed');
+      expect(failedSave).toBeDefined();
+      if (failedSave?.status === 'failed') {
+        expect(failedSave.errorMessage).toBe('AI exploded');
+      }
     });
   });
 });

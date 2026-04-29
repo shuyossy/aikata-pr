@@ -21,6 +21,13 @@ import type { ReviewExecutionCommand } from '../../../application/review/reviewE
 import type { ReviewApiResponse } from '../../../infrastructure/adapter/review/apiClient/ReviewApiClient.js';
 import { GptTokenCounter } from '../../../infrastructure/adapter/tokenCounter/index.js';
 import { getLogger } from '../../../lib/logger.js';
+import type {
+  JobResultStore,
+  PendingJobResultRecord,
+  SuccessJobResultRecord,
+  FailedJobResultRecord,
+} from '../../../application/shared/port/jobResultStore/index.js';
+import { buildPendingJobRecord, handleExistingIdempotentJob } from '../shared/jobResult/index.js';
 
 /**
  * レビューリクエストのバリデーションスキーマ
@@ -119,6 +126,9 @@ export interface ReviewHandlerDeps {
   cloneManager: CloneManagerPort;
   serviceFactory: PerRequestServiceFactory;
   rateLimiter: RateLimiterPort;
+  jobResultStore: JobResultStore;
+  /** ジョブ結果の保持期間（ミリ秒）。expiresAt = now + jobResultTtlMs */
+  jobResultTtlMs: number;
   aiApiKey: string;
   aiApiEndpointUrl: string;
   defaultAiModelName: string;
@@ -129,6 +139,16 @@ export interface ReviewHandlerDeps {
   reviewTimeoutMs?: number;
   /** AIモデルのコンテキスト長（トークン数）。未設定時は圧縮しない */
   maxContextLength?: number;
+}
+
+/**
+ * ReviewHandlerが受け取るリクエスト単位の実行コンテキスト
+ */
+export interface ReviewHandlerContext {
+  /** ジョブID（= X-Request-Id） */
+  jobId: string;
+  /** クライアント生成のIdempotency-Key */
+  idempotencyKey: string;
 }
 
 /**
@@ -179,10 +199,43 @@ export class DefaultPerRequestServiceFactory implements PerRequestServiceFactory
  * per-request依存をserviceFactory経由で組み立てる
  */
 export function createReviewHandler(deps: ReviewHandlerDeps) {
-  return async (request: ReviewRequest, stream: SSEStreamingApi): Promise<void> => {
+  return async (
+    request: ReviewRequest,
+    stream: SSEStreamingApi,
+    context: ReviewHandlerContext,
+  ): Promise<void> => {
     const logger = getLogger();
     // オブジェクトに格納してクロージャ内からの代入をTypeScriptの制御フロー解析に追従させる
     const state: { cleanup: (() => Promise<void>) | null } = { cleanup: null };
+
+    // 1. Idempotency-Key検査: 既存ジョブがあればAI処理を再実行せず結果を返す
+    const existingJobOutcome = await handleExistingIdempotentJob({
+      jobResultStore: deps.jobResultStore,
+      stream,
+      idempotencyKey: context.idempotencyKey,
+      userId: request.userId,
+      logger,
+    });
+    if (existingJobOutcome === 'handled-and-stop') {
+      return;
+    }
+
+    // 2. pending状態のレコードを保存（best-effort、Idempotency-Key検知の起点）
+    const pendingRecord: PendingJobResultRecord = buildPendingJobRecord({
+      jobId: context.jobId,
+      idempotencyKey: context.idempotencyKey,
+      feature: 'review',
+      userId: request.userId,
+      ttlMs: deps.jobResultTtlMs,
+    });
+    try {
+      await deps.jobResultStore.save(pendingRecord);
+    } catch (err) {
+      logger.warn(
+        { err },
+        'Failed to save pending job record (continuing best-effort, Idempotency-Key dedup may not work for retries)',
+      );
+    }
 
     // レートリミッターにプロジェクトを登録（参照カウント方式）
     deps.rateLimiter.registerProject(request.projectId);
@@ -202,7 +255,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
     try {
       // タイムアウト付きのメイン処理をPromise.raceで制御
       const reviewPromise = async (): Promise<void> => {
-        // 1. SSE: 処理開始通知
+        // SSE: 処理開始通知
         await stream.writeSSE({
           event: 'progress',
           data: JSON.stringify({ status: 'started', message: 'Review process started' }),
@@ -315,13 +368,34 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
           startSha: reviewResult.startSha,
         };
 
-        // 12. SSE: 結果送信（コメント投稿・品質ゲート評価はCLI側の責務）
+        // 12. 結果を永続化（result送信の直前。SSE切断時はGET /jobs/{jobId}で再取得可能）
+        const successRecord: SuccessJobResultRecord = {
+          jobId: pendingRecord.jobId,
+          idempotencyKey: pendingRecord.idempotencyKey,
+          feature: pendingRecord.feature,
+          userId: pendingRecord.userId,
+          createdAt: pendingRecord.createdAt,
+          updatedAt: new Date().toISOString(),
+          expiresAt: pendingRecord.expiresAt,
+          status: 'success',
+          payload: apiResponse,
+        };
+        try {
+          await deps.jobResultStore.save(successRecord);
+        } catch (err) {
+          logger.warn(
+            { err },
+            'Failed to save success job record (continuing best-effort, fallback polling may return stale state)',
+          );
+        }
+
+        // 13. SSE: 結果送信（コメント投稿・品質ゲート評価はCLI側の責務）
         await stream.writeSSE({
           event: 'result',
           data: JSON.stringify(apiResponse),
         });
 
-        // 13. SSE: 完了通知
+        // 14. SSE: 完了通知
         await stream.writeSSE({
           event: 'done',
           data: JSON.stringify({ status: 'completed', message: 'Review completed successfully' }),
@@ -351,6 +425,24 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error({ err: error }, 'Review handler error');
+
+      // エラーも永続化してフォールバックポーリングで取得可能にする
+      const failedRecord: FailedJobResultRecord = {
+        jobId: pendingRecord.jobId,
+        idempotencyKey: pendingRecord.idempotencyKey,
+        feature: pendingRecord.feature,
+        userId: pendingRecord.userId,
+        createdAt: pendingRecord.createdAt,
+        updatedAt: new Date().toISOString(),
+        expiresAt: pendingRecord.expiresAt,
+        status: 'failed',
+        errorMessage,
+      };
+      try {
+        await deps.jobResultStore.save(failedRecord);
+      } catch (saveErr) {
+        logger.warn({ err: saveErr }, 'Failed to save failed job record (best-effort)');
+      }
 
       try {
         await stream.writeSSE({

@@ -15,6 +15,7 @@ export {
 export type {
   PipelineReportRequest,
   PipelineReportHandlerDeps,
+  PipelineReportHandlerContext,
   PipelineReportApiResponse,
   PipelineReportServiceFactory,
   PipelineAnalysisExecutor,

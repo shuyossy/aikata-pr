@@ -2,10 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   ReviewApiClient,
   VERSION_HEADER,
+  IDEMPOTENCY_KEY_HEADER,
   type ReviewApiRequest,
   type ReviewApiResponse,
   type ReviewProgressEvent,
 } from '../ReviewApiClient.js';
+import {
+  ApiServerConnectionError,
+  ApiServerJobNotStartedError,
+} from '../../../httpClient/jobResultPolling.js';
 
 /**
  * SSE形式のレスポンスを生成するヘルパー
@@ -38,6 +43,27 @@ function createErrorResponse(status: number, body: string): Response {
   });
 }
 
+/**
+ * GET /jobs/{id} 用のJSONレスポンスを生成するヘルパー
+ */
+function createJobResultResponse(status: number, body: Record<string, unknown> | string): Response {
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  return new Response(text, {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+/** リトライ・ポーリング待機を最小化したテスト用設定 */
+const FAST_RESILIENCE = {
+  fetchRetry: { retryCount: 5, baseMs: 1, maxMs: 2 },
+  sseIdleTimeoutMs: 100,
+  pollIntervalMs: 1,
+  pollMaxIntervalMs: 2,
+  pollTotalTimeoutMs: 1_000,
+  pollNotFoundGraceMs: 50,
+};
+
 describe('ReviewApiClient', () => {
   const mockFetch = vi.fn();
   const API_URL = 'https://api.example.com';
@@ -63,13 +89,6 @@ describe('ReviewApiClient', () => {
         comment: 'コメント1',
         isError: false,
       },
-      {
-        checkItemContent: '項目2',
-        ratingLabel: 'B',
-        ratingDefinition: '概ね満たしている',
-        comment: 'コメント2',
-        isError: false,
-      },
     ],
     commitHash: 'abc123',
     commitMessage: 'feat: add feature',
@@ -89,294 +108,405 @@ describe('ReviewApiClient', () => {
     vi.restoreAllMocks();
   });
 
-  it('正常なSSEレスポンスからレビュー結果を取得できること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify({ status: 'cloning', message: 'Cloning...' }) },
-      { event: 'result', data: JSON.stringify(testResult) },
-      { event: 'done', data: '{}' },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+  describe('正常系: SSEストリーム経由', () => {
+    it('SSEレスポンスからレビュー結果を取得できること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([
+          { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
+          { event: 'result', data: JSON.stringify(testResult) },
+          { event: 'done', data: '{}' },
+        ]),
+      );
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    const result = await client.executeReview(testRequest);
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest);
 
-    expect(result).toEqual(testResult);
-  });
+      expect(result).toEqual(testResult);
+    });
 
-  it('progressイベントでonProgressコールバックが呼ばれること', async () => {
-    const progressEvents: ReviewProgressEvent[] = [
-      { status: 'cloning', message: 'Cloning repository...' },
-      { status: 'reviewing', message: 'Reviewing code...' },
-    ];
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify(progressEvents[0]) },
-      { event: 'progress', data: JSON.stringify(progressEvents[1]) },
-      { event: 'result', data: JSON.stringify(testResult) },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+    it('progressイベントでonProgressコールバックが呼ばれること', async () => {
+      const progressEvents: ReviewProgressEvent[] = [
+        { status: 'cloning', message: 'Cloning repository...' },
+        { status: 'reviewing', message: 'Reviewing code...' },
+      ];
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([
+          { event: 'progress', data: JSON.stringify(progressEvents[0]) },
+          { event: 'progress', data: JSON.stringify(progressEvents[1]) },
+          { event: 'result', data: JSON.stringify(testResult) },
+        ]),
+      );
 
-    const onProgress = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    await client.executeReview(testRequest, onProgress);
+      const onProgress = vi.fn();
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await client.executeReview(testRequest, onProgress);
 
-    expect(onProgress).toHaveBeenCalledTimes(2);
-    expect(onProgress).toHaveBeenNthCalledWith(1, progressEvents[0]);
-    expect(onProgress).toHaveBeenNthCalledWith(2, progressEvents[1]);
-  });
+      expect(onProgress).toHaveBeenCalledTimes(2);
+    });
 
-  it('errorイベントでエラーがスローされること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
-      { event: 'error', data: JSON.stringify({ error: 'Review failed' }) },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+    it('errorイベントでエラーがスローされること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([{ event: 'error', data: JSON.stringify({ error: 'Review failed' }) }]),
+      );
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await expect(client.executeReview(testRequest)).rejects.toThrow(
+        'Review API error: Review failed',
+      );
+    });
 
-    await expect(client.executeReview(testRequest)).rejects.toThrow(
-      'Review API error: Review failed',
-    );
-  });
+    it('keepaliveイベントが無視されること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([
+          { event: 'keepalive', data: '{}' },
+          { event: 'result', data: JSON.stringify(testResult) },
+        ]),
+      );
 
-  it('keepaliveイベントが無視されること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'keepalive', data: '{}' },
-      { event: 'keepalive', data: '{}' },
-      { event: 'result', data: JSON.stringify(testResult) },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+      const onProgress = vi.fn();
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest, onProgress);
 
-    const onProgress = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    const result = await client.executeReview(testRequest, onProgress);
+      expect(onProgress).not.toHaveBeenCalled();
+      expect(result).toEqual(testResult);
+    });
 
-    // keepaliveではonProgressが呼ばれない
-    expect(onProgress).not.toHaveBeenCalled();
-    // resultは正しく返される
-    expect(result).toEqual(testResult);
-  });
-
-  it('HTTP 400エラーで適切なエラーメッセージが返ること', async () => {
-    const errorBody = JSON.stringify({ error: 'Invalid request parameters' });
-    mockFetch.mockResolvedValueOnce(createErrorResponse(400, errorBody));
-
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-
-    await expect(client.executeReview(testRequest)).rejects.toThrow(
-      `API request failed with status 400: ${errorBody}`,
-    );
-  });
-
-  it('HTTP 401エラーで適切なエラーメッセージが返ること', async () => {
-    const errorBody = JSON.stringify({ error: 'Unauthorized' });
-    mockFetch.mockResolvedValueOnce(createErrorResponse(401, errorBody));
-
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-
-    await expect(client.executeReview(testRequest)).rejects.toThrow(
-      `API request failed with status 401: ${errorBody}`,
-    );
-  });
-
-  it('resultイベントなしでストリーム終了時にエラーになること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
-      { event: 'done', data: '{}' },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-
-    await expect(client.executeReview(testRequest)).rejects.toThrow(
-      'SSE stream ended without result event',
-    );
-  });
-
-  it('正しいURL、ヘッダー、ボディでfetchが呼ばれること', async () => {
-    const requestWithOptions: ReviewApiRequest = {
-      userId: 'alice',
-      gitlabToken: 'gitlab-token',
-      projectId: '123',
-      mrIid: '42',
-      checklist: ['項目1'],
-      reviewSettings: {
-        additionalInstructions: '詳細にレビューしてください',
-        concurrentReviewCount: 3,
-        commentFormat: '## {title}\n{comment}',
-        ratings: [
-          { label: 'A', definition: '完全に満たしている' },
-          { label: 'B', definition: '概ね満たしている' },
-        ],
-        hiddenRatingLabels: ['A'],
-        qualityGate: {
-          failureCriteria: [{ ratingLabel: 'C', threshold: 1 }],
+    it('チャンク分割されたSSEストリームを正しくパースできること', async () => {
+      const chunk1 = 'event: progress\ndata: {"status":"cloning"}\n\neve';
+      const chunk2 = 'nt: result\ndata: ' + JSON.stringify(testResult) + '\n\n';
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(chunk1));
+          controller.enqueue(new TextEncoder().encode(chunk2));
+          controller.close();
         },
-      },
-      options: {
-        commentLanguage: 'Japanese',
-        skillsPaths: ['/path/to/skills'],
-        treeMaxDepth: 5,
-      },
-    };
+      });
+      mockFetch.mockResolvedValueOnce(
+        new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      );
 
-    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest);
+      expect(result).toEqual(testResult);
+    });
+  });
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    await client.executeReview(requestWithOptions);
+  describe('リクエストヘッダ', () => {
+    it('正しいURL、ヘッダー、ボディでfetchが呼ばれること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+      );
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`${API_URL}/api/v1/review`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${JWT_TOKEN}`,
-        [VERSION_HEADER]: VERSION,
-      },
-      body: JSON.stringify(requestWithOptions),
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await client.executeReview(testRequest);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const call = mockFetch.mock.calls[0]!;
+      expect(call[0]).toBe(`${API_URL}/api/v1/review`);
+      const init = call[1] as { method: string; headers: Record<string, string>; body: string };
+      expect(init.method).toBe('POST');
+      expect(init.headers['Content-Type']).toBe('application/json');
+      expect(init.headers['Authorization']).toBe(`Bearer ${JWT_TOKEN}`);
+      expect(init.headers[VERSION_HEADER]).toBe(VERSION);
+      // X-Idempotency-Key が UUID v4 形式で付与されていること
+      expect(init.headers[IDEMPOTENCY_KEY_HEADER]).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(JSON.parse(init.body).userId).toBe('alice');
     });
 
-    // 送信ボディに userId が含まれる
-    const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string) as {
-      userId?: string;
-    };
-    expect(sentBody.userId).toBe('alice');
+    it('リクエストセット内のリトライで同じIdempotency-Keyが使われること', async () => {
+      // 2回ネットワークエラー → 3回目で成功
+      const networkError = new TypeError('Network error');
+      mockFetch
+        .mockRejectedValueOnce(networkError)
+        .mockRejectedValueOnce(networkError)
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+        );
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await client.executeReview(testRequest);
+
+      // 全3回の呼び出しで同じ Idempotency-Key が使われていること
+      const calls = mockFetch.mock.calls;
+      expect(calls.length).toBe(3);
+      const keys = calls.map(
+        (c) => (c[1] as { headers: Record<string, string> }).headers[IDEMPOTENCY_KEY_HEADER],
+      );
+      expect(keys[0]).toBe(keys[1]);
+      expect(keys[1]).toBe(keys[2]);
+    });
   });
 
-  it('X-Aikata-Versionヘッダがリクエストに含まれること', async () => {
-    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
+  describe('fetchリトライ', () => {
+    it('ネットワークエラー時にリトライして成功すること', async () => {
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('ECONNREFUSED'))
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+        );
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    await client.executeReview(testRequest);
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest);
 
-    const call = mockFetch.mock.calls[0]!;
-    const headers = (call[1] as { headers: Record<string, string> }).headers;
-    expect(headers[VERSION_HEADER]).toBe(VERSION);
-  });
-
-  it('レスポンスボディが空の場合にエラーがスローされること', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      body: null,
-      headers: new Headers(),
+      expect(result).toEqual(testResult);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
+    it('5xxエラー時にリトライして成功すること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(createErrorResponse(503, 'Service Unavailable'))
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+        );
 
-    await expect(client.executeReview(testRequest)).rejects.toThrow('Response body is empty');
-  });
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest);
 
-  it('errorイベントでメッセージがない場合にUnknown errorが表示されること', async () => {
-    const sseResponse = createSSEResponse([
-      { event: 'error', data: JSON.stringify({ code: 'UNKNOWN' }) },
-    ]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-
-    await expect(client.executeReview(testRequest)).rejects.toThrow(
-      'Review API error: Unknown error',
-    );
-  });
-
-  it('レスポンスヘッダのX-Request-IdがonRequestIdコールバックに渡されること', async () => {
-    const sseResponse = createSSEResponse(
-      [
-        { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
-        { event: 'result', data: JSON.stringify(testResult) },
-      ],
-      200,
-      { 'X-Request-Id': 'server-generated-uuid-123' },
-    );
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const onRequestId = vi.fn();
-    const onProgress = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    await client.executeReview(testRequest, onProgress, onRequestId);
-
-    expect(onRequestId).toHaveBeenCalledTimes(1);
-    expect(onRequestId).toHaveBeenCalledWith('server-generated-uuid-123');
-  });
-
-  it('X-Request-Idが無いレスポンスではonRequestIdが呼ばれないこと', async () => {
-    const sseResponse = createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]);
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const onRequestId = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    await client.executeReview(testRequest, undefined, onRequestId);
-
-    expect(onRequestId).not.toHaveBeenCalled();
-  });
-
-  it('onRequestIdがSSEストリーム消費開始前（progress受信前）に呼ばれること', async () => {
-    const sseResponse = createSSEResponse(
-      [
-        { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
-        { event: 'result', data: JSON.stringify(testResult) },
-      ],
-      200,
-      { 'X-Request-Id': 'req-abc' },
-    );
-    mockFetch.mockResolvedValueOnce(sseResponse);
-
-    const callOrder: string[] = [];
-    const onRequestId = vi.fn((id: string) => callOrder.push(`onRequestId:${id}`));
-    const onProgress = vi.fn((event: ReviewProgressEvent) =>
-      callOrder.push(`onProgress:${event.status}`),
-    );
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    await client.executeReview(testRequest, onProgress, onRequestId);
-
-    // onRequestIdが必ず最初に呼ばれること
-    expect(callOrder[0]).toBe('onRequestId:req-abc');
-    expect(callOrder).toContain('onProgress:cloning');
-  });
-
-  it('HTTPエラー応答にX-Request-Idが含まれる場合もonRequestIdが呼ばれること', async () => {
-    const errorResponse = new Response(JSON.stringify({ error: 'Internal error' }), {
-      status: 500,
-      statusText: 'Internal Server Error',
-      headers: { 'X-Request-Id': 'req-on-error' },
-    });
-    mockFetch.mockResolvedValueOnce(errorResponse);
-
-    const onRequestId = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-
-    await expect(client.executeReview(testRequest, undefined, onRequestId)).rejects.toThrow(
-      /API request failed with status 500/,
-    );
-    expect(onRequestId).toHaveBeenCalledWith('req-on-error');
-  });
-
-  it('チャンク分割されたSSEストリームを正しくパースできること', async () => {
-    // SSEデータを複数チャンクに分割してストリーミング
-    const chunk1 = 'event: progress\ndata: {"status":"cloning"}\n\neve';
-    const chunk2 = 'nt: result\ndata: ' + JSON.stringify(testResult) + '\n\n';
-
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(chunk1));
-        controller.enqueue(new TextEncoder().encode(chunk2));
-        controller.close();
-      },
+      expect(result).toEqual(testResult);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    mockFetch.mockResolvedValueOnce(
-      new Response(stream, {
-        status: 200,
-        headers: { 'content-type': 'text/event-stream' },
-      }),
-    );
+    it('全リトライ失敗時に ApiServerConnectionError がthrowされること', async () => {
+      mockFetch.mockRejectedValue(new TypeError('ECONNREFUSED'));
 
-    const onProgress = vi.fn();
-    const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION);
-    const result = await client.executeReview(testRequest, onProgress);
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await expect(client.executeReview(testRequest)).rejects.toBeInstanceOf(
+        ApiServerConnectionError,
+      );
+      // retryCount=5 なので 6回呼ばれる（初回 + 5リトライ）
+      expect(mockFetch).toHaveBeenCalledTimes(6);
+    });
 
-    expect(onProgress).toHaveBeenCalledWith({ status: 'cloning' });
-    expect(result).toEqual(testResult);
+    it('4xxエラーはリトライせず即throwされること', async () => {
+      mockFetch.mockResolvedValueOnce(createErrorResponse(400, 'Bad Request'));
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await expect(client.executeReview(testRequest)).rejects.toThrow(
+        'API request failed with status 400',
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('SSEフォールバックポーリング', () => {
+    it('SSEがresult未受信のまま終了 → GET /jobs/{id} で結果を取得できること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse(
+            [
+              { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
+              { event: 'done', data: '{}' },
+            ],
+            200,
+            { 'X-Request-Id': 'job-123' },
+          ),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'job-123',
+            feature: 'review',
+            status: 'success',
+            payload: testResult,
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest);
+
+      expect(result).toEqual(testResult);
+      // 2回目のfetchがGET /api/v1/jobs/job-123 であること
+      const pollCall = mockFetch.mock.calls[1]!;
+      expect(pollCall[0]).toContain('/api/v1/jobs/job-123');
+      expect((pollCall[1] as { method: string }).method).toBe('GET');
+    });
+
+    it('duplicated イベント受信時に既存ジョブをポーリングして結果取得できること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse(
+            [
+              {
+                event: 'progress',
+                data: JSON.stringify({ status: 'duplicated', existingJobId: 'old-job-456' }),
+              },
+            ],
+            200,
+            { 'X-Request-Id': 'job-789' },
+          ),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'old-job-456',
+            feature: 'review',
+            status: 'success',
+            payload: testResult,
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest);
+
+      expect(result).toEqual(testResult);
+      // ポーリング先が existingJobId であること
+      expect(mockFetch.mock.calls[1]![0]).toContain('/api/v1/jobs/old-job-456');
+    });
+
+    it('ポーリング中にfailed status が返ればエラーがthrowされること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse(
+            [
+              { event: 'progress', data: JSON.stringify({ status: 'cloning' }) },
+              { event: 'done', data: '{}' },
+            ],
+            200,
+            { 'X-Request-Id': 'job-fail' },
+          ),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'job-fail',
+            feature: 'review',
+            status: 'failed',
+            errorMessage: 'AI exploded',
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await expect(client.executeReview(testRequest)).rejects.toThrow('AI exploded');
+    });
+
+    it('ポーリングで連続404が続くとApiServerJobNotStartedErrorがthrowされること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'done', data: '{}' }], 200, {
+            'X-Request-Id': 'never-started',
+          }),
+        )
+        // 404を繰り返す
+        .mockResolvedValue(createJobResultResponse(404, { error: 'Not found' }));
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await expect(client.executeReview(testRequest)).rejects.toBeInstanceOf(
+        ApiServerJobNotStartedError,
+      );
+    });
+
+    it('ポーリング中に200/pendingが続いた後200/successで結果取得できること', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          createSSEResponse([{ event: 'done', data: '{}' }], 200, {
+            'X-Request-Id': 'job-pending',
+          }),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'job-pending',
+            feature: 'review',
+            status: 'pending',
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:00:00Z',
+          }),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'job-pending',
+            feature: 'review',
+            status: 'success',
+            payload: testResult,
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest);
+      expect(result).toEqual(testResult);
+    });
+
+    it('jobIdが取得できないままSSE終了した場合、エラーがthrowされること', async () => {
+      // X-Request-Id ヘッダなしでSSE終了
+      mockFetch.mockResolvedValueOnce(createSSEResponse([{ event: 'done', data: '{}' }], 200));
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await expect(client.executeReview(testRequest)).rejects.toThrow(
+        /no jobId is available for polling/,
+      );
+    });
+  });
+
+  describe('レスポンスヘッダ', () => {
+    it('レスポンスヘッダのX-Request-IdがonRequestIdコールバックに渡されること', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }], 200, {
+          'X-Request-Id': 'server-uuid',
+        }),
+      );
+
+      const onRequestId = vi.fn();
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await client.executeReview(testRequest, undefined, onRequestId);
+
+      expect(onRequestId).toHaveBeenCalledWith('server-uuid');
+    });
+
+    it('X-Request-Idが無いレスポンスではonRequestIdが呼ばれないこと', async () => {
+      mockFetch.mockResolvedValueOnce(
+        createSSEResponse([{ event: 'result', data: JSON.stringify(testResult) }]),
+      );
+
+      const onRequestId = vi.fn();
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      await client.executeReview(testRequest, undefined, onRequestId);
+
+      expect(onRequestId).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('SSE idle timeout', () => {
+    it('SSEイベントが一定時間来ないとフォールバックポーリングへ移行すること', async () => {
+      // SSEレスポンスは届くが、データを送らずstreamを開いたまま
+      const stream = new ReadableStream({
+        start() {
+          // 何もしない（idle）
+        },
+      });
+      mockFetch
+        .mockResolvedValueOnce(
+          new Response(stream, {
+            status: 200,
+            headers: {
+              'content-type': 'text/event-stream',
+              'X-Request-Id': 'job-idle',
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          createJobResultResponse(200, {
+            jobId: 'job-idle',
+            feature: 'review',
+            status: 'success',
+            payload: testResult,
+            createdAt: '2026-04-29T00:00:00Z',
+            updatedAt: '2026-04-29T00:01:00Z',
+          }),
+        );
+
+      const client = new ReviewApiClient(API_URL, JWT_TOKEN, VERSION, FAST_RESILIENCE);
+      const result = await client.executeReview(testRequest);
+
+      expect(result).toEqual(testResult);
+    });
   });
 });

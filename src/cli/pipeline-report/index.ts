@@ -27,8 +27,14 @@ import { MastraPipelineAnalysisWorkflowRunner } from '../../infrastructure/adapt
 import {
   PipelineReportApiClient,
   type PipelineReportApiClientConfig,
+  type PipelineReportApiClientResilienceOptions,
   type PipelineReportProgressEvent,
 } from '../../infrastructure/adapter/pipeline-report/apiClient/index.js';
+import {
+  ApiServerConnectionError,
+  ApiServerJobNotStartedError,
+  JobResultPollTimeoutError,
+} from '../../infrastructure/adapter/httpClient/index.js';
 import { GptTokenCounter } from '../../infrastructure/adapter/tokenCounter/index.js';
 import { mastra } from '../../mastra/index.js';
 import { RateLimiter } from '../../infrastructure/adapter/rateLimiter/index.js';
@@ -318,6 +324,7 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
         baseUrl: validated.aikataApiUrl!,
         jwt: validated.aikataJwt ?? null,
         version: aikataVersion,
+        resilience: buildApiClientResilienceOptions(process.env),
       });
 
       const result = await client.run(apiRequest, {
@@ -379,8 +386,45 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
     } else {
       logger.error(errorBindings, `Pipeline report failed: ${String(error)}`);
     }
+    printUserFacingErrorSummary(error);
     flushLogger();
     process.exit(1);
+  }
+}
+
+/**
+ * 環境変数からSSE接続耐性オプションを構築する
+ */
+function buildApiClientResilienceOptions(
+  env: NodeJS.ProcessEnv,
+): PipelineReportApiClientResilienceOptions {
+  const opts: PipelineReportApiClientResilienceOptions = {};
+  const fetchRetry: { retryCount?: number; baseMs?: number; maxMs?: number } = {};
+  if (env['JOB_FETCH_RETRY_COUNT']) fetchRetry.retryCount = Number(env['JOB_FETCH_RETRY_COUNT']);
+  if (env['JOB_FETCH_RETRY_BASE_MS']) fetchRetry.baseMs = Number(env['JOB_FETCH_RETRY_BASE_MS']);
+  if (env['JOB_FETCH_RETRY_MAX_MS']) fetchRetry.maxMs = Number(env['JOB_FETCH_RETRY_MAX_MS']);
+  if (Object.keys(fetchRetry).length > 0) opts.fetchRetry = fetchRetry;
+
+  if (env['SSE_IDLE_TIMEOUT_MS']) opts.sseIdleTimeoutMs = Number(env['SSE_IDLE_TIMEOUT_MS']);
+  if (env['JOB_RESULT_POLL_INTERVAL_MS'])
+    opts.pollIntervalMs = Number(env['JOB_RESULT_POLL_INTERVAL_MS']);
+  if (env['JOB_RESULT_POLL_TIMEOUT_MS'])
+    opts.pollTotalTimeoutMs = Number(env['JOB_RESULT_POLL_TIMEOUT_MS']);
+  if (env['JOB_RESULT_POLL_NOT_FOUND_GRACE_MS'])
+    opts.pollNotFoundGraceMs = Number(env['JOB_RESULT_POLL_NOT_FOUND_GRACE_MS']);
+  return opts;
+}
+
+/**
+ * SSE接続耐性関連エラーをユーザ向けに親切に表示する
+ */
+function printUserFacingErrorSummary(error: unknown): void {
+  if (
+    error instanceof ApiServerConnectionError ||
+    error instanceof ApiServerJobNotStartedError ||
+    error instanceof JobResultPollTimeoutError
+  ) {
+    process.stderr.write(`\n[aikata-pr] ${error.message}\n\n`);
   }
 }
 

@@ -36,6 +36,13 @@
 | pipeline-report | PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB | No | 50 | 1ジョブのartifacts zipダウンロード上限MB | なし（環境変数のみ） | - |
 | pipeline-report | PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB | No | 500 | 全ジョブ合計のartifacts zipディスク使用量上限MB | なし（環境変数のみ） | - |
 | pipeline-report | PIPELINE_REPORT_MAX_ARTIFACT_FILE_BYTES | No | 2097152 | `getArtifactContent`ツールが単一ファイルから読み取る最大バイト数 | なし（環境変数のみ） | - |
+| SSE耐性 | JOB_FETCH_RETRY_COUNT | No | 5 | APIサーバへのfetch（POST）の最大リトライ回数。Idempotency-Keyで重複実行を防ぎながら接続失敗・5xxを再試行する | なし（環境変数のみ） | - |
+| SSE耐性 | JOB_FETCH_RETRY_BASE_MS | No | 1000 | fetchリトライの初期待機時間（ミリ秒）。指数バックオフ（base * 2^n）+ ジッタ ±20% | なし（環境変数のみ） | - |
+| SSE耐性 | JOB_FETCH_RETRY_MAX_MS | No | 16000 | fetchリトライの最大待機時間（ミリ秒）。指数バックオフの上限 | なし（環境変数のみ） | - |
+| SSE耐性 | SSE_IDLE_TIMEOUT_MS | No | 60000 | SSEイベント（progress/keepalive）受信からの無音許容時間（ミリ秒）。これを超えたら接続断とみなしフォールバックポーリングへ移行 | なし（環境変数のみ） | - |
+| SSE耐性 | JOB_RESULT_POLL_INTERVAL_MS | No | 5000 | SSEフォールバックポーリングの初期間隔（ミリ秒）。指数バックオフ（最大30秒）+ ジッタ ±20% | なし（環境変数のみ） | - |
+| SSE耐性 | JOB_RESULT_POLL_TIMEOUT_MS | No | 2100000 | フォールバックポーリングの全体上限（ミリ秒）。デフォルト35分（REVIEW_TIMEOUT_MS=3600000とは別、CLI側のCI Wall-clock制約に合わせる） | なし（環境変数のみ） | - |
+| SSE耐性 | JOB_RESULT_POLL_NOT_FOUND_GRACE_MS | No | 60000 | ポーリング中の連続404継続時間（ミリ秒）。これを超えたら「サーバ側で処理が開始されていない」と判断し早期中断＋再実行案内を表示 | なし（環境変数のみ） | - |
 
 ## APIサーバー専用環境変数
 
@@ -60,3 +67,6 @@ APIサーバー（`docker/prod/docker-compose.yml`）で設定する環境変数
 | ログ | AIKATA_LOG_LEVEL | No | info | ログレベル |
 | GitLab | GITLAB_API_URL | No | https://gitlab.com/api/v4 | GitLab APIベースURL |
 | 動作設定 | MAX_CONTEXT_LENGTH | No | - | AIモデルのコンテキスト長（トークン数）。設定時、userプロンプトのトークン数がMAX_CONTEXT_LENGTH*0.6を超える場合にdiffを自動圧縮する。未設定時は圧縮しない |
+| SSE耐性 | JOB_RESULT_STORE_DIR | No | `${os.tmpdir()}/aikata-pr-job-results` | ジョブ結果（pending/success/failed）の保存ディレクトリ。SSE接続断時の結果再取得用。docker-composeでは永続volumeとしてマウントすること |
+| SSE耐性 | JOB_RESULT_TTL_MS | No | 86400000 | ジョブ結果の保持期間（ミリ秒、デフォルト24時間）。Idempotency-Key検知TTLも同じ |
+| SSE耐性 | JOB_RESULT_SWEEP_INTERVAL_MS | No | 3600000 | 期限切れジョブ結果の掃除間隔（ミリ秒、デフォルト1時間）。起動時1回 + 周期実行 |

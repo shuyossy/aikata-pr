@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { pipelineReportRequestSchema } from './pipelineReportHandler.js';
-import type { PipelineReportHandlerDeps } from './pipelineReportHandler.js';
+import type {
+  PipelineReportHandlerDeps,
+  PipelineReportHandlerContext,
+} from './pipelineReportHandler.js';
 import { createPipelineReportHandler } from './pipelineReportHandler.js';
 import type {
   JwtAuthEnv,
@@ -9,6 +12,9 @@ import type {
 } from '../../../infrastructure/adapter/auth/index.js';
 import type { RequestIdEnv } from '../shared/requestIdMiddleware.js';
 import { getLogger, runWithLogContext } from '../../../lib/logger.js';
+
+/** クライアント生成のIdempotency-Keyヘッダ名 */
+const IDEMPOTENCY_KEY_HEADER = 'X-Idempotency-Key';
 
 /**
  * pipeline-report API ルートの環境型定義
@@ -34,6 +40,12 @@ export function createPipelineReportRoute(): Hono<PipelineReportRouteEnv> {
   const route = new Hono<PipelineReportRouteEnv>();
 
   route.post('/pipeline-report', async (c) => {
+    // X-Idempotency-Keyヘッダの取得（必須）。リクエストセット内のリトライで重複AI処理を防ぐ
+    const idempotencyKey = c.req.header(IDEMPOTENCY_KEY_HEADER);
+    if (!idempotencyKey || idempotencyKey.trim().length === 0) {
+      return c.json({ error: `${IDEMPOTENCY_KEY_HEADER} header is required` }, 400);
+    }
+
     // リクエストボディのパースとバリデーション
     let body: unknown;
     try {
@@ -65,6 +77,10 @@ export function createPipelineReportRoute(): Hono<PipelineReportRouteEnv> {
     // - requestId: requestIdMiddlewareで必ず設定済み
     // - gitlab*: JWT認証有効時のみ補助情報として付与
     const requestId = c.get('requestId');
+    const handlerContext: PipelineReportHandlerContext = {
+      jobId: requestId,
+      idempotencyKey: idempotencyKey.trim(),
+    };
     // JWT認証スキップモード（dev/test）ではjwtPayloadは未設定のためオプショナル扱い
     const jwtPayload = c.get('jwtPayload') as GitLabIdTokenPayload | undefined;
 
@@ -104,7 +120,7 @@ export function createPipelineReportRoute(): Hono<PipelineReportRouteEnv> {
             { projectId: request.projectId, pipelineId: request.pipelineId },
             'Pipeline report API request received',
           );
-          await handler(request, stream);
+          await handler(request, stream, handlerContext);
         },
         async (error, stream) => {
           // SSEストリーム内の未捕捉エラーハンドリング

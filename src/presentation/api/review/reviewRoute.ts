@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { reviewRequestSchema } from './reviewHandler.js';
-import type { ReviewHandlerDeps } from './reviewHandler.js';
+import type { ReviewHandlerDeps, ReviewHandlerContext } from './reviewHandler.js';
 import { createReviewHandler } from './reviewHandler.js';
 import type {
   JwtAuthEnv,
@@ -9,6 +9,9 @@ import type {
 } from '../../../infrastructure/adapter/auth/index.js';
 import type { RequestIdEnv } from '../shared/requestIdMiddleware.js';
 import { getLogger, runWithLogContext } from '../../../lib/logger.js';
+
+/** クライアント生成のIdempotency-Keyヘッダ名 */
+const IDEMPOTENCY_KEY_HEADER = 'X-Idempotency-Key';
 
 /**
  * レビューAPIルートの環境型定義
@@ -34,6 +37,12 @@ export function createReviewRoute(): Hono<ReviewRouteEnv> {
   const route = new Hono<ReviewRouteEnv>();
 
   route.post('/review', async (c) => {
+    // X-Idempotency-Keyヘッダの取得（必須）。リクエストセット内のリトライで重複AI処理を防ぐ
+    const idempotencyKey = c.req.header(IDEMPOTENCY_KEY_HEADER);
+    if (!idempotencyKey || idempotencyKey.trim().length === 0) {
+      return c.json({ error: `${IDEMPOTENCY_KEY_HEADER} header is required` }, 400);
+    }
+
     // リクエストボディのパースとバリデーション
     let body: unknown;
     try {
@@ -65,6 +74,10 @@ export function createReviewRoute(): Hono<ReviewRouteEnv> {
     // - requestId: requestIdMiddlewareで必ず設定済み
     // - gitlab*: JWT認証有効時のみ補助情報として付与
     const requestId = c.get('requestId');
+    const handlerContext: ReviewHandlerContext = {
+      jobId: requestId,
+      idempotencyKey: idempotencyKey.trim(),
+    };
     // JWT認証スキップモード（dev/test）ではjwtPayloadは未設定のためオプショナル扱い
     const jwtPayload = c.get('jwtPayload') as GitLabIdTokenPayload | undefined;
 
@@ -106,7 +119,7 @@ export function createReviewRoute(): Hono<ReviewRouteEnv> {
             { projectId: request.projectId, mrIid: request.mrIid },
             'Review API request received',
           );
-          await handler(request, stream);
+          await handler(request, stream, handlerContext);
         },
         async (error, stream) => {
           // SSEストリーム内の未捕捉エラーハンドリング

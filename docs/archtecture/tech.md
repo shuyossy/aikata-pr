@@ -25,6 +25,23 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
   - いずれも `AIKATA_API_URL`と`AIKATA_JWT`が必要（両機能で同じURL・同じJWTを共有）
   - `JWT_*`が設定されてない場合は、JWT認証無効で動作する（開発時のみ許容、デバッグ用）
 
+#### APIモードのSSE接続耐性
+セルフホストGitLab環境のネットワーク制約（プロキシ/LBでのリクエストdrop、長時間接続のidle timeout等）により、SSE接続が中断される事象に対応するため以下の機構を備える。
+
+1. **fetch自動リトライ + Idempotency-Key**:
+  - CLIはリクエストセット開始時にUUID v4の`X-Idempotency-Key`を1度だけ生成し、リトライ時も同じキーで送信する
+  - 接続失敗（ネットワークエラー・5xx）時は最大`JOB_FETCH_RETRY_COUNT`回（既定5回）、指数バックオフ + ジッタでリトライする
+  - APIサーバはIdempotency-Keyで既存ジョブを検索し、既存ジョブがあれば結果（or 既存jobId）を返してAI処理重複を防止する
+2. **ジョブ結果の永続化（`pending`/`success`/`failed`）**:
+  - APIサーバはジョブ状態と最終結果をファイルベースで永続化（`JOB_RESULT_STORE_DIR`、TTL `JOB_RESULT_TTL_MS`）。シングルインスタンス前提
+  - SSEで`result`を送信する直前に`success`保存、catch内で`failed`保存（best-effort）
+3. **GET /api/v1/jobs/{jobId} による結果再取得**:
+  - SSEヘッダ受信後の切断時、CLIは同一jobIdで結果取得APIを指数バックオフでポーリングする
+  - 連続404が`JOB_RESULT_POLL_NOT_FOUND_GRACE_MS`（既定60秒）続いたら「処理未開始」として早期中断＋再実行案内
+  - 認可: JWT有効モードはJWT `user_login`、JWT無効モードはクエリパラメータ`?userId=xxx`と保存`userId`を一致確認
+4. **マルチインスタンス運用への拡張**:
+  - 現行はシングルインスタンス前提。複数台運用時は`JOB_RESULT_STORE_DIR`を共有FSにマウントするか、将来導入予定の`LibSqlJobResultStore`等の共有ストアに差し替えること
+
 ### 機能モジュール登録パターン
 各機能は2種類のモジュールをエクスポートし、それぞれCLI/APIサーバ起動時にレジストリに登録される。
 - **CliFeatureModule**: `{ name, description, run(args) }`。`src/cli/dispatch.ts` の `defaultFeatures = [reviewCliModule, pipelineReportCliModule, serverCliModule]` に追加
@@ -54,6 +71,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
     - Honoフレームワーク
     - `POST /api/v1/review` — SSEストリーミングレスポンス（review機能）
     - `POST /api/v1/pipeline-report` — SSEストリーミングレスポンス（pipeline-report機能）
+    - `GET /api/v1/jobs/{jobId}` — ジョブ結果再取得（SSE切断時のフォールバック用、feature横断）
     - JWT認証ミドルウェア（GitLab CI/CD `id_tokens`を検証）
   - 全パラメータはCLIオプションと環境変数の両方で指定可能（優先順位: CLIオプション > 環境変数 > デフォルト値）
   - 共通CLIオプション（環境変数フォールバック付き）
@@ -85,6 +103,18 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
     - `PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB`: 1ジョブのartifacts zipダウンロード上限MB（pipeline-report専用、デフォルト: `50`）
     - `PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB`: artifacts zipの合計ディスク上限MB（pipeline-report専用、デフォルト: `500`）
     - `PIPELINE_REPORT_MAX_ARTIFACT_FILE_BYTES`: `getArtifactContent`ツールが返す1ファイル最大バイト数（pipeline-report専用、デフォルト: `2097152`）
+    - SSE接続耐性関連（CLI側）
+      - `JOB_FETCH_RETRY_COUNT`: fetch（POST）の最大リトライ回数（デフォルト: `5`）
+      - `JOB_FETCH_RETRY_BASE_MS`: fetchリトライの初期待機時間（デフォルト: `1000`）
+      - `JOB_FETCH_RETRY_MAX_MS`: fetchリトライの最大待機時間（デフォルト: `16000`）
+      - `SSE_IDLE_TIMEOUT_MS`: SSE進捗イベント無音許容時間（デフォルト: `60000`）
+      - `JOB_RESULT_POLL_INTERVAL_MS`: フォールバックポーリングの初期間隔（デフォルト: `5000`）
+      - `JOB_RESULT_POLL_TIMEOUT_MS`: フォールバックポーリング全体上限（デフォルト: `2100000` = 35分）
+      - `JOB_RESULT_POLL_NOT_FOUND_GRACE_MS`: ポーリング中の連続404継続時間（デフォルト: `60000`）。これを超えたら処理未開始と判断
+    - SSE接続耐性関連（APIサーバ側）
+      - `JOB_RESULT_STORE_DIR`: ジョブ結果の保存ディレクトリ（デフォルト: `${os.tmpdir()}/aikata-pr-job-results`）
+      - `JOB_RESULT_TTL_MS`: ジョブ結果の保持期間（デフォルト: `86400000` = 24時間）
+      - `JOB_RESULT_SWEEP_INTERVAL_MS`: 期限切れジョブの掃除間隔（デフォルト: `3600000` = 1時間）
 
 # CI/CD設計
 このセクションは本プロジェクトで利用するCI/CDパイプラインに関するものなので注意。

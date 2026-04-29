@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createJwtAuthMiddleware } from './infrastructure/adapter/auth/index.js';
@@ -7,8 +9,13 @@ import {
   createVersionCheckMiddleware,
   reviewApiModule,
   pipelineReportApiModule,
+  jobResultApiModule,
 } from './presentation/api/index.js';
-import type { ApiFeatureModule } from './presentation/api/index.js';
+import type {
+  ApiFeatureModule,
+  JobResultRouteEnv,
+  JobResultHandlerDeps,
+} from './presentation/api/index.js';
 import type {
   ReviewRouteEnv,
   RequestIdEnv,
@@ -21,6 +28,9 @@ import {
 } from './presentation/api/index.js';
 import { CloneManager } from './infrastructure/adapter/clone/CloneManager.js';
 import { RateLimiter } from './infrastructure/adapter/rateLimiter/index.js';
+import { FileJobResultStore } from './infrastructure/adapter/jobResultStore/index.js';
+import type { JobResultStore } from './application/shared/port/jobResultStore/index.js';
+import { errWithCause } from 'pino-std-serializers';
 import { MastraReviewWorkflowRunner } from './infrastructure/adapter/review/workflow/index.js';
 import { MastraPipelineAnalysisWorkflowRunner } from './infrastructure/adapter/pipeline-report/workflow/MastraPipelineAnalysisWorkflowRunner.js';
 import { GitLabPipelineGateway } from './infrastructure/adapter/pipeline-report/gateway/GitLabPipelineGateway.js';
@@ -60,6 +70,7 @@ export interface JwtConfig {
 export interface ServerDeps {
   review: ReviewHandlerDeps;
   pipelineReport: PipelineReportHandlerDeps;
+  jobResult: JobResultHandlerDeps;
 }
 
 /**
@@ -70,8 +81,10 @@ export function createApp(
   deps: ServerDeps,
   serverVersion: string,
   jwtConfig?: JwtConfig,
-): Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv> {
-  const app = new Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv>();
+): Hono<JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & JobResultRouteEnv & RequestIdEnv> {
+  const app = new Hono<
+    JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & JobResultRouteEnv & RequestIdEnv
+  >();
 
   // requestIdミドルウェア（全ルートに適用、最前段）
   // X-Request-Idヘッダがあれば継承、無ければUUID v4を生成
@@ -99,16 +112,22 @@ export function createApp(
   app.use('/api/*', async (c, next) => {
     c.set('reviewHandlerDeps', deps.review);
     c.set('pipelineReportHandlerDeps', deps.pipelineReport);
+    c.set('jobResultHandlerDeps', deps.jobResult);
     await next();
   });
 
   // featureモジュールを配列でloop登録（将来新機能を追加する際はapiFeatures配列に追加するだけ）
   // 各機能は自身が依存する Variables のみを要求するため Hono の Env 型は不変で
   // 交差型に直接代入できない。ApiFeatureModule<Env> として抽象化し cast で登録する。
-  type RegisteredEnv = JwtAuthEnv & ReviewRouteEnv & PipelineReportRouteEnv & RequestIdEnv;
+  type RegisteredEnv = JwtAuthEnv &
+    ReviewRouteEnv &
+    PipelineReportRouteEnv &
+    JobResultRouteEnv &
+    RequestIdEnv;
   const apiFeatures: Array<ApiFeatureModule<RegisteredEnv>> = [
     reviewApiModule as unknown as ApiFeatureModule<RegisteredEnv>,
     pipelineReportApiModule as unknown as ApiFeatureModule<RegisteredEnv>,
+    jobResultApiModule as unknown as ApiFeatureModule<RegisteredEnv>,
   ];
   apiFeatures.forEach((f) => f.register(app));
 
@@ -168,10 +187,24 @@ export async function startServer(): Promise<void> {
     }
   }
 
+  // ジョブ結果ストア（SSE接続耐性: review / pipeline-report で共有）
+  const jobResultStoreDir =
+    process.env['JOB_RESULT_STORE_DIR'] ?? join(tmpdir(), 'aikata-pr-job-results');
+  const jobResultTtlMs = Number(process.env['JOB_RESULT_TTL_MS'] ?? '86400000');
+  const jobResultSweepIntervalMs = Number(process.env['JOB_RESULT_SWEEP_INTERVAL_MS'] ?? '3600000');
+  const jobResultStore: JobResultStore = new FileJobResultStore(jobResultStoreDir);
+  await (jobResultStore as FileJobResultStore).init();
+  logger.info(
+    { jobResultStoreDir, jobResultTtlMs, jobResultSweepIntervalMs },
+    'Job result store initialized',
+  );
+
   const reviewDeps: ReviewHandlerDeps = {
     cloneManager,
     serviceFactory,
     rateLimiter,
+    jobResultStore,
+    jobResultTtlMs,
     gitlabApiBaseUrl,
     aiApiKey,
     aiApiEndpointUrl,
@@ -212,6 +245,8 @@ export async function startServer(): Promise<void> {
     cloneManager, // review と共有
     serviceFactory: pipelineReportServiceFactory,
     rateLimiter, // review と共有
+    jobResultStore, // review と共有
+    jobResultTtlMs,
     gitlabApiBaseUrl,
     aiApiKey,
     aiApiEndpointUrl,
@@ -221,9 +256,14 @@ export async function startServer(): Promise<void> {
     maxContextLength,
   };
 
+  const jobResultDeps: JobResultHandlerDeps = {
+    jobResultStore,
+  };
+
   const deps: ServerDeps = {
     review: reviewDeps,
     pipelineReport: pipelineReportDeps,
+    jobResult: jobResultDeps,
   };
 
   // JWT認証設定の構築
@@ -257,9 +297,27 @@ export async function startServer(): Promise<void> {
     logger.info({ port: info.port }, 'API server started');
   });
 
+  // ジョブ結果ストアの定期掃除（TTL超過レコード削除）
+  const runSweep = (): void => {
+    jobResultStore
+      .sweepExpired(new Date())
+      .then((removed) => {
+        if (removed > 0) {
+          logger.info({ removed }, 'Job result sweep completed');
+        }
+      })
+      .catch((err) => {
+        logger.warn({ err: errWithCause(err as Error) }, 'Job result sweep failed');
+      });
+  };
+  // 起動時に1度実行 + 定期実行
+  runSweep();
+  const sweepTimer = setInterval(runSweep, jobResultSweepIntervalMs);
+
   // graceful shutdown
   const shutdown = () => {
     logger.info('Shutting down API server');
+    clearInterval(sweepTimer);
     rateLimiter.destroy();
     server.close();
   };
