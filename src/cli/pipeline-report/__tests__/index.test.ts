@@ -265,8 +265,8 @@ describe('pipeline-report CLI module', () => {
         >()
         .mockImplementation(async (_req, handlers) => {
           // progress と requestId の通知を模擬
-          handlers.onRequestId('req-xyz');
-          handlers.onProgress({ status: 'started', message: 'starting' });
+          handlers.onJobIdReceived('req-xyz');
+          handlers.onPoll({ attempt: 1, status: 200, bodyStatus: 'pending', elapsedMs: 0 });
           return fakeApiResult;
         });
       const apiDeps: PipelineReportApiDeps = {
@@ -331,8 +331,8 @@ describe('pipeline-report CLI module', () => {
           ) => Promise<PipelineReportApiResult>
         >()
         .mockImplementation(async (_req, handlers) => {
-          handlers.onRequestId('req-xyz');
-          handlers.onProgress({ status: 'started', message: 'starting' });
+          handlers.onJobIdReceived('req-xyz');
+          handlers.onPoll({ attempt: 1, status: 200, bodyStatus: 'pending', elapsedMs: 0 });
           return fakeApiResult;
         });
       const apiDeps: PipelineReportApiDeps = {

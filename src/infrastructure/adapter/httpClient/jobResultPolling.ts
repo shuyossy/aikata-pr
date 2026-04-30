@@ -172,8 +172,23 @@ interface JobResultResponseBody {
   status: 'pending' | 'success' | 'failed';
   payload?: unknown;
   errorMessage?: string;
+  /** pending時のみ。バックグラウンド処理が現在実行中のステップキー */
+  currentStep?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * pollJobResult のpoll都度通知用コールバック引数
+ */
+export interface JobResultPollInfo {
+  attempt: number;
+  status: number;
+  bodyStatus?: 'pending' | 'success' | 'failed';
+  /** pending応答時のサーバ側現在ステップ */
+  currentStep?: string;
+  /** ポーリング開始からの経過ミリ秒 */
+  elapsedMs: number;
 }
 
 /**
@@ -188,7 +203,7 @@ interface JobResultResponseBody {
 export async function pollJobResult(
   options: JobResultPollOptions,
   versionHeaderName: string,
-  onPoll?: (info: { attempt: number; status: number; bodyStatus?: string }) => void,
+  onPoll?: (info: JobResultPollInfo) => void,
 ): Promise<unknown> {
   const start = Date.now();
   let firstNotFoundAt: number | null = null;
@@ -224,7 +239,13 @@ export async function pollJobResult(
     if (res.status === 200) {
       firstNotFoundAt = null;
       const body = (await res.json()) as JobResultResponseBody;
-      onPoll?.({ attempt, status: res.status, bodyStatus: body.status });
+      onPoll?.({
+        attempt,
+        status: res.status,
+        bodyStatus: body.status,
+        currentStep: body.currentStep,
+        elapsedMs: Date.now() - start,
+      });
       if (body.status === 'success') {
         return body.payload;
       }
@@ -233,7 +254,7 @@ export async function pollJobResult(
       }
       // pending: バックオフ待機
     } else if (res.status === 404) {
-      onPoll?.({ attempt, status: res.status });
+      onPoll?.({ attempt, status: res.status, elapsedMs: Date.now() - start });
       const now = Date.now();
       if (firstNotFoundAt === null) {
         firstNotFoundAt = now;
@@ -241,7 +262,7 @@ export async function pollJobResult(
         throw new ApiServerJobNotStartedError(options.jobId, options.notFoundGraceMs);
       }
     } else {
-      onPoll?.({ attempt, status: res.status });
+      onPoll?.({ attempt, status: res.status, elapsedMs: Date.now() - start });
       const body = await res.text().catch(() => '');
       throw new Error(`Job result polling failed with unexpected status ${res.status}: ${body}`);
     }

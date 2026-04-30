@@ -1,5 +1,5 @@
-import type { SSEStreamingApi } from 'hono/streaming';
 import { z } from 'zod';
+import type { Logger } from 'pino';
 import type { CloneManagerPort } from '../../../application/shared/port/clone/index.js';
 import type { RateLimiterPort } from '../../../application/shared/port/rateLimiter/index.js';
 import type { PipelineGateway } from '../../../application/shared/port/gateway/PipelineGateway.js';
@@ -19,14 +19,12 @@ import {
   type ArtifactCacheOptions,
 } from '../../../application/pipeline-report/pipelineAnalysis/ArtifactCacheManager.js';
 import { PipelineReportSettings } from '../../../domain/pipeline-report/pipelineReportSettings/index.js';
-import { getLogger } from '../../../lib/logger.js';
 import type {
   JobResultStore,
   PendingJobResultRecord,
-  SuccessJobResultRecord,
-  FailedJobResultRecord,
 } from '../../../application/shared/port/jobResultStore/index.js';
-import { buildPendingJobRecord, handleExistingIdempotentJob } from '../shared/jobResult/index.js';
+import { runBackgroundJob } from '../../../application/shared/backgroundJob/index.js';
+import { buildPendingJobRecord, resolveExistingIdempotentJob } from '../shared/jobResult/index.js';
 
 /**
  * pipeline-report リクエストのバリデーションスキーマ
@@ -61,7 +59,7 @@ export const pipelineReportRequestSchema = z.object({
 export type PipelineReportRequest = z.infer<typeof pipelineReportRequestSchema>;
 
 /**
- * ハンドラが返す最終 SSE 結果のペイロード型。
+ * ハンドラが返す最終結果のペイロード型。
  */
 export interface PipelineReportApiResponse {
   /** レポート本文（markdown） */
@@ -101,12 +99,6 @@ export interface PipelineMetaFetcher {
 
 /**
  * クローン後に per-request な PipelineAnalysisService を組み立てるファクトリ。
- * `create()` は以下の 2 つを同時に返す:
- * - `metaFetcher`: クローン前の ref 取得用
- * - `executor`: クローン後の analyze 実行用（内部で ArtifactCacheManager を保持）
- *
- * 同じ gitlabToken 由来の gateway を 2 つのオブジェクトで共有することで、
- * ハンドラが gateway を直接扱わずに済む設計にしている。
  */
 export interface PipelineReportServiceFactory {
   create(
@@ -122,28 +114,18 @@ export interface PipelineReportServiceFactory {
  * PipelineReportHandler の依存インターフェース
  */
 export interface PipelineReportHandlerDeps {
-  /** クローンマネージャ（review と共有インスタンス） */
   cloneManager: CloneManagerPort;
-  /** per-request サービスファクトリ（service は内部で gateway/workflow/archive 等を保持） */
   serviceFactory: PipelineReportServiceFactory;
-  /** レートリミッター（review と共有インスタンス） */
   rateLimiter: RateLimiterPort;
-  /** ジョブ結果ストア（review と共有インスタンス） */
   jobResultStore: JobResultStore;
-  /** ジョブ結果の保持期間（ミリ秒） */
   jobResultTtlMs: number;
-  /** ai API の共通情報（api key / endpoint / model） */
   aiApiKey: string;
   aiApiEndpointUrl: string;
-  /** APIサーバー側で利用するデフォルトAIモデル名 */
   defaultAiModelName: string;
-  /** GitLab API の base URL */
   gitlabApiBaseUrl: string;
-  /** OpenAI reasoning モデルの reasoning effort 設定 */
   openaiReasoningEffort?: string;
   /** 解析全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
   analysisTimeoutMs?: number;
-  /** AIモデルのコンテキスト長（トークン数）。未設定時は圧縮しない */
   maxContextLength?: number;
 }
 
@@ -155,14 +137,36 @@ export interface PipelineReportHandlerContext {
   jobId: string;
   /** クライアント生成のIdempotency-Key */
   idempotencyKey: string;
+  logger: Logger;
+  logBindings: Record<string, unknown>;
+  runWithContext: <T>(bindings: Record<string, unknown>, fn: () => T) => T;
 }
 
 /**
+ * pipeline-reportハンドラの応答型（成功時）
+ */
+export interface PipelineReportJobSuccessResponse {
+  jobId: string;
+  feature: 'pipeline-report';
+  status: 'pending' | 'success' | 'failed';
+  payload?: PipelineReportApiResponse;
+  errorMessage?: string;
+  currentStep?: string;
+}
+
+/**
+ * pipeline-reportハンドラの応答型（エラー時、4xx/5xx）
+ */
+export interface PipelineReportJobErrorResponse {
+  error: string;
+}
+
+export type PipelineReportHandlerResult =
+  | { status: 200; body: PipelineReportJobSuccessResponse }
+  | { status: 409 | 500; body: PipelineReportJobErrorResponse };
+
+/**
  * 標準の PipelineReportServiceFactory 実装。
- *
- * リクエストごとに ArtifactCacheManager と PipelineAnalysisService を組み立てる。
- * PipelineGateway は GitLab API クライアントに gitlabToken を束縛するため、
- * factory 経由で都度生成する。
  */
 export class DefaultPipelineReportServiceFactory implements PipelineReportServiceFactory {
   constructor(
@@ -205,9 +209,6 @@ export class DefaultPipelineReportServiceFactory implements PipelineReportServic
 
 /**
  * リクエストの settings 部分から PipelineReportSettings を構築する。
- * includeJobPatterns / excludeJobPatterns は文字列配列で受け取り、ここで RegExp にコンパイルする。
- *
- * RegExp コンパイル失敗時は英語メッセージで Error を投げる（呼び出し側が SSE error として返す）。
  */
 export function buildPipelineReportSettings(
   settings: PipelineReportRequest['settings'],
@@ -240,39 +241,72 @@ export function buildPipelineReportSettings(
 }
 
 /**
- * pipeline-report 用 SSE ハンドラ本体を生成するファクトリ。
+ * pipeline-report 用ハンドラ本体を生成するファクトリ。
  *
- * 責務:
- * 1. バリデーション済みリクエストを受け取り、SSE イベント（progress/result/done/error）を順次送出
- * 2. `pipelineGatewayFactory` で Gateway を作り、`getPipeline` で ref を取得してクローン
- * 3. per-request の `PipelineAnalysisExecutor` を `serviceFactory.create` で生成
- * 4. `PipelineAnalysisService.analyze(...)` に workflow 進捗コールバックを渡して実行
- * 5. 最終結果を `PipelineReportApiResponse` として SSE で送信
- * 6. finally で CloneManager cleanup（ArtifactCacheManager は service 側で finally cleanup する）
+ * SSE廃止後の動作（reviewと同じパターン）:
+ * 1. Idempotency-Key検査 → 既存ジョブの状態に応じて200で即時応答
+ * 2. 衝突 → 409
+ * 3. pending同期保存（失敗で500、AI処理は開始しない）
+ * 4. AI処理を `runBackgroundJob` で fire-and-forget 起動（workflow phaseでcurrentStep更新）
+ * 5. 即座に 200 `{jobId, status: 'pending'}` を返却
  */
 export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
   return async (
     request: PipelineReportRequest,
-    stream: SSEStreamingApi,
     context: PipelineReportHandlerContext,
-  ): Promise<void> => {
-    const logger = getLogger();
-    const state: { cleanup: (() => Promise<void>) | null } = { cleanup: null };
+  ): Promise<PipelineReportHandlerResult> => {
+    const logger = context.logger;
     const projectIdStr = String(request.projectId);
 
-    // 1. Idempotency-Key検査: 既存ジョブがあればAI処理を再実行せず結果を返す
-    const existingJobOutcome = await handleExistingIdempotentJob({
+    // 1. Idempotency-Key検査
+    const existingOutcome = await resolveExistingIdempotentJob({
       jobResultStore: deps.jobResultStore,
-      stream,
       idempotencyKey: context.idempotencyKey,
       userId: request.userId,
       logger,
     });
-    if (existingJobOutcome === 'handled-and-stop') {
-      return;
+
+    if (existingOutcome.kind === 'collision') {
+      return {
+        status: 409,
+        body: {
+          error: 'Idempotency-Key conflicts with an existing job owned by a different user',
+        },
+      };
+    }
+    if (existingOutcome.kind === 'cached-success') {
+      return {
+        status: 200,
+        body: {
+          jobId: existingOutcome.jobId,
+          feature: 'pipeline-report',
+          status: 'success',
+          payload: existingOutcome.payload as PipelineReportApiResponse,
+        },
+      };
+    }
+    if (existingOutcome.kind === 'cached-failed') {
+      return {
+        status: 200,
+        body: {
+          jobId: existingOutcome.jobId,
+          feature: 'pipeline-report',
+          status: 'failed',
+          errorMessage: existingOutcome.errorMessage,
+        },
+      };
+    }
+    if (existingOutcome.kind === 'duplicated-pending') {
+      const body: PipelineReportJobSuccessResponse = {
+        jobId: existingOutcome.jobId,
+        feature: 'pipeline-report',
+        status: 'pending',
+      };
+      if (existingOutcome.currentStep) body.currentStep = existingOutcome.currentStep;
+      return { status: 200, body };
     }
 
-    // 2. pending状態のレコードを保存（best-effort、Idempotency-Key検知の起点）
+    // 2. pending同期保存（必須）
     const pendingRecord: PendingJobResultRecord = buildPendingJobRecord({
       jobId: context.jobId,
       idempotencyKey: context.idempotencyKey,
@@ -283,242 +317,164 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
     try {
       await deps.jobResultStore.save(pendingRecord);
     } catch (err) {
-      logger.warn(
-        { err },
-        'Failed to save pending job record (continuing best-effort, Idempotency-Key dedup may not work for retries)',
-      );
+      logger.error({ err }, 'Failed to save pending job record (refusing to start AI work)');
+      return {
+        status: 500,
+        body: { error: 'Failed to register job. Please retry.' },
+      };
     }
 
-    // レートリミッターにプロジェクトを登録（参照カウント方式）
+    // 3. レートリミッター登録
     deps.rateLimiter.registerProject(projectIdStr);
 
-    // keepalive（30秒ごと）
-    const keepaliveInterval = setInterval(async () => {
-      try {
-        await stream.writeSSE({ event: 'keepalive', data: '{}' });
-      } catch {
-        // ストリームが閉じられた場合は無視
-      }
-    }, 30_000);
+    // 4. バックグラウンドAI処理を起動
+    const cloneState: { cleanup: (() => Promise<void>) | null } = { cleanup: null };
+    runBackgroundJob<PipelineReportApiResponse>({
+      pendingRecord,
+      jobResultStore: deps.jobResultStore,
+      logger,
+      runWithContext: context.runWithContext,
+      contextBindings: context.logBindings,
+      cleanup: async () => {
+        deps.rateLimiter.unregisterProject(projectIdStr);
+        if (cloneState.cleanup) {
+          try {
+            await cloneState.cleanup();
+          } catch (cleanupError) {
+            logger.warn({ err: cleanupError }, 'Failed to cleanup cloned repository');
+          }
+        }
+      },
+      work: async (updater) => {
+        const work = async (): Promise<PipelineReportApiResponse> => {
+          // 設定オブジェクト組み立て（RegExpコンパイル失敗はここで検出される）
+          const settings = buildPipelineReportSettings(request.settings);
 
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+          // per-request サービス（metaFetcher + executor）を組み立てる
+          const services = deps.serviceFactory.create(request.gitlabToken, deps.gitlabApiBaseUrl);
 
-    try {
-      const analysisPromise = async (): Promise<void> => {
-        // 1. 開始通知
-        await stream.writeSSE({
-          event: 'progress',
-          data: JSON.stringify({
-            status: 'started',
-            message: 'Pipeline report analysis started',
-          }),
-        });
-
-        // 2. 設定オブジェクト組み立て（RegExp コンパイル失敗はここで検出される）
-        const settings = buildPipelineReportSettings(request.settings);
-
-        // 3. per-request サービス（metaFetcher + executor）を組み立てる
-        // metaFetcher は gateway を内部共有する executor と同じインスタンスを使うため、
-        // ここで 1 度だけ生成する
-        const services = deps.serviceFactory.create(request.gitlabToken, deps.gitlabApiBaseUrl);
-
-        // 4. pipeline メタ情報取得
-        await stream.writeSSE({
-          event: 'progress',
-          data: JSON.stringify({
-            status: 'fetching_pipeline',
-            message: 'Fetching pipeline metadata',
-          }),
-        });
-        const pipelineMeta = await services.metaFetcher.getPipeline(
-          request.projectId,
-          request.pipelineId,
-        );
-
-        // 5. クローン（ref を source/target の両方に渡す。PipelineGateway の ref はブランチ/タグどちらでもありうる）
-        await stream.writeSSE({
-          event: 'progress',
-          data: JSON.stringify({ status: 'cloning', message: 'Cloning repository' }),
-        });
-        const cloneResult = await deps.cloneManager.clone(
-          request.gitlabToken,
-          deps.gitlabApiBaseUrl,
-          String(request.projectId),
-          pipelineMeta.ref,
-          pipelineMeta.ref,
-          pipelineMeta.sha,
-        );
-        state.cleanup = cloneResult.cleanup;
-
-        logger.info(
-          {
-            projectId: request.projectId,
-            pipelineId: request.pipelineId,
-            projectDir: cloneResult.projectDir,
-          },
-          'Repository cloned for pipeline-report analysis',
-        );
-
-        // 7. 解析フェーズを SSE に流すコールバック
-        const onProgress = (event: PipelineAnalysisProgressEvent): void => {
-          // Hono の SSE writer は async なので意図的に fire-and-forget で書き込む
-          // （ワークフロー側の同期フローをブロックしないためと、バックプレッシャは keepalive と同じ best-effort 方針）
-          stream
-            .writeSSE({
-              event: 'progress',
-              data: JSON.stringify({
-                status: 'workflow',
-                workflow: event,
-              }),
-            })
-            .catch(() => {
-              // ストリーム閉鎖時は無視
-            });
-        };
-
-        // 8. analyze 実行
-        await stream.writeSSE({
-          event: 'progress',
-          data: JSON.stringify({ status: 'analyzing', message: 'Executing pipeline analysis' }),
-        });
-        const analysis = await services.executor.analyze({
-          userId: request.userId,
-          projectId: request.projectId,
-          pipelineId: request.pipelineId,
-          selfJobId: request.selfJobId,
-          settings,
-          projectDir: cloneResult.projectDir,
-          commentLanguage: request.commentLanguage,
-          skillsPaths: request.skillsRelPaths,
-          aiConfig: {
-            apiKey: deps.aiApiKey,
-            endpointUrl: deps.aiApiEndpointUrl,
-            modelName: deps.defaultAiModelName,
-            reasoningEffort: deps.openaiReasoningEffort ?? null,
-          },
-          maxContextLength: deps.maxContextLength ?? null,
-          treeMaxDepth: request.treeMaxDepth,
-          options: {
-            maxCompletenessRetries: request.maxCompletenessRetries,
-            skipCompletenessCheck: request.skipCompletenessCheck ?? false,
-          },
-          onProgress,
-        });
-
-        // 9. 結果の SSE 送出
-        const apiResponse: PipelineReportApiResponse = {
-          reportContent: analysis.report.content,
-          completenessVerified: analysis.completenessVerified,
-          completenessRetries: analysis.completenessRetries,
-          workflowFailed: analysis.workflowFailed,
-          targetJobIds: analysis.targetJobs.map((j) => j.id),
-          pipeline: {
-            projectId: analysis.pipeline.projectId,
-            pipelineId: analysis.pipeline.pipelineId,
-            ref: analysis.pipeline.ref,
-            sha: analysis.pipeline.sha,
-            status: analysis.pipeline.status,
-            webUrl: analysis.pipeline.webUrl,
-          },
-        };
-
-        // 結果を永続化（result送信の直前。SSE切断時はGET /jobs/{jobId}で再取得可能）
-        const successRecord: SuccessJobResultRecord = {
-          jobId: pendingRecord.jobId,
-          idempotencyKey: pendingRecord.idempotencyKey,
-          feature: pendingRecord.feature,
-          userId: pendingRecord.userId,
-          createdAt: pendingRecord.createdAt,
-          updatedAt: new Date().toISOString(),
-          expiresAt: pendingRecord.expiresAt,
-          status: 'success',
-          payload: apiResponse,
-        };
-        try {
-          await deps.jobResultStore.save(successRecord);
-        } catch (err) {
-          logger.warn(
-            { err },
-            'Failed to save success job record (continuing best-effort, fallback polling may return stale state)',
+          await updater.setCurrentStep('fetching_pipeline');
+          const pipelineMeta = await services.metaFetcher.getPipeline(
+            request.projectId,
+            request.pipelineId,
           );
-        }
 
-        await stream.writeSSE({
-          event: 'result',
-          data: JSON.stringify(apiResponse),
-        });
+          await updater.setCurrentStep('cloning_repository');
+          const cloneResult = await deps.cloneManager.clone(
+            request.gitlabToken,
+            deps.gitlabApiBaseUrl,
+            String(request.projectId),
+            pipelineMeta.ref,
+            pipelineMeta.ref,
+            pipelineMeta.sha,
+          );
+          cloneState.cleanup = cloneResult.cleanup;
+          logger.info(
+            {
+              projectId: request.projectId,
+              pipelineId: request.pipelineId,
+              projectDir: cloneResult.projectDir,
+            },
+            'Repository cloned for pipeline-report analysis',
+          );
 
-        await stream.writeSSE({
-          event: 'done',
-          data: JSON.stringify({
-            status: 'completed',
-            message: 'Pipeline report analysis completed',
-          }),
-        });
+          await updater.setCurrentStep('analyzing');
 
-        logger.info(
-          {
+          // workflow 内部の phase を currentStep に反映するコールバック
+          const onProgress = (event: PipelineAnalysisProgressEvent): void => {
+            if (event.type === 'phase') {
+              // setCurrentStep は async だが、ワークフローを止めないため fire-and-forget
+              void updater.setCurrentStep(`workflow_${event.phase}`);
+            } else if (event.type === 'log') {
+              const level =
+                event.level === 'error' || event.level === 'warn' ? event.level : 'info';
+              logger[level]({ event }, event.message);
+            } else if (event.type === 'retry') {
+              logger.warn(
+                { event },
+                `Retrying pipeline analysis: ${event.reason} (attempt ${event.retryCount})`,
+              );
+            }
+          };
+
+          const analysis = await services.executor.analyze({
+            userId: request.userId,
             projectId: request.projectId,
             pipelineId: request.pipelineId,
-            targetJobCount: analysis.targetJobs.length,
+            selfJobId: request.selfJobId,
+            settings,
+            projectDir: cloneResult.projectDir,
+            commentLanguage: request.commentLanguage,
+            skillsPaths: request.skillsRelPaths,
+            aiConfig: {
+              apiKey: deps.aiApiKey,
+              endpointUrl: deps.aiApiEndpointUrl,
+              modelName: deps.defaultAiModelName,
+              reasoningEffort: deps.openaiReasoningEffort ?? null,
+            },
+            maxContextLength: deps.maxContextLength ?? null,
+            treeMaxDepth: request.treeMaxDepth,
+            options: {
+              maxCompletenessRetries: request.maxCompletenessRetries,
+              skipCompletenessCheck: request.skipCompletenessCheck ?? false,
+            },
+            onProgress,
+          });
+
+          const apiResponse: PipelineReportApiResponse = {
+            reportContent: analysis.report.content,
             completenessVerified: analysis.completenessVerified,
-          },
-          'Pipeline report API analysis completed',
-        );
-      };
+            completenessRetries: analysis.completenessRetries,
+            workflowFailed: analysis.workflowFailed,
+            targetJobIds: analysis.targetJobs.map((j) => j.id),
+            pipeline: {
+              projectId: analysis.pipeline.projectId,
+              pipelineId: analysis.pipeline.pipelineId,
+              ref: analysis.pipeline.ref,
+              sha: analysis.pipeline.sha,
+              status: analysis.pipeline.status,
+              webUrl: analysis.pipeline.webUrl,
+            },
+          };
 
-      if (deps.analysisTimeoutMs) {
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            reject(new Error(`Pipeline analysis timed out after ${deps.analysisTimeoutMs}ms`));
-          }, deps.analysisTimeoutMs);
-        });
-        await Promise.race([analysisPromise(), timeoutPromise]);
-      } else {
-        await analysisPromise();
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error({ err: error }, 'Pipeline report handler error');
+          logger.info(
+            {
+              projectId: request.projectId,
+              pipelineId: request.pipelineId,
+              targetJobCount: analysis.targetJobs.length,
+              completenessVerified: analysis.completenessVerified,
+            },
+            'Pipeline report API analysis completed',
+          );
 
-      // エラーも永続化してフォールバックポーリングで取得可能にする
-      const failedRecord: FailedJobResultRecord = {
-        jobId: pendingRecord.jobId,
-        idempotencyKey: pendingRecord.idempotencyKey,
-        feature: pendingRecord.feature,
-        userId: pendingRecord.userId,
-        createdAt: pendingRecord.createdAt,
-        updatedAt: new Date().toISOString(),
-        expiresAt: pendingRecord.expiresAt,
-        status: 'failed',
-        errorMessage,
-      };
-      try {
-        await deps.jobResultStore.save(failedRecord);
-      } catch (saveErr) {
-        logger.warn({ err: saveErr }, 'Failed to save failed job record (best-effort)');
-      }
+          return apiResponse;
+        };
 
-      try {
-        await stream.writeSSE({
-          event: 'error',
-          data: JSON.stringify({ error: errorMessage }),
-        });
-      } catch {
-        // ストリームへの書き込みに失敗した場合は無視
-      }
-    } finally {
-      clearInterval(keepaliveInterval);
-      if (timeoutId) clearTimeout(timeoutId);
-      // レートリミッターからプロジェクトを解除
-      deps.rateLimiter.unregisterProject(projectIdStr);
-      if (state.cleanup) {
-        try {
-          await state.cleanup();
-        } catch (cleanupError) {
-          logger.warn({ err: cleanupError }, 'Failed to cleanup cloned repository');
+        if (deps.analysisTimeoutMs) {
+          let timeoutId: ReturnType<typeof setTimeout> | null = null;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              reject(new Error(`Pipeline analysis timed out after ${deps.analysisTimeoutMs}ms`));
+            }, deps.analysisTimeoutMs);
+          });
+          try {
+            return await Promise.race([work(), timeoutPromise]);
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+          }
         }
-      }
-    }
+        return work();
+      },
+    });
+
+    // 5. 即時応答（pending）
+    return {
+      status: 200,
+      body: {
+        jobId: pendingRecord.jobId,
+        feature: 'pipeline-report',
+        status: 'pending',
+      },
+    };
   };
 }

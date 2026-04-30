@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { streamSSE } from 'hono/streaming';
 import { reviewRequestSchema } from './reviewHandler.js';
 import type { ReviewHandlerDeps, ReviewHandlerContext } from './reviewHandler.js';
 import { createReviewHandler } from './reviewHandler.js';
@@ -15,7 +14,6 @@ const IDEMPOTENCY_KEY_HEADER = 'X-Idempotency-Key';
 
 /**
  * レビューAPIルートの環境型定義
- * Honoコンテキストで使用する変数の型
  *
  * `JwtAuthEnv`と`RequestIdEnv`を合成し、上流ミドルウェアが設定する
  * `jwtPayload`（任意）と`requestId`を参照可能にする
@@ -30,14 +28,14 @@ export type ReviewRouteEnv = JwtAuthEnv &
 /**
  * レビューAPIルートを作成する
  *
- * POST /review エンドポイントを提供し、SSEストリームでレビュー進捗と結果を返す
- * reviewHandlerDepsはHonoコンテキストからミドルウェア経由で注入される
+ * POST /review エンドポイントを提供し、JSON応答 `{jobId, status, ...}` で返す。
+ * 進捗・結果取得は GET /api/v1/jobs/{jobId} のポーリングで行う。
  */
 export function createReviewRoute(): Hono<ReviewRouteEnv> {
   const route = new Hono<ReviewRouteEnv>();
 
   route.post('/review', async (c) => {
-    // X-Idempotency-Keyヘッダの取得（必須）。リクエストセット内のリトライで重複AI処理を防ぐ
+    // X-Idempotency-Keyヘッダの取得（必須）
     const idempotencyKey = c.req.header(IDEMPOTENCY_KEY_HEADER);
     if (!idempotencyKey || idempotencyKey.trim().length === 0) {
       return c.json({ error: `${IDEMPOTENCY_KEY_HEADER} header is required` }, 400);
@@ -70,15 +68,7 @@ export function createReviewRoute(): Hono<ReviewRouteEnv> {
     const handler = createReviewHandler(deps);
 
     // リクエスト単位のログコンテキストバインディングを構築
-    // - userId: リクエストボディ由来（主ソース、JWT認証スキップモードでも取得可能）
-    // - requestId: requestIdMiddlewareで必ず設定済み
-    // - gitlab*: JWT認証有効時のみ補助情報として付与
     const requestId = c.get('requestId');
-    const handlerContext: ReviewHandlerContext = {
-      jobId: requestId,
-      idempotencyKey: idempotencyKey.trim(),
-    };
-    // JWT認証スキップモード（dev/test）ではjwtPayloadは未設定のためオプショナル扱い
     const jwtPayload = c.get('jwtPayload') as GitLabIdTokenPayload | undefined;
 
     const bindings: Record<string, unknown> = {
@@ -94,47 +84,39 @@ export function createReviewRoute(): Hono<ReviewRouteEnv> {
       if (jwtPayload.job_id !== undefined) bindings['gitlabJobId'] = jwtPayload.job_id;
     }
 
-    // JWTの`user_login`とリクエストボディの`userId`が不一致の場合は警告ログを出す（監査用）
-    // 拒否はしない：JWT無しdevモードとの統一的な挙動維持のため
+    // JWT の `user_login` とリクエストボディの `userId` が不一致の場合は警告ログ
     if (jwtPayload?.user_login && jwtPayload.user_login !== request.userId) {
-      // 警告自体は外側コンテキスト（`bindings`適用前）で出す必要はないが、
-      // 警告にも`requestId`/`userId`が付与されるようバインディング適用後に出す
       runWithLogContext(bindings, () => {
         getLogger().warn(
-          {
-            bodyUserId: request.userId,
-            jwtUserLogin: jwtPayload.user_login,
-          },
+          { bodyUserId: request.userId, jwtUserLogin: jwtPayload.user_login },
           'userId in request body does not match JWT user_login claim',
         );
       });
     }
 
-    // ログコンテキストを確立した状態でSSEストリームハンドラを実行
-    return runWithLogContext(bindings, () =>
-      streamSSE(
-        c,
-        async (stream) => {
-          getLogger().info(
-            { projectId: request.projectId, mrIid: request.mrIid },
-            'Review API request received',
-          );
-          await handler(request, stream, handlerContext);
-        },
-        async (error, stream) => {
-          // SSEストリーム内の未捕捉エラーハンドリング
-          getLogger().error({ err: error }, 'SSE stream error');
-          try {
-            await stream.writeSSE({
-              event: 'error',
-              data: JSON.stringify({ error: 'Internal server error' }),
-            });
-          } catch {
-            // ストリームへの書き込みに失敗した場合は無視
-          }
-        },
-      ),
-    );
+    return runWithLogContext(bindings, async () => {
+      const logger = getLogger();
+      logger.info(
+        { projectId: request.projectId, mrIid: request.mrIid },
+        'Review API request received',
+      );
+
+      const handlerContext: ReviewHandlerContext = {
+        jobId: requestId,
+        idempotencyKey: idempotencyKey.trim(),
+        logger,
+        logBindings: bindings,
+        runWithContext: runWithLogContext,
+      };
+
+      try {
+        const result = await handler(request, handlerContext);
+        return c.json(result.body, result.status);
+      } catch (error) {
+        logger.error({ err: error }, 'Unhandled error in review handler');
+        return c.json({ error: 'Internal server error' }, 500);
+      }
+    });
   });
 
   return route;

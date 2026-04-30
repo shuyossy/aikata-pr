@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { streamSSE } from 'hono/streaming';
 import { pipelineReportRequestSchema } from './pipelineReportHandler.js';
 import type {
   PipelineReportHandlerDeps,
@@ -18,10 +17,6 @@ const IDEMPOTENCY_KEY_HEADER = 'X-Idempotency-Key';
 
 /**
  * pipeline-report API ルートの環境型定義
- * Honoコンテキストで使用する変数の型
- *
- * `JwtAuthEnv` と `RequestIdEnv` を合成し、上流ミドルウェアが設定する
- * `jwtPayload`（任意）と `requestId` を参照可能にする
  */
 export type PipelineReportRouteEnv = JwtAuthEnv &
   RequestIdEnv & {
@@ -33,14 +28,14 @@ export type PipelineReportRouteEnv = JwtAuthEnv &
 /**
  * pipeline-report API ルートを作成する
  *
- * POST /pipeline-report エンドポイントを提供し、SSEストリームで分析進捗と結果を返す
- * `pipelineReportHandlerDeps` はHonoコンテキストからミドルウェア経由で注入される
+ * POST /pipeline-report エンドポイント。JSON応答 `{jobId, status, ...}` を返す。
+ * 結果取得は GET /api/v1/jobs/{jobId} ポーリングで行う。
  */
 export function createPipelineReportRoute(): Hono<PipelineReportRouteEnv> {
   const route = new Hono<PipelineReportRouteEnv>();
 
   route.post('/pipeline-report', async (c) => {
-    // X-Idempotency-Keyヘッダの取得（必須）。リクエストセット内のリトライで重複AI処理を防ぐ
+    // X-Idempotency-Keyヘッダの取得（必須）
     const idempotencyKey = c.req.header(IDEMPOTENCY_KEY_HEADER);
     if (!idempotencyKey || idempotencyKey.trim().length === 0) {
       return c.json({ error: `${IDEMPOTENCY_KEY_HEADER} header is required` }, 400);
@@ -72,16 +67,7 @@ export function createPipelineReportRoute(): Hono<PipelineReportRouteEnv> {
     const deps = c.get('pipelineReportHandlerDeps');
     const handler = createPipelineReportHandler(deps);
 
-    // リクエスト単位のログコンテキストバインディングを構築
-    // - userId: リクエストボディ由来（主ソース、JWT認証スキップモードでも取得可能）
-    // - requestId: requestIdMiddlewareで必ず設定済み
-    // - gitlab*: JWT認証有効時のみ補助情報として付与
     const requestId = c.get('requestId');
-    const handlerContext: PipelineReportHandlerContext = {
-      jobId: requestId,
-      idempotencyKey: idempotencyKey.trim(),
-    };
-    // JWT認証スキップモード（dev/test）ではjwtPayloadは未設定のためオプショナル扱い
     const jwtPayload = c.get('jwtPayload') as GitLabIdTokenPayload | undefined;
 
     const bindings: Record<string, unknown> = {
@@ -97,45 +83,38 @@ export function createPipelineReportRoute(): Hono<PipelineReportRouteEnv> {
       if (jwtPayload.job_id !== undefined) bindings['gitlabJobId'] = jwtPayload.job_id;
     }
 
-    // JWT の `user_login` とリクエストボディの `userId` が不一致の場合は警告ログを出す
-    // 拒否はしない：JWT無しdevモードとの統一的な挙動維持のため
     if (jwtPayload?.user_login && jwtPayload.user_login !== request.userId) {
       runWithLogContext(bindings, () => {
         getLogger().warn(
-          {
-            bodyUserId: request.userId,
-            jwtUserLogin: jwtPayload.user_login,
-          },
+          { bodyUserId: request.userId, jwtUserLogin: jwtPayload.user_login },
           'userId in request body does not match JWT user_login claim',
         );
       });
     }
 
-    // ログコンテキストを確立した状態でSSEストリームハンドラを実行
-    return runWithLogContext(bindings, () =>
-      streamSSE(
-        c,
-        async (stream) => {
-          getLogger().info(
-            { projectId: request.projectId, pipelineId: request.pipelineId },
-            'Pipeline report API request received',
-          );
-          await handler(request, stream, handlerContext);
-        },
-        async (error, stream) => {
-          // SSEストリーム内の未捕捉エラーハンドリング
-          getLogger().error({ err: error }, 'SSE stream error');
-          try {
-            await stream.writeSSE({
-              event: 'error',
-              data: JSON.stringify({ error: 'Internal server error' }),
-            });
-          } catch {
-            // ストリームへの書き込みに失敗した場合は無視
-          }
-        },
-      ),
-    );
+    return runWithLogContext(bindings, async () => {
+      const logger = getLogger();
+      logger.info(
+        { projectId: request.projectId, pipelineId: request.pipelineId },
+        'Pipeline report API request received',
+      );
+
+      const handlerContext: PipelineReportHandlerContext = {
+        jobId: requestId,
+        idempotencyKey: idempotencyKey.trim(),
+        logger,
+        logBindings: bindings,
+        runWithContext: runWithLogContext,
+      };
+
+      try {
+        const result = await handler(request, handlerContext);
+        return c.json(result.body, result.status);
+      } catch (error) {
+        logger.error({ err: error }, 'Unhandled error in pipeline-report handler');
+        return c.json({ error: 'Internal server error' }, 500);
+      }
+    });
   });
 
   return route;

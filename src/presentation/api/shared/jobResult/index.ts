@@ -12,8 +12,8 @@ export type {
   JobResultResponseBody,
   AuthorizationOutcome,
 } from './jobResultHandler.js';
-export { buildPendingJobRecord, handleExistingIdempotentJob } from './helpers.js';
-export type { ExistingJobOutcome } from './helpers.js';
+export { buildPendingJobRecord, resolveExistingIdempotentJob } from './helpers.js';
+export type { ResolveExistingIdempotentJobOutcome } from './helpers.js';
 
 /**
  * jobResult機能のAPIモジュール（feature横断）

@@ -46,12 +46,12 @@
     13. `finally` で `ArtifactCacheManager.cleanup()` により temp ディレクトリを削除
   - 例外
     - パターン1: GitLab API 失敗（`getPipeline` / `getJobs` / `getJobTrace` / `downloadArtifactArchive`）
-      - 例外をスローし、CLI/APIハンドラ側で exit(1) / SSE error イベントとして伝播
+      - 例外をスローし、CLI側で exit(1)、APIハンドラ側ではバックグラウンドジョブが catch して `failed` レコードを永続化（CLIはポーリングで errorMessage を受信）
     - パターン2: zip ダウンロード / パース失敗
       - `PipelineReportArtifactArchiveError` を投げる
       - 部分的に取得できたジョブ分は保持したまま、該当ジョブのみ artifacts なしとして分析を続行するか、重大失敗時はエラー終了とするかを呼び出し側のポリシーで判断（現設計は呼び出し側でのハンドリング）
     - パターン3: Mastra workflow 実行エラー（AI API 呼び出しエラーなど）
-      - 例外をスローし、CLI/APIハンドラ側で exit(1) / SSE error イベントとして伝播
+      - 例外をスローし、CLI側で exit(1)、APIハンドラ側ではバックグラウンドジョブが catch して `failed` レコードを永続化（CLIはポーリングで errorMessage を受信）
     - パターン4: コンテキスト長エラー
       - `contextLengthRecovery` が要約 → 継続を最大 3 回ループ。ループ上限に達した場合は Mastra workflow エラーとして上位へ伝播
     - パターン5: 完成判定ループ上限到達

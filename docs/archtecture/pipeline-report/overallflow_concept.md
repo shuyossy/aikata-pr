@@ -13,7 +13,7 @@ pipeline-report 機能（CI パイプライン結果の AI 分析レポート生
 
 ## 構成パターン
 - **ローカルモード**（`AI_API_KEY`・`AI_API_ENDPOINT_URL`・`AI_MODEL_NAME` が全て設定されている場合）: CLI が `PipelineAnalysisService` を直接呼び出し、全処理をローカルで実行する（開発用・後方互換）
-- **APIモード**（上記 3 変数のいずれかが未設定の場合）: CLI は外部 API サーバー（`AIKATA_API_URL`）に分析実行を委譲し、SSE で進捗と最終レポートを受け取る。AI API キーは API サーバー側で一元管理される。認証は GitLab CI/CD `id_tokens`（`AIKATA_JWT`）で行う
+- **APIモード**（上記 3 変数のいずれかが未設定の場合）: CLI は外部 API サーバー（`AIKATA_API_URL`）に分析実行を委譲する。`POST /api/v1/pipeline-report` で軽量なJSON応答 `{jobId, status}` を即時受領し、AI処理はAPIサーバ内のバックグラウンドで実行される。CLIは `GET /api/v1/jobs/{jobId}` をポーリングして最終レポートを取得する。AI API キーは API サーバー側で一元管理される。認証は GitLab CI/CD `id_tokens`（`AIKATA_JWT`）で行う
 
 review 機能と同一の `AIKATA_API_URL` / `AIKATA_JWT` / `MAX_CONTEXT_LENGTH` / `TREE_MAX_DEPTH` / `AI_API_*` 環境変数を共有する。レート制限も同じ `RateLimiterPort` インスタンスを利用する。
 
@@ -26,9 +26,10 @@ CI Job (.post, when: always)
      ├─ ロガー初期化 (initializeLogger({ userId }))
      ├─ [local] PipelineAnalysisService.analyze(command)
      │    └─ GitLab API / Mastra Workflow / ArtifactCacheManager 呼び出し
-     ├─ [api]   PipelineReportApiClient.stream(request)
-     │    └─ POST /api/v1/pipeline-report (SSE)
-     │         └─ API Server: runWithLogContext → PipelineAnalysisService.analyze
+     ├─ [api]   PipelineReportApiClient.run(request)
+     │    ├─ POST /api/v1/pipeline-report → JSON {jobId, status} 即時受領
+     │    │    └─ API Server: pending保存 → バックグラウンドで PipelineAnalysisService.analyze
+     │    └─ GET /api/v1/jobs/{jobId} ポーリング → 完了まで待機
      ├─ レポートを resultFilePath に保存 (artifacts に載る)
      ├─ レポート全文を stdout へフラッシュ
      └─ exit(0)
@@ -128,7 +129,7 @@ CLI → stdout + artifacts 保存
 - **コンテキスト長エラー**: `contextLengthRecovery` が履歴を要約して新スレッドで継続（最大 3 回）
 - **完成判定ループ上限到達**: warning ログを出し、現状のレポートをそのまま返却（CLI は exit(0)）
 - **圧縮 best-effort 到達**: エラーを投げず warning を出す。続くコンテキスト長エラーは上記リカバリーで対応
-- **GitLab API 失敗 / zip 失敗 / AI API 呼び出しエラー**: 例外を上位に伝播し、CLI は exit(1) / SSE error イベントで失敗を通知
+- **GitLab API 失敗 / zip 失敗 / AI API 呼び出しエラー**: 例外を上位に伝播。ローカルモードでは CLI が exit(1)。APIモードではバックグラウンドジョブが catch して `failed` レコードに保存し、ポーリング中の CLI が errorMessage を受信して exit(1) する
 
 ## 実装方針
 - データ取得・圧縮・レポート初期化は `PipelineAnalysisService`（Application 層）

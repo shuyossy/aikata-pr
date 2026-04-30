@@ -20,6 +20,8 @@ export interface JobResultResponseBody {
   status: 'pending' | 'success' | 'failed';
   payload?: unknown;
   errorMessage?: string;
+  /** pending時のみ。サーバ側のバックグラウンド処理が現在実行中のステップキー */
+  currentStep?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +78,8 @@ export function toJobResultResponseBody(record: JobResultRecord): JobResultRespo
     base.payload = record.payload;
   } else if (record.status === 'failed') {
     base.errorMessage = record.errorMessage;
+  } else if (record.status === 'pending' && record.currentStep) {
+    base.currentStep = record.currentStep;
   }
   return base;
 }

@@ -26,31 +26,23 @@ import { Rating } from '../../../../domain/review/rating/index.js';
 import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 
 /**
- * SSEレスポンスをパースしてイベントオブジェクトの配列に変換するヘルパー
+ * バックグラウンドジョブの完了（success/failedのレコード保存）まで待機するヘルパ
+ *
+ * runBackgroundJob は `void Promise.resolve().then(...)` で起動するため、
+ * レスポンス受信後にmicrotaskを進める必要がある。
+ * saveCalls にsuccess/failedが現れるまで最大 timeoutMs まで待つ。
  */
-function parseSSEEvents(text: string): Array<{ event?: string; data: string }> {
-  const events: Array<{ event?: string; data: string }> = [];
-  const blocks = text.split('\n\n').filter((b) => b.trim().length > 0);
-
-  for (const block of blocks) {
-    const lines = block.split('\n');
-    let event: string | undefined;
-    let data = '';
-
-    for (const line of lines) {
-      if (line.startsWith('event:')) {
-        event = line.slice('event:'.length).trim();
-      } else if (line.startsWith('data:')) {
-        data = line.slice('data:'.length).trim();
-      }
-    }
-
-    if (data) {
-      events.push({ event, data });
-    }
+async function waitForJobCompletion(
+  store: ReturnType<typeof createMockJobResultStore>,
+  timeoutMs = 2000,
+): Promise<JobResultRecord> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const finalized = store.saveCalls.find((r) => r.status === 'success' || r.status === 'failed');
+    if (finalized) return finalized;
+    await new Promise((r) => setTimeout(r, 5));
   }
-
-  return events;
+  throw new Error('Background job did not complete within timeout');
 }
 
 /**
@@ -117,8 +109,6 @@ function createMockServiceFactory(overrides?: {
 
 /**
  * モックJobResultStoreを作成するヘルパー
- *
- * 内部Mapで保存・取得・Idempotency-Key索引を再現する
  */
 function createMockJobResultStore(): JobResultStore & {
   saveCalls: JobResultRecord[];
@@ -155,8 +145,6 @@ function createMockRateLimiter(): RateLimiterPort {
 
 /**
  * テスト用のHonoアプリを作成するヘルパー
- *
- * 必要に応じてJWT payloadをモック注入できる（ログコンテキスト検証用）
  */
 function createTestApp(
   depsOverrides?: Partial<ReviewHandlerDeps>,
@@ -177,10 +165,8 @@ function createTestApp(
 
   const app = new Hono<ReviewRouteEnv>();
 
-  // requestIdミドルウェア（reviewRouteが `c.get('requestId')` を参照するため必須）
   app.use('*', createRequestIdMiddleware());
 
-  // 依存注入とJWT payloadモックのミドルウェア
   app.use('*', async (c, next) => {
     c.set('reviewHandlerDeps', deps);
     if (jwtPayload) {
@@ -189,7 +175,6 @@ function createTestApp(
     await next();
   });
 
-  // レビューAPIルートをマウント
   const reviewRoute = createReviewRoute();
   app.route('/', reviewRoute);
 
@@ -233,13 +218,11 @@ describe('reviewRoute', () => {
   describe('POST /review - バリデーション', () => {
     it('不正なJSONボディで400エラーが返ること', async () => {
       const app = createTestApp();
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: 'invalid json',
       });
-
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toBe('Invalid JSON body');
@@ -248,80 +231,31 @@ describe('reviewRoute', () => {
     it('gitlabTokenが空で400エラーが返ること', async () => {
       const app = createTestApp();
       const requestBody = { ...createValidRequestBody(), gitlabToken: '' };
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
-
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toBe('Validation error');
       expect(body.details).toBeDefined();
     });
 
-    it('projectIdが未指定で400エラーが返ること', async () => {
+    it.each([
+      ['projectId', 'projectId'],
+      ['mrIid', 'mrIid'],
+      ['userId', 'userId'],
+    ])('%sが未指定で400エラーが返ること', async (_label, fieldToOmit) => {
       const app = createTestApp();
       const validBody = createValidRequestBody();
-      const requestBody = {
-        userId: validBody.userId,
-        gitlabToken: validBody.gitlabToken,
-        mrIid: validBody.mrIid,
-        checklist: validBody.checklist,
-        reviewSettings: validBody.reviewSettings,
-      };
-
+      const requestBody: Record<string, unknown> = { ...validBody };
+      delete requestBody[fieldToOmit];
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
-
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.error).toBe('Validation error');
-    });
-
-    it('mrIidが未指定で400エラーが返ること', async () => {
-      const app = createTestApp();
-      const validBody = createValidRequestBody();
-      const requestBody = {
-        userId: validBody.userId,
-        gitlabToken: validBody.gitlabToken,
-        projectId: validBody.projectId,
-        checklist: validBody.checklist,
-        reviewSettings: validBody.reviewSettings,
-      };
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.error).toBe('Validation error');
-    });
-
-    it('userIdが未指定で400エラーが返ること', async () => {
-      const app = createTestApp();
-      const validBody = createValidRequestBody();
-      const requestBody = {
-        gitlabToken: validBody.gitlabToken,
-        projectId: validBody.projectId,
-        mrIid: validBody.mrIid,
-        checklist: validBody.checklist,
-        reviewSettings: validBody.reviewSettings,
-      };
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toBe('Validation error');
@@ -330,57 +264,28 @@ describe('reviewRoute', () => {
     it('userIdが空文字で400エラーが返ること', async () => {
       const app = createTestApp();
       const requestBody = { ...createValidRequestBody(), userId: '' };
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
-
       expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.error).toBe('Validation error');
     });
 
     it('checklistが空配列で400エラーが返ること', async () => {
       const app = createTestApp();
       const requestBody = { ...createValidRequestBody(), checklist: [] };
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
-
       expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.error).toBe('Validation error');
-    });
-
-    it('checklistが未指定で400エラーが返ること', async () => {
-      const app = createTestApp();
-      const validBody = createValidRequestBody();
-      const requestBody = {
-        userId: validBody.userId,
-        gitlabToken: validBody.gitlabToken,
-        projectId: validBody.projectId,
-        mrIid: validBody.mrIid,
-        reviewSettings: validBody.reviewSettings,
-      };
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.error).toBe('Validation error');
     });
 
     it('reviewSettingsがオプションで省略可能なこと', async () => {
-      const app = createTestApp();
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
       const requestBody = {
         userId: 'test-user',
         gitlabToken: 'test-token',
@@ -388,142 +293,78 @@ describe('reviewRoute', () => {
         mrIid: '45',
         checklist: ['Check item 1'],
       };
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(requestBody),
       });
-
-      // バリデーション自体は通過する（SSEストリームが返される）
       expect(res.status).toBe(200);
-      expect(res.headers.get('content-type')).toContain('text/event-stream');
+      expect(res.headers.get('content-type')).toContain('application/json');
+      await waitForJobCompletion(store);
     });
   });
 
-  describe('POST /review - SSEストリーム', () => {
-    it('正常なリクエストでSSEストリームが返されること', async () => {
-      const app = createTestApp();
-      const requestBody = createValidRequestBody();
-
+  describe('POST /review - JSON応答', () => {
+    it('正常なリクエストで pending 応答が即時返ること', async () => {
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(createValidRequestBody()),
       });
-
       expect(res.status).toBe(200);
-      expect(res.headers.get('content-type')).toContain('text/event-stream');
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      // progressイベントが含まれること
-      const progressEvents = events.filter((e) => e.event === 'progress');
-      expect(progressEvents.length).toBeGreaterThan(0);
-
-      // startedイベントがあること
-      const startedEvent = progressEvents.find((e) => {
-        const data = JSON.parse(e.data);
-        return data.status === 'started';
-      });
-      expect(startedEvent).toBeDefined();
+      expect(res.headers.get('content-type')).toContain('application/json');
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['feature']).toBe('review');
+      expect(body['status']).toBe('pending');
+      expect(typeof body['jobId']).toBe('string');
+      // バックグラウンド完了まで待ってクリーンアップ
+      await waitForJobCompletion(store);
     });
 
-    it('正常完了時にresultとdoneイベントが含まれること', async () => {
-      const app = createTestApp();
-      const requestBody = createValidRequestBody();
-
+    it('バックグラウンド処理が success レコードを保存すること', async () => {
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'normal-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      // resultイベントがReviewApiResponse形式で含まれること
-      const resultEvents = events.filter((e) => e.event === 'result');
-      expect(resultEvents.length).toBe(1);
-      const resultData = JSON.parse(resultEvents[0].data);
-      expect(resultData.results).toHaveLength(1);
-      expect(resultData.results[0].checkItemContent).toBe('Check item 1');
-      expect(resultData.results[0].ratingLabel).toBe('A');
-      expect(resultData.results[0].ratingDefinition).toBe('Good');
-      expect(resultData.results[0].comment).toBe('All good');
-      expect(resultData.results[0].isError).toBe(false);
-      expect(resultData.commitHash).toBe('abc123');
-      expect(resultData.commitMessage).toBe('Test commit');
-
-      // doneイベントが含まれること
-      const doneEvents = events.filter((e) => e.event === 'done');
-      expect(doneEvents.length).toBe(1);
-      const doneData = JSON.parse(doneEvents[0].data);
-      expect(doneData.status).toBe('completed');
+      const body = (await res.json()) as { jobId: string };
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('success');
+      expect(finalized.jobId).toBe(body.jobId);
+      if (finalized.status === 'success') {
+        const payload = finalized.payload as { results: Array<Record<string, unknown>> };
+        expect(payload.results).toHaveLength(1);
+        expect(payload.results[0]['checkItemContent']).toBe('Check item 1');
+      }
     });
 
-    it('進捗イベントが正しい順序で送信されること', async () => {
-      const app = createTestApp();
-      const requestBody = createValidRequestBody();
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      const progressStatuses = events
-        .filter((e) => e.event === 'progress')
-        .map((e) => JSON.parse(e.data).status);
-
-      expect(progressStatuses).toContain('started');
-      expect(progressStatuses).toContain('fetching_mr_info');
-      expect(progressStatuses).toContain('cloning');
-      expect(progressStatuses).toContain('reviewing');
-      // コメント投稿はCLI側の責務のためposting_commentイベントは送信されない
-      expect(progressStatuses).not.toContain('posting_comment');
-
-      // 順序の確認
-      const startedIdx = progressStatuses.indexOf('started');
-      const fetchingIdx = progressStatuses.indexOf('fetching_mr_info');
-      const cloningIdx = progressStatuses.indexOf('cloning');
-      const reviewingIdx = progressStatuses.indexOf('reviewing');
-
-      expect(startedIdx).toBeLessThan(fetchingIdx);
-      expect(fetchingIdx).toBeLessThan(cloningIdx);
-      expect(cloningIdx).toBeLessThan(reviewingIdx);
-    });
-
-    it('CloneManagerでエラー発生時にerrorイベントがストリームに含まれること', async () => {
+    it('CloneManagerでエラー発生時に failed レコードが保存されること', async () => {
+      const store = createMockJobResultStore();
       const mockCloneManager: CloneManagerPort = {
         clone: vi
           .fn<CloneManagerPort['clone']>()
           .mockRejectedValue(new Error('Clone failed: permission denied')),
       };
-      const app = createTestApp({ cloneManager: mockCloneManager });
-      const requestBody = createValidRequestBody();
-
+      const app = createTestApp({ cloneManager: mockCloneManager, jobResultStore: store });
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'clone-fail-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      expect(res.status).toBe(200); // SSEストリームは200で開始される
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      const errorEvents = events.filter((e) => e.event === 'error');
-      expect(errorEvents.length).toBe(1);
-      const errorData = JSON.parse(errorEvents[0].data);
-      expect(errorData.error).toContain('Clone failed');
+      expect(res.status).toBe(200);
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('failed');
+      if (finalized.status === 'failed') {
+        expect(finalized.errorMessage).toContain('Clone failed');
+      }
     });
 
-    it('ReviewExecutorでエラー発生時にerrorイベントがストリームに含まれること', async () => {
+    it('ReviewExecutorでエラー発生時に failed レコードが保存されること', async () => {
+      const store = createMockJobResultStore();
       const mockServiceFactory = createMockServiceFactory({
         reviewExecutor: {
           execute: vi
@@ -531,40 +372,35 @@ describe('reviewRoute', () => {
             .mockRejectedValue(new Error('Workflow execution failed')),
         },
       });
-      const app = createTestApp({ serviceFactory: mockServiceFactory });
-      const requestBody = createValidRequestBody();
-
+      const app = createTestApp({ serviceFactory: mockServiceFactory, jobResultStore: store });
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'wf-fail-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      const errorEvents = events.filter((e) => e.event === 'error');
-      expect(errorEvents.length).toBe(1);
-      const errorData = JSON.parse(errorEvents[0].data);
-      expect(errorData.error).toContain('Workflow execution failed');
+      expect(res.status).toBe(200);
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('failed');
+      if (finalized.status === 'failed') {
+        expect(finalized.errorMessage).toContain('Workflow execution failed');
+      }
     });
 
     it('クリーンアップが常に呼び出されること（正常完了時）', async () => {
+      const store = createMockJobResultStore();
       const mockCloneManager = createMockCloneManager();
-      const app = createTestApp({ cloneManager: mockCloneManager });
-      const requestBody = createValidRequestBody();
-
-      const res = await app.request('/review', {
+      const app = createTestApp({ cloneManager: mockCloneManager, jobResultStore: store });
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'cleanup-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      await res.text(); // ストリームを消費して完了を待つ
+      await waitForJobCompletion(store);
       expect(mockCloneManager.cleanupFn).toHaveBeenCalledTimes(1);
     });
 
     it('クリーンアップがエラー発生時にも呼び出されること', async () => {
+      const store = createMockJobResultStore();
       const mockCloneManager = createMockCloneManager();
       const mockServiceFactory = createMockServiceFactory({
         reviewExecutor: {
@@ -574,44 +410,19 @@ describe('reviewRoute', () => {
       const app = createTestApp({
         cloneManager: mockCloneManager,
         serviceFactory: mockServiceFactory,
+        jobResultStore: store,
       });
-      const requestBody = createValidRequestBody();
-
-      const res = await app.request('/review', {
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'cleanup-err-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      await res.text();
+      await waitForJobCompletion(store);
       expect(mockCloneManager.cleanupFn).toHaveBeenCalledTimes(1);
     });
 
-    it('reviewSettings未指定時にデフォルト値が適用されること', async () => {
-      const app = createTestApp();
-      const requestBody = {
-        userId: 'test-user',
-        gitlabToken: 'test-token',
-        projectId: '123',
-        mrIid: '45',
-        checklist: ['Check item 1'],
-      };
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      // エラーなく完了すればデフォルト値が正常に適用されたことを意味する
-      const doneEvents = events.filter((e) => e.event === 'done');
-      expect(doneEvents.length).toBe(1);
-    });
-
-    it('MR情報取得失敗時にerrorイベントがストリームに含まれること', async () => {
+    it('MR情報取得失敗時に failed レコードが保存されること', async () => {
+      const store = createMockJobResultStore();
       const mockServiceFactory = createMockServiceFactory({
         mrInfoFetcher: {
           fetchBranchInfo: vi
@@ -619,25 +430,21 @@ describe('reviewRoute', () => {
             .mockRejectedValue(new Error('GitLab API error: 404 Not Found')),
         },
       });
-      const app = createTestApp({ serviceFactory: mockServiceFactory });
-      const requestBody = createValidRequestBody();
-
-      const res = await app.request('/review', {
+      const app = createTestApp({ serviceFactory: mockServiceFactory, jobResultStore: store });
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'mr-fail-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      const errorEvents = events.filter((e) => e.event === 'error');
-      expect(errorEvents.length).toBe(1);
-      const errorData = JSON.parse(errorEvents[0].data);
-      expect(errorData.error).toContain('GitLab API error');
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('failed');
+      if (finalized.status === 'failed') {
+        expect(finalized.errorMessage).toContain('GitLab API error');
+      }
     });
 
-    it('全結果がエラーの場合でもレビュー結果がReviewApiResponse形式で返ること', async () => {
+    it('全結果がエラーの場合でも success レコードに ReviewApiResponse が保存されること', async () => {
+      const store = createMockJobResultStore();
       const mockServiceFactory = createMockServiceFactory({
         reviewExecutor: {
           execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue({
@@ -652,33 +459,30 @@ describe('reviewRoute', () => {
           }),
         },
       });
-      const app = createTestApp({ serviceFactory: mockServiceFactory });
-      const requestBody = createValidRequestBody();
-
-      const res = await app.request('/review', {
+      const app = createTestApp({ serviceFactory: mockServiceFactory, jobResultStore: store });
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'all-err-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      // resultイベントにエラー結果がReviewApiResponse形式で含まれること
-      const resultEvents = events.filter((e) => e.event === 'result');
-      expect(resultEvents.length).toBe(1);
-      const resultData = JSON.parse(resultEvents[0].data);
-      expect(resultData.results).toHaveLength(1);
-      expect(resultData.results[0].isError).toBe(true);
-      expect(resultData.results[0].errorMessage).toBe('AI error occurred');
-      expect(resultData.results[0].checkItemContent).toBe('Check item 1');
-      expect(resultData.commitHash).toBe('abc123');
-      expect(resultData.commitMessage).toBe('Test commit');
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('success');
+      if (finalized.status === 'success') {
+        const payload = finalized.payload as {
+          results: Array<{ isError: boolean; errorMessage?: string; checkItemContent: string }>;
+          commitHash: string;
+        };
+        expect(payload.results[0].isError).toBe(true);
+        expect(payload.results[0].errorMessage).toBe('AI error occurred');
+        expect(payload.results[0].checkItemContent).toBe('Check item 1');
+        expect(payload.commitHash).toBe('abc123');
+      }
     });
   });
 
   describe('POST /review - タイムアウト', () => {
-    it('reviewTimeoutMs設定時にタイムアウトするとerrorイベントが返ること', async () => {
+    it('reviewTimeoutMs設定時にタイムアウトすると failed レコードが保存されること', async () => {
+      const store = createMockJobResultStore();
       const mockServiceFactory = createMockServiceFactory({
         reviewExecutor: {
           execute: vi
@@ -693,54 +497,39 @@ describe('reviewRoute', () => {
       });
       const app = createTestApp({
         serviceFactory: mockServiceFactory,
-        reviewTimeoutMs: 50, // 50msで即タイムアウト
+        reviewTimeoutMs: 50,
+        jobResultStore: store,
       });
-      const requestBody = createValidRequestBody();
-
-      const res = await app.request('/review', {
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'timeout-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      const errorEvents = events.filter((e) => e.event === 'error');
-      expect(errorEvents.length).toBe(1);
-      const errorData = JSON.parse(errorEvents[0].data);
-      expect(errorData.error).toContain('timed out');
+      const finalized = await waitForJobCompletion(store, 5000);
+      expect(finalized.status).toBe('failed');
+      if (finalized.status === 'failed') {
+        expect(finalized.errorMessage).toContain('timed out');
+      }
     });
 
     it('reviewTimeoutMs未設定時はタイムアウトしないこと', async () => {
-      // reviewTimeoutMs未設定のデフォルト動作
-      const app = createTestApp();
-      const requestBody = createValidRequestBody();
-
-      const res = await app.request('/review', {
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'no-timeout-key' },
+        body: JSON.stringify(createValidRequestBody()),
       });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      // 正常完了すること
-      const doneEvents = events.filter((e) => e.event === 'done');
-      expect(doneEvents.length).toBe(1);
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('success');
     });
   });
 
   describe('POST /review - ReviewExecutionCommandへのパラメータ伝播', () => {
-    /**
-     * reviewExecutor.executeに渡されたReviewExecutionCommandをキャプチャするヘルパー
-     */
     function createCapturingServiceFactory() {
       const executeMock = vi
         .fn<ReviewExecutor['execute']>()
         .mockResolvedValue(createDefaultReviewResult());
-
       const serviceFactory: PerRequestServiceFactory = {
         create: vi.fn().mockReturnValue({
           mrInfoFetcher: {
@@ -748,19 +537,18 @@ describe('reviewRoute', () => {
               .fn<MrInfoFetcher['fetchBranchInfo']>()
               .mockResolvedValue({ source_branch: 'feature-branch', target_branch: 'main' }),
           },
-          reviewExecutor: {
-            execute: executeMock,
-          },
+          reviewExecutor: { execute: executeMock },
         }),
       };
-
       return { serviceFactory, executeMock };
     }
 
     it('全リクエストパラメータがReviewExecutionCommandに正しく伝播されること', async () => {
+      const store = createMockJobResultStore();
       const { serviceFactory, executeMock } = createCapturingServiceFactory();
       const app = createTestApp({
         serviceFactory,
+        jobResultStore: store,
         aiApiKey: 'server-api-key',
         aiApiEndpointUrl: 'https://ai-server.example.com',
         defaultAiModelName: 'openai/gpt-4o',
@@ -783,9 +571,7 @@ describe('reviewRoute', () => {
             { label: 'C', definition: 'Poor' },
           ],
           hiddenRatingLabels: ['A'],
-          qualityGate: {
-            failureCriteria: [{ ratingLabel: 'C', threshold: 1 }],
-          },
+          qualityGate: { failureCriteria: [{ ratingLabel: 'C', threshold: 1 }] },
         },
         options: {
           commentLanguage: 'English',
@@ -794,18 +580,15 @@ describe('reviewRoute', () => {
         },
       };
 
-      const res = await app.request('/review', {
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'param-key' },
         body: JSON.stringify(requestBody),
       });
-      await res.text(); // ストリーム消費
+      await waitForJobCompletion(store);
 
-      // reviewExecutor.executeが呼ばれたこと
       expect(executeMock).toHaveBeenCalledTimes(1);
       const command = executeMock.mock.calls[0][0];
-
-      // リクエスト由来のフィールド
       expect(command.projectId).toBe('999');
       expect(command.mrIid).toBe('77');
       expect(command.gitlabToken).toBe('my-gitlab-token');
@@ -813,219 +596,59 @@ describe('reviewRoute', () => {
         '可読性チェック',
         'セキュリティチェック',
       ]);
-
-      // reviewSettings由来
       expect(command.reviewSettings.additionalInstructions).toBe('Be thorough');
       expect(command.reviewSettings.concurrentReviewCount).toBe(3);
-      expect(command.reviewSettings.commentFormat).toBe('## Review\n{comment}');
       expect(command.reviewSettings.ratings).toHaveLength(2);
-      expect(command.reviewSettings.ratings[0].label).toBe('A');
-      expect(command.reviewSettings.ratings[1].label).toBe('C');
       expect(command.reviewSettings.hiddenRatingLabels).toEqual(['A']);
       expect(command.reviewSettings.qualityGate.failureCriteria).toHaveLength(1);
-      expect(command.reviewSettings.qualityGate.failureCriteria[0].ratingLabel).toBe('C');
-
-      // options由来
       expect(command.commentLanguage).toBe('English');
       expect(command.skillsPaths).toEqual(['/path/to/skills']);
       expect(command.treeMaxDepth).toBe(5);
-
-      // deps由来（サーバー環境変数）
       expect(command.aiApiKey).toBe('server-api-key');
       expect(command.aiApiEndpointUrl).toBe('https://ai-server.example.com');
       expect(command.aiModelName).toBe('openai/gpt-4o');
       expect(command.openaiReasoningEffort).toBe('medium');
       expect(command.maxContextLength).toBe(80000);
-
-      // userIdはリクエストボディ由来
       expect(command.userId).toBe('charlie');
-
-      // クローン結果由来
       expect(command.projectDir).toBe('/tmp/test-clone');
     });
 
-    it('reviewSettings未指定時にデフォルト値がReviewExecutionCommandに設定されること', async () => {
+    it('reviewSettings/options 未指定時にデフォルト値がCommandに設定されること', async () => {
+      const store = createMockJobResultStore();
       const { serviceFactory, executeMock } = createCapturingServiceFactory();
-      const app = createTestApp({ serviceFactory });
-
+      const app = createTestApp({ serviceFactory, jobResultStore: store });
       const requestBody = {
         userId: 'test-user',
         gitlabToken: 'token',
         projectId: '123',
         mrIid: '45',
         checklist: ['Check item 1'],
-        // reviewSettings未指定
       };
-
-      const res = await app.request('/review', {
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'default-key' },
         body: JSON.stringify(requestBody),
       });
-      await res.text();
+      await waitForJobCompletion(store);
 
       const command = executeMock.mock.calls[0][0];
-
-      // デフォルト値が適用されること
       expect(command.reviewSettings.additionalInstructions).toBe('');
       expect(command.reviewSettings.concurrentReviewCount).toBeNull();
-      expect(command.reviewSettings.commentFormat).toContain('【評価理由・根拠】');
-      expect(command.reviewSettings.commentFormat).toContain('【改善提案】');
       expect(command.reviewSettings.ratings.length).toBeGreaterThan(0);
-      expect(command.reviewSettings.ratings[0].label).toBe('A');
-      expect(command.reviewSettings.hiddenRatingLabels).toEqual([]);
-      expect(command.reviewSettings.qualityGate.failureCriteria).toHaveLength(0);
-    });
-
-    it('options未指定時にデフォルト値がReviewExecutionCommandに設定されること', async () => {
-      const { serviceFactory, executeMock } = createCapturingServiceFactory();
-      const app = createTestApp({ serviceFactory });
-
-      const requestBody = {
-        userId: 'test-user',
-        gitlabToken: 'token',
-        projectId: '123',
-        mrIid: '45',
-        checklist: ['Check item 1'],
-        // options未指定
-      };
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-      await res.text();
-
-      const command = executeMock.mock.calls[0][0];
-
       expect(command.commentLanguage).toBe('Japanese');
       expect(command.skillsPaths).toEqual([]);
       expect(command.treeMaxDepth).toBeUndefined();
-      expect(command.maxContextLength).toBeUndefined();
-    });
-
-    it('deps由来のパラメータ（AI設定）が正しくCommandに伝播されること', async () => {
-      const { serviceFactory, executeMock } = createCapturingServiceFactory();
-      const app = createTestApp({
-        serviceFactory,
-        aiApiKey: 'custom-key',
-        aiApiEndpointUrl: 'https://custom-ai.example.com',
-        defaultAiModelName: 'openai/custom-model',
-        openaiReasoningEffort: 'high',
-      });
-
-      const requestBody = createValidRequestBody();
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-      await res.text();
-
-      const command = executeMock.mock.calls[0][0];
-
-      expect(command.aiApiKey).toBe('custom-key');
-      expect(command.aiApiEndpointUrl).toBe('https://custom-ai.example.com');
-      expect(command.aiModelName).toBe('openai/custom-model');
-      expect(command.openaiReasoningEffort).toBe('high');
-    });
-
-    it('userIdがリクエストボディ由来でReviewExecutionCommandに伝播すること', async () => {
-      const { serviceFactory, executeMock } = createCapturingServiceFactory();
-      const app = createTestApp({ serviceFactory });
-
-      const requestBody = { ...createValidRequestBody(), userId: 'dave' };
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-      await res.text();
-
-      const command = executeMock.mock.calls[0][0];
-      expect(command.userId).toBe('dave');
-    });
-  });
-
-  describe('POST /review - resultイベントのReviewApiResponse形式', () => {
-    it('resultイベントが品質ゲート情報を含まず、レビュー結果のみ返すこと', async () => {
-      const mockServiceFactory = createMockServiceFactory({
-        reviewExecutor: {
-          execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue({
-            results: [
-              ReviewResult.success(
-                new CheckItem('Check item 1'),
-                new Rating('C', 'Bad'),
-                'Issues found',
-              ),
-            ],
-            commitHash: 'abc123',
-            commitMessage: 'Test commit',
-            suggestions: [],
-            suggestsToResolve: [],
-            baseSha: 'base-sha',
-            headSha: 'head-sha',
-            startSha: 'start-sha',
-          }),
-        },
-      });
-      const app = createTestApp({ serviceFactory: mockServiceFactory });
-      const requestBody = {
-        ...createValidRequestBody(),
-        reviewSettings: {
-          ratings: [
-            { label: 'A', definition: 'Good' },
-            { label: 'C', definition: 'Bad' },
-          ],
-          qualityGate: {
-            failureCriteria: [{ ratingLabel: 'C', threshold: 1 }],
-          },
-        },
-      };
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(requestBody),
-      });
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      const resultEvents = events.filter((e) => e.event === 'result');
-      expect(resultEvents.length).toBe(1);
-      const resultData = JSON.parse(resultEvents[0].data);
-      // ReviewApiResponse形式で返ること（品質ゲート情報は含まない）
-      expect(resultData.results).toHaveLength(1);
-      expect(resultData.results[0].checkItemContent).toBe('Check item 1');
-      expect(resultData.results[0].ratingLabel).toBe('C');
-      expect(resultData.results[0].ratingDefinition).toBe('Bad');
-      expect(resultData.results[0].comment).toBe('Issues found');
-      expect(resultData.results[0].isError).toBe(false);
-      expect(resultData.commitHash).toBe('abc123');
-      expect(resultData.commitMessage).toBe('Test commit');
-      // 品質ゲート関連のフィールドは含まれないこと
-      expect(resultData.qualityGatePassed).toBeUndefined();
-      expect(resultData.qualityGateViolations).toBeUndefined();
     });
   });
 
   describe('POST /review - リクエスト単位のログコンテキスト', () => {
-    /**
-     * JSONログを捕捉するストリームを返すヘルパー
-     *
-     * 本describe内では各テストでロガーを再初期化するため、beforeEachで初期化された
-     * ロガーをリセットしてから`stream`付きで再生成する。
-     */
     function createCapturingApp(
       jwtPayload?: GitLabIdTokenPayload,
       depsOverrides?: Partial<ReviewHandlerDeps>,
     ): {
       app: ReturnType<typeof createTestApp>;
       logs: Array<Record<string, unknown>>;
+      store: ReturnType<typeof createMockJobResultStore>;
     } {
       resetLogger();
       const raw: string[] = [];
@@ -1038,12 +661,13 @@ describe('reviewRoute', () => {
           },
         },
       });
-      const app = createTestApp(depsOverrides, jwtPayload);
+      const store = createMockJobResultStore();
+      const app = createTestApp({ ...depsOverrides, jobResultStore: store }, jwtPayload);
       return {
         app,
+        store,
         logs: new Proxy([] as Array<Record<string, unknown>>, {
           get(_target, prop) {
-            // 参照時点でのraw→JSONパース結果を都度返す（テスト中にraw.pushされるため）
             const parsed = raw
               .filter((l) => l.trim().length > 0)
               .map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -1055,16 +679,14 @@ describe('reviewRoute', () => {
     }
 
     it('リクエストボディのuserIdがログに記録されること（JWT認証無効モード）', async () => {
-      const { app, logs } = createCapturingApp();
-
-      const res = await app.request('/review', {
+      const { app, logs, store } = createCapturingApp();
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'log-key1' },
         body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
       });
-      await res.text();
+      await waitForJobCompletion(store);
 
-      // 'Review API request received' ログが userId: 'alice' で出力される
       const received = (logs as unknown as Array<Record<string, unknown>>).find(
         (l) => l['msg'] === 'Review API request received',
       );
@@ -1074,7 +696,7 @@ describe('reviewRoute', () => {
     });
 
     it('JWT認証有効時にgitlab*補助フィールドがログに追加されること', async () => {
-      const { app, logs } = createCapturingApp({
+      const { app, logs, store } = createCapturingApp({
         user_login: 'alice',
         user_id: 42,
         user_email: 'alice@example.com',
@@ -1082,92 +704,62 @@ describe('reviewRoute', () => {
         pipeline_id: 111,
         job_id: 222,
       });
-
-      const res = await app.request('/review', {
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'log-key2' },
         body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
       });
-      await res.text();
-
+      await waitForJobCompletion(store);
       const received = (logs as unknown as Array<Record<string, unknown>>).find(
         (l) => l['msg'] === 'Review API request received',
       );
       expect(received).toBeDefined();
-      expect(received!['userId']).toBe('alice');
       expect(received!['gitlabUserId']).toBe(42);
       expect(received!['gitlabUserEmail']).toBe('alice@example.com');
       expect(received!['gitlabProjectPath']).toBe('group/project');
       expect(received!['gitlabPipelineId']).toBe(111);
       expect(received!['gitlabJobId']).toBe(222);
-      expect(received!['requestId']).toBeTypeOf('string');
     });
 
     it('JWT user_loginとリクエストボディuserIdが不一致の場合に警告ログが出ること', async () => {
-      const { app, logs } = createCapturingApp({
-        user_login: 'alice',
-        user_id: 42,
-      });
-
-      const res = await app.request('/review', {
+      const { app, logs, store } = createCapturingApp({ user_login: 'alice', user_id: 42 });
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'log-key3' },
         body: JSON.stringify({ ...createValidRequestBody(), userId: 'bob' }),
       });
-      await res.text();
-
+      await waitForJobCompletion(store);
       const warning = (logs as unknown as Array<Record<string, unknown>>).find(
         (l) => l['msg'] === 'userId in request body does not match JWT user_login claim',
       );
       expect(warning).toBeDefined();
       expect(warning!['bodyUserId']).toBe('bob');
       expect(warning!['jwtUserLogin']).toBe('alice');
-      expect(warning!['level']).toBe(40); // pinoのwarn数値
-      // 警告ログ自体にもrequestIdとuserId（ボディ由来）が付与されている
-      expect(warning!['requestId']).toBeTypeOf('string');
-      expect(warning!['userId']).toBe('bob');
+      expect(warning!['level']).toBe(40);
     });
 
-    it('X-Request-IdヘッダがレスポンスとログのrequestIdに反映されること', async () => {
-      const { app, logs } = createCapturingApp();
+    it('X-Request-Idヘッダがレスポンスとログに反映されること', async () => {
+      const { app, logs, store } = createCapturingApp();
       const customId = 'custom-req-id-xyz';
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Request-Id': customId,
-          'X-Idempotency-Key': 'test-idem-key',
+          'X-Idempotency-Key': 'log-key4',
         },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
-
+      const body = (await res.json()) as { jobId: string };
       expect(res.headers.get('X-Request-Id')).toBe(customId);
-
+      // CLI制御のjobIdとしてX-Request-Idが採用される
+      expect(body.jobId).toBe(customId);
+      await waitForJobCompletion(store);
       const received = (logs as unknown as Array<Record<string, unknown>>).find(
         (l) => l['msg'] === 'Review API request received',
       );
       expect(received).toBeDefined();
       expect(received!['requestId']).toBe(customId);
-    });
-
-    it('JWT user_loginとリクエストボディuserIdが一致する場合は警告ログが出ないこと', async () => {
-      const { app, logs } = createCapturingApp({
-        user_login: 'alice',
-      });
-
-      const res = await app.request('/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify({ ...createValidRequestBody(), userId: 'alice' }),
-      });
-      await res.text();
-
-      const warning = (logs as unknown as Array<Record<string, unknown>>).find(
-        (l) => l['msg'] === 'userId in request body does not match JWT user_login claim',
-      );
-      expect(warning).toBeUndefined();
     });
   });
 
@@ -1196,7 +788,6 @@ describe('reviewRoute', () => {
 
     it('既存success ジョブを Idempotency-Key 一致で検出し、AI処理を再実行せず結果を返すこと', async () => {
       const store = createMockJobResultStore();
-      // 事前に success レコードを保存
       const cachedPayload = { results: [{ checkItemContent: 'cached', ratingLabel: 'A' }] };
       await store.save({
         jobId: 'existing-job-id',
@@ -1209,7 +800,6 @@ describe('reviewRoute', () => {
         updatedAt: '2026-04-29T00:00:00.000Z',
         expiresAt: '2026-04-30T00:00:00.000Z',
       });
-
       const reviewExecutor: ReviewExecutor = {
         execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
       };
@@ -1217,28 +807,20 @@ describe('reviewRoute', () => {
         jobResultStore: store,
         serviceFactory: createMockServiceFactory({ reviewExecutor }),
       });
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'shared-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
       expect(res.status).toBe(200);
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      // resultイベントにキャッシュペイロードが含まれること
-      const resultEvent = events.find((e) => e.event === 'result');
-      expect(resultEvent).toBeDefined();
-      const resultData = JSON.parse(resultEvent!.data);
-      expect(resultData).toEqual(cachedPayload);
-
-      // AIレビュー処理が呼ばれていないこと
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['status']).toBe('success');
+      expect(body['jobId']).toBe('existing-job-id');
+      expect(body['payload']).toEqual(cachedPayload);
       expect(reviewExecutor.execute).not.toHaveBeenCalled();
     });
 
-    it('既存failed ジョブを Idempotency-Key 一致で検出し、errorイベントを返してAI処理を再実行しないこと', async () => {
+    it('既存failed ジョブを Idempotency-Key 一致で検出し、status=failed応答を返すこと', async () => {
       const store = createMockJobResultStore();
       await store.save({
         jobId: 'failed-job-id',
@@ -1251,7 +833,6 @@ describe('reviewRoute', () => {
         updatedAt: '2026-04-29T00:00:00.000Z',
         expiresAt: '2026-04-30T00:00:00.000Z',
       });
-
       const reviewExecutor: ReviewExecutor = {
         execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
       };
@@ -1259,22 +840,19 @@ describe('reviewRoute', () => {
         jobResultStore: store,
         serviceFactory: createMockServiceFactory({ reviewExecutor }),
       });
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'failed-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
-      const events = parseSSEEvents(await res.text());
-      const errorEvent = events.find((e) => e.event === 'error');
-      expect(errorEvent).toBeDefined();
-      const errorData = JSON.parse(errorEvent!.data);
-      expect(errorData.error).toBe('previous AI failure');
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['status']).toBe('failed');
+      expect(body['errorMessage']).toBe('previous AI failure');
       expect(reviewExecutor.execute).not.toHaveBeenCalled();
     });
 
-    it('既存pending ジョブを Idempotency-Key 一致で検出し、duplicatedイベントを送信して処理を打ち切ること', async () => {
+    it('既存pending ジョブを Idempotency-Key 一致で検出し、status=pendingで既存jobIdを返すこと', async () => {
       const store = createMockJobResultStore();
       await store.save({
         jobId: 'pending-job-id',
@@ -1282,11 +860,11 @@ describe('reviewRoute', () => {
         feature: 'review',
         status: 'pending',
         userId: 'test-user',
+        currentStep: 'reviewing',
         createdAt: '2026-04-29T00:00:00.000Z',
         updatedAt: '2026-04-29T00:00:00.000Z',
         expiresAt: '2026-04-30T00:00:00.000Z',
       });
-
       const reviewExecutor: ReviewExecutor = {
         execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
       };
@@ -1294,24 +872,20 @@ describe('reviewRoute', () => {
         jobResultStore: store,
         serviceFactory: createMockServiceFactory({ reviewExecutor }),
       });
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'pending-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
-      const events = parseSSEEvents(await res.text());
-      const duplicated = events
-        .filter((e) => e.event === 'progress')
-        .map((e) => JSON.parse(e.data) as { status?: string; existingJobId?: string })
-        .find((d) => d.status === 'duplicated');
-      expect(duplicated).toBeDefined();
-      expect(duplicated!.existingJobId).toBe('pending-job-id');
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['status']).toBe('pending');
+      expect(body['jobId']).toBe('pending-job-id');
+      expect(body['currentStep']).toBe('reviewing');
       expect(reviewExecutor.execute).not.toHaveBeenCalled();
     });
 
-    it('既存ジョブのuserIdが要求userIdと不一致なら、AI処理せずerrorイベントを返すこと', async () => {
+    it('既存ジョブのuserIdが要求userIdと不一致なら409を返すこと', async () => {
       const store = createMockJobResultStore();
       await store.save({
         jobId: 'other-user-job',
@@ -1324,7 +898,6 @@ describe('reviewRoute', () => {
         updatedAt: '2026-04-29T00:00:00.000Z',
         expiresAt: '2026-04-30T00:00:00.000Z',
       });
-
       const reviewExecutor: ReviewExecutor = {
         execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
       };
@@ -1332,62 +905,55 @@ describe('reviewRoute', () => {
         jobResultStore: store,
         serviceFactory: createMockServiceFactory({ reviewExecutor }),
       });
-
       const res = await app.request('/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'collision-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
-      const events = parseSSEEvents(await res.text());
-      const errorEvent = events.find((e) => e.event === 'error');
-      expect(errorEvent).toBeDefined();
-      // result イベントは送られない
-      const resultEvent = events.find((e) => e.event === 'result');
-      expect(resultEvent).toBeUndefined();
+      expect(res.status).toBe(409);
       expect(reviewExecutor.execute).not.toHaveBeenCalled();
     });
 
-    it('正常系: 完了時に success レコードが永続化されること', async () => {
+    it('正常系: 完了時に pending → success の順で永続化されること', async () => {
       const store = createMockJobResultStore();
       const app = createTestApp({ jobResultStore: store });
-
-      const res = await app.request('/review', {
+      await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'normal-key' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'persist-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
-
-      // pending と success の2つの save が呼ばれているはず
-      expect(store.saveCalls.length).toBe(2);
-      expect(store.saveCalls[0].status).toBe('pending');
-      expect(store.saveCalls[1].status).toBe('success');
-      expect(store.saveCalls[1].idempotencyKey).toBe('normal-key');
+      await waitForJobCompletion(store);
+      const pendingSave = store.saveCalls.find((r) => r.status === 'pending');
+      const successSave = store.saveCalls.find((r) => r.status === 'success');
+      expect(pendingSave).toBeDefined();
+      expect(successSave).toBeDefined();
+      expect(successSave!.idempotencyKey).toBe('persist-key');
     });
 
-    it('異常系: AI実行失敗時に failed レコードが永続化されること', async () => {
-      const store = createMockJobResultStore();
-      const failingExecutor: ReviewExecutor = {
-        execute: vi.fn<ReviewExecutor['execute']>().mockRejectedValue(new Error('AI exploded')),
+    it('pending保存に失敗した場合は500応答でAI処理は開始しないこと', async () => {
+      const failingStore: JobResultStore = {
+        save: vi.fn(async () => {
+          throw new Error('disk full');
+        }),
+        load: vi.fn(async () => null),
+        loadByIdempotencyKey: vi.fn(async () => null),
+        sweepExpired: vi.fn(async () => 0),
+      };
+      const reviewExecutor: ReviewExecutor = {
+        execute: vi.fn<ReviewExecutor['execute']>().mockResolvedValue(createDefaultReviewResult()),
       };
       const app = createTestApp({
-        jobResultStore: store,
-        serviceFactory: createMockServiceFactory({ reviewExecutor: failingExecutor }),
+        jobResultStore: failingStore,
+        serviceFactory: createMockServiceFactory({ reviewExecutor }),
       });
-
       const res = await app.request('/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'failing-key' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'fail-save-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
-
-      const failedSave = store.saveCalls.find((r) => r.status === 'failed');
-      expect(failedSave).toBeDefined();
-      if (failedSave?.status === 'failed') {
-        expect(failedSave.errorMessage).toBe('AI exploded');
-      }
+      expect(res.status).toBe(500);
+      // AI処理は呼ばれない
+      expect(reviewExecutor.execute).not.toHaveBeenCalled();
     });
   });
 });

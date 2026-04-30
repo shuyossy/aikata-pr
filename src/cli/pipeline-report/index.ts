@@ -28,7 +28,6 @@ import {
   PipelineReportApiClient,
   type PipelineReportApiClientConfig,
   type PipelineReportApiClientResilienceOptions,
-  type PipelineReportProgressEvent,
 } from '../../infrastructure/adapter/pipeline-report/apiClient/index.js';
 import {
   ApiServerConnectionError,
@@ -148,48 +147,6 @@ const defaultApiDeps: PipelineReportApiDeps = {
 };
 
 /**
- * 進捗イベントをログに整形出力する共通処理。
- */
-function formatProgressLog(event: PipelineReportProgressEvent): {
-  level: 'info' | 'warn' | 'error';
-  message: string;
-  extra: Record<string, unknown>;
-} {
-  // workflow 内部の詳細イベント（type=log の場合は level を尊重）
-  if (event.workflow !== undefined) {
-    if (event.workflow.type === 'log') {
-      const level =
-        event.workflow.level === 'error' || event.workflow.level === 'warn'
-          ? event.workflow.level
-          : 'info';
-      return {
-        level,
-        message: event.workflow.message,
-        extra: { status: event.status, workflow: event.workflow },
-      };
-    }
-    if (event.workflow.type === 'retry') {
-      return {
-        level: 'warn',
-        message: `Retrying pipeline analysis: ${event.workflow.reason} (attempt ${event.workflow.retryCount})`,
-        extra: { status: event.status, workflow: event.workflow },
-      };
-    }
-    // phase イベント
-    return {
-      level: 'info',
-      message: `Workflow phase: ${event.workflow.phase}`,
-      extra: { status: event.status, workflow: event.workflow },
-    };
-  }
-  return {
-    level: 'info',
-    message: event.message ?? `Pipeline report progress: ${event.status}`,
-    extra: { status: event.status },
-  };
-}
-
-/**
  * pipeline-report サブコマンドのエントリポイント。
  * review の `src/cli/review/index.ts` と同等の構造に揃えている。
  */
@@ -225,8 +182,9 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
   const logger = getLogger();
   logger.info('pipeline-report started');
 
-  // APIモード時にAPIサーバーから受領するrequestId。エラーログの相関キーとしてcatchブロックからも参照できるよう外側に宣言
-  let apiRequestId: string | undefined;
+  // APIモード時にCLIが生成し、APIサーバへヘッダ送信するjobId。
+  // エラーログの相関キーとしてcatchブロックからも参照できるよう外側に宣言
+  let apiJobId: string | undefined;
 
   try {
     // 必須パラメータのバリデーション
@@ -328,27 +286,31 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
       });
 
       const result = await client.run(apiRequest, {
-        onProgress: (event) => {
-          runWithLogContext({ requestId: apiRequestId }, () => {
-            const formatted = formatProgressLog(event);
-            getLogger()[formatted.level](formatted.extra, formatted.message);
+        onPoll: (info) => {
+          runWithLogContext({ requestId: apiJobId }, () => {
+            const elapsedSec = Math.floor(info.elapsedMs / 1000);
+            const stepLabel = info.currentStep ? ` (step: ${info.currentStep})` : '';
+            getLogger().info(
+              { attempt: info.attempt, status: info.status, currentStep: info.currentStep },
+              `Pipeline report job in progress${stepLabel} — ${elapsedSec}s elapsed`,
+            );
           });
         },
-        onRequestId: (receivedRequestId) => {
-          apiRequestId = receivedRequestId;
-          runWithLogContext({ requestId: apiRequestId }, () => {
-            getLogger().info('Pipeline report API request accepted by server');
+        onJobIdReceived: (jobId) => {
+          apiJobId = jobId;
+          runWithLogContext({ requestId: apiJobId }, () => {
+            getLogger().info('Submitting pipeline-report request to API server');
           });
         },
         onError: (err) => {
-          runWithLogContext({ requestId: apiRequestId }, () => {
+          runWithLogContext({ requestId: apiJobId }, () => {
             getLogger().error({ err }, 'Pipeline report API reported an error');
           });
         },
       });
 
       // レスポンス受領後の処理（ファイル書き込み・完了ログ・stdout出力）を requestId バインディング下で実行
-      await runWithLogContext({ requestId: apiRequestId }, () => {
+      await runWithLogContext({ requestId: apiJobId }, () => {
         fs.mkdirSync(path.dirname(resultFilePath), { recursive: true });
         fs.writeFileSync(resultFilePath, result.reportContent);
 
@@ -378,8 +340,8 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
   } catch (error) {
     const userId = parsed?.userId ?? 'unknown';
     const errorBindings: Record<string, unknown> = { userId };
-    if (apiRequestId) {
-      errorBindings['requestId'] = apiRequestId;
+    if (apiJobId) {
+      errorBindings['requestId'] = apiJobId;
     }
     if (error instanceof Error) {
       logger.error({ ...errorBindings, err: error }, 'Pipeline report failed');
@@ -393,7 +355,7 @@ export async function run(args: string[], runOptions: RunOptions = {}): Promise<
 }
 
 /**
- * 環境変数からSSE接続耐性オプションを構築する
+ * 環境変数からネットワーク耐性オプションを構築する
  */
 function buildApiClientResilienceOptions(
   env: NodeJS.ProcessEnv,
@@ -405,7 +367,6 @@ function buildApiClientResilienceOptions(
   if (env['JOB_FETCH_RETRY_MAX_MS']) fetchRetry.maxMs = Number(env['JOB_FETCH_RETRY_MAX_MS']);
   if (Object.keys(fetchRetry).length > 0) opts.fetchRetry = fetchRetry;
 
-  if (env['SSE_IDLE_TIMEOUT_MS']) opts.sseIdleTimeoutMs = Number(env['SSE_IDLE_TIMEOUT_MS']);
   if (env['JOB_RESULT_POLL_INTERVAL_MS'])
     opts.pollIntervalMs = Number(env['JOB_RESULT_POLL_INTERVAL_MS']);
   if (env['JOB_RESULT_POLL_TIMEOUT_MS'])
@@ -416,7 +377,7 @@ function buildApiClientResilienceOptions(
 }
 
 /**
- * SSE接続耐性関連エラーをユーザ向けに親切に表示する
+ * ネットワーク耐性関連エラーをユーザ向けに親切に表示する
  */
 function printUserFacingErrorSummary(error: unknown): void {
   if (

@@ -51,9 +51,9 @@ export async function run(args: string[]): Promise<void> {
   const logger = getLogger();
   logger.info('aikata-pr started');
 
-  // APIモード時にAPIサーバーから受領するrequestId。ログコンテキストおよびエラーログの
-  // 相関キーとしてcatchブロックからも参照できるよう、try外のスコープに宣言
-  let apiRequestId: string | undefined;
+  // APIモード時にCLIが生成し、APIサーバへヘッダ送信するjobId。
+  // ログコンテキストおよびエラーログの相関キーとしてcatchブロックからも参照できるよう、try外のスコープに宣言
+  let apiJobId: string | undefined;
 
   try {
     // 必須パラメータのバリデーション
@@ -90,7 +90,7 @@ export async function run(args: string[]): Promise<void> {
       if (!aikataVersion) {
         throw new Error('Missing required environment variable: AIKATA_PR_VERSION');
       }
-      // SSE接続耐性オプションを環境変数から取得（未指定時はApiClientのデフォルト値）
+      // ネットワーク耐性オプションを環境変数から取得（未指定時はApiClientのデフォルト値）
       const resilience = buildApiClientResilienceOptions(process.env);
       const client = new ReviewApiClient(
         options.aikataApiUrl!,
@@ -107,34 +107,30 @@ export async function run(args: string[]): Promise<void> {
         treeMaxDepth,
       );
 
-      // executeReview呼び出し中は`apiRequestId`がまだ未設定の区間があるため、
-      // onRequestIdでIDを受領した時点で外側スコープの`apiRequestId`に保持しつつ、
-      // 以降のonProgressコールバックではクロージャでそのIDを参照してログに付与する
       const apiResult = await client.executeReview(
         apiRequest,
-        (event) => {
-          // runWithLogContextでonProgressの都度requestIdをログに付与する
-          // （onProgressはexecuteReviewの同期コールスタック上で呼ばれるため、
-          // requestIdは既に受領済みの想定）
-          runWithLogContext({ requestId: apiRequestId }, () => {
+        (info) => {
+          // ポーリングで pending を受信する都度、CIログに進捗を出す
+          runWithLogContext({ requestId: apiJobId }, () => {
+            const elapsedSec = Math.floor(info.elapsedMs / 1000);
+            const stepLabel = info.currentStep ? ` (step: ${info.currentStep})` : '';
             getLogger().info(
-              { status: event.status },
-              event.message ?? `Review progress: ${event.status}`,
+              { attempt: info.attempt, status: info.status, currentStep: info.currentStep },
+              `Review job in progress${stepLabel} — ${elapsedSec}s elapsed`,
             );
           });
         },
-        (receivedRequestId) => {
-          apiRequestId = receivedRequestId;
-          // requestId受領時点で即座にログ出力（サーバー側ログとの相関用）
-          runWithLogContext({ requestId: apiRequestId }, () => {
-            getLogger().info('API review request accepted by server');
+        (jobId) => {
+          apiJobId = jobId;
+          runWithLogContext({ requestId: apiJobId }, () => {
+            getLogger().info('Submitting review request to API server');
           });
         },
       );
 
       // API呼び出し以降の処理（結果変換、コメント投稿、終了判定）を
       // requestIdバインディング下で実行し、全ログにrequestIdを付与する
-      await runWithLogContext({ requestId: apiRequestId }, async () => {
+      await runWithLogContext({ requestId: apiJobId }, async () => {
         // APIレスポンスをReviewResult[]に変換
         const results = apiResult.results.map((r) => {
           const checkItem = checklist.items.find((i) => i.content === r.checkItemContent);
@@ -334,17 +330,17 @@ export async function run(args: string[]): Promise<void> {
     }
   } catch (error) {
     const userId = options.userId ?? 'unknown';
-    // APIモード時に受領済みのrequestIdがあればエラーログにも付与し、サーバー側ログとの相関を可能にする
+    // APIモード時にCLIが生成したjobIdがあればエラーログにも付与し、サーバー側ログとの相関を可能にする
     const errorBindings: Record<string, unknown> = { userId };
-    if (apiRequestId) {
-      errorBindings['requestId'] = apiRequestId;
+    if (apiJobId) {
+      errorBindings['requestId'] = apiJobId;
     }
     if (error instanceof Error) {
       logger.error({ ...errorBindings, err: error }, 'Review failed');
     } else {
       logger.error(errorBindings, `Review failed: ${String(error)}`);
     }
-    // ユーザフレンドリーなサマリ出力（SSE接続耐性関連のエラーのみ）
+    // ユーザフレンドリーなサマリ出力（ネットワーク耐性関連のエラーのみ）
     printUserFacingErrorSummary(error);
     flushLogger();
     process.exit(1);
@@ -352,11 +348,10 @@ export async function run(args: string[]): Promise<void> {
 }
 
 /**
- * 環境変数からSSE接続耐性オプションを構築する
+ * 環境変数からネットワーク耐性オプションを構築する
  */
 function buildApiClientResilienceOptions(env: NodeJS.ProcessEnv): {
   fetchRetry?: { retryCount?: number; baseMs?: number; maxMs?: number };
-  sseIdleTimeoutMs?: number;
   pollIntervalMs?: number;
   pollMaxIntervalMs?: number;
   pollTotalTimeoutMs?: number;
@@ -369,7 +364,6 @@ function buildApiClientResilienceOptions(env: NodeJS.ProcessEnv): {
   if (env['JOB_FETCH_RETRY_MAX_MS']) fetchRetry.maxMs = Number(env['JOB_FETCH_RETRY_MAX_MS']);
   if (Object.keys(fetchRetry).length > 0) opts.fetchRetry = fetchRetry;
 
-  if (env['SSE_IDLE_TIMEOUT_MS']) opts.sseIdleTimeoutMs = Number(env['SSE_IDLE_TIMEOUT_MS']);
   if (env['JOB_RESULT_POLL_INTERVAL_MS'])
     opts.pollIntervalMs = Number(env['JOB_RESULT_POLL_INTERVAL_MS']);
   if (env['JOB_RESULT_POLL_TIMEOUT_MS'])
@@ -380,7 +374,7 @@ function buildApiClientResilienceOptions(env: NodeJS.ProcessEnv): {
 }
 
 /**
- * SSE接続耐性関連エラーをユーザ向けに親切に表示する
+ * ネットワーク耐性関連エラーをユーザ向けに親切に表示する
  *
  * stderrに直接書き込む（loggerのスタックトレースとは別経路で簡潔なサマリを表示）
  */

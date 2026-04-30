@@ -9,4 +9,8 @@ export {
   DEFAULT_FETCH_RETRY,
   DEFAULT_POLL_OPTIONS,
 } from './jobResultPolling.js';
-export type { FetchRetryOptions, JobResultPollOptions } from './jobResultPolling.js';
+export type {
+  FetchRetryOptions,
+  JobResultPollOptions,
+  JobResultPollInfo,
+} from './jobResultPolling.js';

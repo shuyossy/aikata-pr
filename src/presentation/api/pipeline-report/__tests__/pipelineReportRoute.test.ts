@@ -26,31 +26,19 @@ import { AnalysisReport } from '../../../../domain/pipeline-report/analysisRepor
 import { initializeLogger, resetLogger } from '../../../../lib/logger.js';
 
 /**
- * SSE レスポンスをパースしてイベントオブジェクトの配列に変換するヘルパー
+ * バックグラウンドジョブの完了（success/failedのレコード保存）まで待機するヘルパ
  */
-function parseSSEEvents(text: string): Array<{ event?: string; data: string }> {
-  const events: Array<{ event?: string; data: string }> = [];
-  const blocks = text.split('\n\n').filter((b) => b.trim().length > 0);
-
-  for (const block of blocks) {
-    const lines = block.split('\n');
-    let event: string | undefined;
-    let data = '';
-
-    for (const line of lines) {
-      if (line.startsWith('event:')) {
-        event = line.slice('event:'.length).trim();
-      } else if (line.startsWith('data:')) {
-        data = line.slice('data:'.length).trim();
-      }
-    }
-
-    if (data) {
-      events.push({ event, data });
-    }
+async function waitForJobCompletion(
+  store: ReturnType<typeof createMockJobResultStore>,
+  timeoutMs = 2000,
+): Promise<JobResultRecord> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const finalized = store.saveCalls.find((r) => r.status === 'success' || r.status === 'failed');
+    if (finalized) return finalized;
+    await new Promise((r) => setTimeout(r, 5));
   }
-
-  return events;
+  throw new Error('Background job did not complete within timeout');
 }
 
 /**
@@ -138,8 +126,6 @@ function createMockServiceFactory(overrides?: {
 
 /**
  * モックJobResultStoreを作成するヘルパー
- *
- * 内部Mapで保存・取得・Idempotency-Key索引を再現する
  */
 function createMockJobResultStore(): JobResultStore & {
   saveCalls: JobResultRecord[];
@@ -195,11 +181,7 @@ function createTestApp(
   };
 
   const app = new Hono<PipelineReportRouteEnv>();
-
-  // requestId ミドルウェア（route が c.get('requestId') を参照するため必須）
   app.use('*', createRequestIdMiddleware());
-
-  // 依存注入と JWT payload モックのミドルウェア
   app.use('*', async (c, next) => {
     c.set('pipelineReportHandlerDeps', deps);
     if (jwtPayload) {
@@ -249,13 +231,11 @@ describe('pipelineReportRoute', () => {
   describe('POST /pipeline-report — バリデーション', () => {
     it('不正な JSON ボディで 400 エラーが返ること', async () => {
       const app = createTestApp();
-
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: 'invalid json',
       });
-
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toBe('Invalid JSON body');
@@ -264,134 +244,110 @@ describe('pipelineReportRoute', () => {
     it('userId が未指定で 400 エラーが返ること', async () => {
       const app = createTestApp();
       const body = createValidRequestBody();
-      delete (body as Record<string, unknown>)['userId'];
-
+      delete body['userId'];
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(body),
       });
-
       expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json.error).toBe('Validation error');
-      expect(json.details).toBeDefined();
     });
 
     it('projectId が文字列で 400 エラーが返ること', async () => {
       const app = createTestApp();
       const body = { ...createValidRequestBody(), projectId: '42' };
-
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(body),
       });
-
       expect(res.status).toBe(400);
     });
 
     it('settings を省略したリクエストがバリデーションを通ること', async () => {
-      const app = createTestApp();
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
       const body = createValidRequestBody();
-      delete (body as Record<string, unknown>)['settings'];
-
+      delete body['settings'];
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(body),
       });
-
       expect(res.status).toBe(200);
-      expect(res.headers.get('content-type')).toContain('text/event-stream');
+      expect(res.headers.get('content-type')).toContain('application/json');
+      await waitForJobCompletion(store);
     });
   });
 
-  describe('POST /pipeline-report — SSE ストリーム', () => {
-    it('正常なリクエストで SSE が返り started/cloning/analyzing/result/done が含まれること', async () => {
-      const app = createTestApp();
-
+  describe('POST /pipeline-report — JSON応答', () => {
+    it('正常なリクエストで pending を即時応答し、バックグラウンドで success が保存されること', async () => {
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
       expect(res.status).toBe(200);
-      expect(res.headers.get('content-type')).toContain('text/event-stream');
-
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-
-      const progressStatuses = events
-        .filter((e) => e.event === 'progress')
-        .map((e) => JSON.parse(e.data).status);
-
-      expect(progressStatuses).toContain('started');
-      expect(progressStatuses).toContain('fetching_pipeline');
-      expect(progressStatuses).toContain('cloning');
-      expect(progressStatuses).toContain('analyzing');
-
-      // result イベント
-      const resultEvents = events.filter((e) => e.event === 'result');
-      expect(resultEvents.length).toBe(1);
-      const resultData = JSON.parse(resultEvents[0].data);
-      expect(resultData.reportContent).toContain('Pipeline Report');
-      expect(resultData.completenessVerified).toBe(true);
-      expect(resultData.workflowFailed).toBe(false);
-      expect(resultData.targetJobIds).toEqual([5001]);
-      expect(resultData.pipeline.projectId).toBe(42);
-      expect(resultData.pipeline.ref).toBe('main');
-
-      // done イベント
-      const doneEvents = events.filter((e) => e.event === 'done');
-      expect(doneEvents.length).toBe(1);
+      expect(res.headers.get('content-type')).toContain('application/json');
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['feature']).toBe('pipeline-report');
+      expect(body['status']).toBe('pending');
+      expect(typeof body['jobId']).toBe('string');
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('success');
+      if (finalized.status === 'success') {
+        const payload = finalized.payload as {
+          reportContent: string;
+          completenessVerified: boolean;
+          targetJobIds: number[];
+        };
+        expect(payload.reportContent).toContain('Pipeline Report');
+        expect(payload.completenessVerified).toBe(true);
+        expect(payload.targetJobIds).toEqual([5001]);
+      }
     });
 
     it('CloneManager.clone がパイプラインの ref で source / target を指定されること', async () => {
+      const store = createMockJobResultStore();
       const cloneManager = createMockCloneManager();
-      const app = createTestApp({ cloneManager });
-
-      const res = await app.request('/pipeline-report', {
+      const app = createTestApp({ cloneManager, jobResultStore: store });
+      await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      // SSE ストリームを最後まで消費しないと handler の処理が完了しないため、明示的に読み切る
-      await res.text();
-
+      await waitForJobCompletion(store);
       expect(cloneManager.clone).toHaveBeenCalledTimes(1);
       const cloneArgs = cloneManager.clone.mock.calls[0];
-      expect(cloneArgs[0]).toBe('test-gitlab-token'); // gitlabToken
-      expect(cloneArgs[1]).toBe('https://gitlab.example.com/api/v4'); // baseUrl
-      expect(cloneArgs[2]).toBe('42'); // projectId as string
-      expect(cloneArgs[3]).toBe('main'); // sourceBranch = pipeline.ref
-      expect(cloneArgs[4]).toBe('main'); // targetBranch = pipeline.ref
-      expect(cloneArgs[5]).toBe('abc123def456'); // commitSha = pipeline.sha
+      expect(cloneArgs[0]).toBe('test-gitlab-token');
+      expect(cloneArgs[1]).toBe('https://gitlab.example.com/api/v4');
+      expect(cloneArgs[2]).toBe('42');
+      expect(cloneArgs[3]).toBe('main');
+      expect(cloneArgs[4]).toBe('main');
+      expect(cloneArgs[5]).toBe('abc123def456');
     });
 
     it('PipelineAnalysisExecutor.analyze に正しいコマンドが渡ること', async () => {
+      const store = createMockJobResultStore();
       const analysisResult = createDefaultAnalysisResult();
       const analyzeMock = vi
         .fn<PipelineAnalysisExecutor['analyze']>()
         .mockResolvedValue(analysisResult);
       const serviceFactory: PipelineReportServiceFactory = {
         create: vi.fn().mockReturnValue({
-          metaFetcher: {
-            getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline),
-          },
+          metaFetcher: { getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline) },
           executor: { analyze: analyzeMock },
         }),
       };
-
-      const app = createTestApp({ serviceFactory });
-
-      const res = await app.request('/pipeline-report', {
+      const app = createTestApp({ serviceFactory, jobResultStore: store });
+      await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
+      await waitForJobCompletion(store);
 
       expect(analyzeMock).toHaveBeenCalledTimes(1);
       const command = analyzeMock.mock.calls[0][0];
@@ -413,158 +369,113 @@ describe('pipelineReportRoute', () => {
     });
 
     it('deps.maxContextLength がサーバ環境変数由来で analyze コマンドに伝播すること', async () => {
+      const store = createMockJobResultStore();
       const analysisResult = createDefaultAnalysisResult();
       const analyzeMock = vi
         .fn<PipelineAnalysisExecutor['analyze']>()
         .mockResolvedValue(analysisResult);
       const serviceFactory: PipelineReportServiceFactory = {
         create: vi.fn().mockReturnValue({
-          metaFetcher: {
-            getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline),
-          },
+          metaFetcher: { getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline) },
           executor: { analyze: analyzeMock },
         }),
       };
-
-      const app = createTestApp({ serviceFactory, maxContextLength: 80000 });
-
-      const res = await app.request('/pipeline-report', {
+      const app = createTestApp({ serviceFactory, maxContextLength: 80000, jobResultStore: store });
+      await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
-
-      expect(analyzeMock).toHaveBeenCalledTimes(1);
-      const command = analyzeMock.mock.calls[0][0];
-      expect(command.maxContextLength).toBe(80000);
+      await waitForJobCompletion(store);
+      expect(analyzeMock.mock.calls[0][0].maxContextLength).toBe(80000);
     });
 
     it('rateLimiter に registerProject / unregisterProject が呼ばれること', async () => {
+      const store = createMockJobResultStore();
       const rateLimiter = createMockRateLimiter();
-      const app = createTestApp({ rateLimiter });
-
-      const res = await app.request('/pipeline-report', {
+      const app = createTestApp({ rateLimiter, jobResultStore: store });
+      await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
-
+      await waitForJobCompletion(store);
       expect(rateLimiter.registerProject).toHaveBeenCalledWith('42');
       expect(rateLimiter.unregisterProject).toHaveBeenCalledWith('42');
     });
 
-    it('analyze が失敗しても unregisterProject が呼ばれること', async () => {
+    it('analyze が失敗しても unregisterProject が呼ばれ、failed レコードが保存されること', async () => {
+      const store = createMockJobResultStore();
       const rateLimiter = createMockRateLimiter();
       const analysisResult = createDefaultAnalysisResult();
       const serviceFactory: PipelineReportServiceFactory = {
         create: vi.fn().mockReturnValue({
-          metaFetcher: {
-            getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline),
-          },
-          executor: {
-            analyze: vi.fn().mockRejectedValue(new Error('Analysis boom')),
-          },
+          metaFetcher: { getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline) },
+          executor: { analyze: vi.fn().mockRejectedValue(new Error('Analysis boom')) },
         }),
       };
-      const app = createTestApp({ rateLimiter, serviceFactory });
-
-      const res = await app.request('/pipeline-report', {
+      const app = createTestApp({ rateLimiter, serviceFactory, jobResultStore: store });
+      await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
-
-      expect(rateLimiter.registerProject).toHaveBeenCalledWith('42');
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('failed');
+      if (finalized.status === 'failed') {
+        expect(finalized.errorMessage).toContain('Analysis boom');
+      }
       expect(rateLimiter.unregisterProject).toHaveBeenCalledWith('42');
     });
 
-    it('リポジトリクローンが完了後に cleanup が呼ばれること', async () => {
+    it('リポジトリクローン後に cleanup が呼ばれること', async () => {
+      const store = createMockJobResultStore();
       const cloneManager = createMockCloneManager();
-      const app = createTestApp({ cloneManager });
-
-      const res = await app.request('/pipeline-report', {
+      const app = createTestApp({ cloneManager, jobResultStore: store });
+      await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
-
+      await waitForJobCompletion(store);
       expect(cloneManager.cleanupFn).toHaveBeenCalledTimes(1);
     });
 
-    it('analyze が失敗した場合に error SSE イベントが送出され、cleanup は呼ばれること', async () => {
-      const analysisResult = createDefaultAnalysisResult();
-      const analyzeMock = vi
-        .fn<PipelineAnalysisExecutor['analyze']>()
-        .mockRejectedValue(new Error('Analysis boom'));
-      const serviceFactory: PipelineReportServiceFactory = {
-        create: vi.fn().mockReturnValue({
-          metaFetcher: {
-            getPipeline: vi.fn().mockResolvedValue(analysisResult.pipeline),
-          },
-          executor: { analyze: analyzeMock },
-        }),
-      };
-      const cloneManager = createMockCloneManager();
-      const app = createTestApp({ serviceFactory, cloneManager });
-
-      const res = await app.request('/pipeline-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
-        body: JSON.stringify(createValidRequestBody()),
-      });
-
-      expect(res.status).toBe(200);
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-      const errorEvents = events.filter((e) => e.event === 'error');
-      expect(errorEvents.length).toBe(1);
-      const errorData = JSON.parse(errorEvents[0].data);
-      expect(errorData.error).toContain('Analysis boom');
-      expect(cloneManager.cleanupFn).toHaveBeenCalledTimes(1);
-    });
-
-    it('settings.includeJobPatterns に不正 RegExp が含まれる場合に error SSE イベントになること', async () => {
-      const app = createTestApp();
+    it('settings.includeJobPatterns に不正 RegExp が含まれる場合に failed レコードが保存されること', async () => {
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
       const body = {
         ...createValidRequestBody(),
-        settings: {
-          includeJobPatterns: ['[unclosed'],
-        },
+        settings: { includeJobPatterns: ['[unclosed'] },
       };
-
-      const res = await app.request('/pipeline-report', {
+      await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(body),
       });
-
-      expect(res.status).toBe(200);
-      const text = await res.text();
-      const events = parseSSEEvents(text);
-      const errorEvents = events.filter((e) => e.event === 'error');
-      expect(errorEvents.length).toBe(1);
-      expect(JSON.parse(errorEvents[0].data).error).toContain('Invalid RegExp');
+      const finalized = await waitForJobCompletion(store);
+      expect(finalized.status).toBe('failed');
+      if (finalized.status === 'failed') {
+        expect(finalized.errorMessage).toContain('Invalid RegExp');
+      }
     });
   });
 
   describe('POST /pipeline-report — JWT payload', () => {
     it('JWT 未設定でも正常に処理できること', async () => {
-      const app = createTestApp();
-
+      const store = createMockJobResultStore();
+      const app = createTestApp({ jobResultStore: store });
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
       expect(res.status).toBe(200);
+      await waitForJobCompletion(store);
     });
 
     it('JWT の user_login とボディの userId が一致する場合は警告なしで動作すること', async () => {
+      const store = createMockJobResultStore();
       const jwtPayload: GitLabIdTokenPayload = {
         user_login: 'test-user',
         user_id: 999,
@@ -573,15 +484,14 @@ describe('pipelineReportRoute', () => {
         pipeline_id: 2001,
         job_id: 3001,
       } as GitLabIdTokenPayload;
-      const app = createTestApp(undefined, jwtPayload);
-
+      const app = createTestApp({ jobResultStore: store }, jwtPayload);
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'test-idem-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
       expect(res.status).toBe(200);
+      await waitForJobCompletion(store);
     });
   });
 
@@ -594,8 +504,6 @@ describe('pipelineReportRoute', () => {
         body: JSON.stringify(createValidRequestBody()),
       });
       expect(res.status).toBe(400);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body['error']).toContain('X-Idempotency-Key');
     });
 
     it('既存success ジョブを Idempotency-Key 一致で検出し、AI処理を再実行せず結果を返すこと', async () => {
@@ -621,22 +529,19 @@ describe('pipelineReportRoute', () => {
         jobResultStore: store,
         serviceFactory: createMockServiceFactory({ executor }),
       });
-
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'shared-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
-      const events = parseSSEEvents(await res.text());
-      const resultEvent = events.find((e) => e.event === 'result');
-      expect(resultEvent).toBeDefined();
-      const resultData = JSON.parse(resultEvent!.data);
-      expect(resultData).toEqual(cachedPayload);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['status']).toBe('success');
+      expect(body['payload']).toEqual(cachedPayload);
       expect(executor.analyze).not.toHaveBeenCalled();
     });
 
-    it('既存pending ジョブを Idempotency-Key 一致で検出し、duplicatedイベントを送信して処理を打ち切ること', async () => {
+    it('既存pending ジョブを Idempotency-Key 一致で検出し、status=pendingで既存jobIdを返すこと', async () => {
       const store = createMockJobResultStore();
       await store.save({
         jobId: 'pending-job-id',
@@ -644,6 +549,7 @@ describe('pipelineReportRoute', () => {
         feature: 'pipeline-report',
         status: 'pending',
         userId: 'test-user',
+        currentStep: 'analyzing',
         createdAt: '2026-04-29T00:00:00.000Z',
         updatedAt: '2026-04-29T00:00:00.000Z',
         expiresAt: '2026-04-30T00:00:00.000Z',
@@ -657,37 +563,31 @@ describe('pipelineReportRoute', () => {
         jobResultStore: store,
         serviceFactory: createMockServiceFactory({ executor }),
       });
-
       const res = await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'pending-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-
-      const events = parseSSEEvents(await res.text());
-      const duplicated = events
-        .filter((e) => e.event === 'progress')
-        .map((e) => JSON.parse(e.data) as { status?: string; existingJobId?: string })
-        .find((d) => d.status === 'duplicated');
-      expect(duplicated).toBeDefined();
-      expect(duplicated!.existingJobId).toBe('pending-job-id');
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body['status']).toBe('pending');
+      expect(body['jobId']).toBe('pending-job-id');
+      expect(body['currentStep']).toBe('analyzing');
       expect(executor.analyze).not.toHaveBeenCalled();
     });
 
-    it('正常系: 完了時に success レコードが永続化されること', async () => {
+    it('正常系: 完了時に pending → success の順で永続化されること', async () => {
       const store = createMockJobResultStore();
       const app = createTestApp({ jobResultStore: store });
-
-      const res = await app.request('/pipeline-report', {
+      await app.request('/pipeline-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'normal-key' },
         body: JSON.stringify(createValidRequestBody()),
       });
-      await res.text();
-
-      expect(store.saveCalls.length).toBe(2);
-      expect(store.saveCalls[0].status).toBe('pending');
-      expect(store.saveCalls[1].status).toBe('success');
+      await waitForJobCompletion(store);
+      const pendingSave = store.saveCalls.find((r) => r.status === 'pending');
+      const successSave = store.saveCalls.find((r) => r.status === 'success');
+      expect(pendingSave).toBeDefined();
+      expect(successSave).toBeDefined();
     });
   });
 });

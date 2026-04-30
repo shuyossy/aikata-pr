@@ -36,6 +36,11 @@ interface JobResultRecordBase {
  */
 export interface PendingJobResultRecord extends JobResultRecordBase {
   status: 'pending';
+  /**
+   * 現在の処理段階を示す文字列キー（例: 'fetching_mr_info', 'cloning', 'reviewing'）。
+   * バックグラウンドAI処理が節目で更新し、ポーリング中のCLIに進捗を伝えるために使う。
+   */
+  currentStep?: string;
 }
 
 /**

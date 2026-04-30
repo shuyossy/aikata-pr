@@ -16,9 +16,9 @@ review 機能（AI MRレビュー）の処理フロー概要を以下に示す
 
 ## 構成パターン
 - **ローカルモード**（`AI_API_KEY`、`AI_API_ENDPOINT_URL`、`AI_MODEL_NAME`が全て設定されている場合）: CLIが全処理をローカルで実行する（開発用・後方互換）
-- **APIモード**（上記3変数のいずれかが未設定の場合）: CI/CDジョブのCLIが外部APIサーバー（`AIKATA_API_URL`）にSSEでレビュー実行を委譲し、コメント投稿・品質ゲート評価はCLI側で実行する。AI APIキーはAPIサーバー側で一元管理（流出リスク排除）。認証はGitLab CI/CDの`id_tokens`（JWT）で行う。`AIKATA_API_URL`と`AIKATA_JWT`が必要
+- **APIモード**（上記3変数のいずれかが未設定の場合）: CI/CDジョブのCLIが外部APIサーバー（`AIKATA_API_URL`）にレビュー実行を委譲する。`POST /api/v1/review` で軽量なJSON応答 `{jobId, status}` を即時受領し、AI処理はAPIサーバ内のバックグラウンドで実行される。CLIは `GET /api/v1/jobs/{jobId}` をポーリングして最終結果を取得し、コメント投稿・品質ゲート評価はCLI側で実行する。AI APIキーはAPIサーバー側で一元管理（流出リスク排除）。認証はGitLab CI/CDの`id_tokens`（JWT）で行う。`AIKATA_API_URL`と`AIKATA_JWT`が必要
 
-以下のフローはローカルモードを基準に記述。APIモードではステップ0〜2がAPIサーバー側で実行され、SSEで結果がCLIに返却される。ステップ3（コメント投稿）および品質ゲート評価はいずれのモードでもCLI側で実行される。
+以下のフローはローカルモードを基準に記述。APIモードではステップ0〜2がAPIサーバー側のバックグラウンドジョブとして実行され、CLIはポーリングで結果を受け取る。ステップ3（コメント投稿）および品質ゲート評価はいずれのモードでもCLI側で実行される。
 
 0. ワークフロー開始前の事前処理
   - MR diffの取得（ローカルgit優先）
