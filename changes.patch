@@ -1,1189 +1,485 @@
 diff --git a/PBI.md b/PBI.md
-index 2fcf65e..b3f67d8 100644
+index b3f67d8..cd84193 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -10,3 +10,13 @@
+@@ -20,3 +20,18 @@
+   - suggest登録可能な範囲でsuggestする内容がない場合は、suggestの登録は不要である旨をpromptに明記する
+ - 注意事項
  - 指摘事項（in progressの場合のみ）
- ```
- 
-+# ID: 1
-+- PBI名: レビュー時suggestに関するprompt改善
-+- ステータス: done
++
++# ID: 2
++- PBI名: レビュー実行時のプロンプト強化
++- ステータス: to do
 +- 背景
-+  - 現状は、指定の評定に関するsuggestを必ず登録しようとする
-+    - suggestはMR diffの範囲内でしか実行できないという制約下で、無理矢理suggestを登録しようとしてしまうので、suggestの品質が悪くなる
++  - チェック項目に対して、人間の目から見るとdiffの内容がレビュー対象外でも無理やりレビューを実行しようとして、むしろレビュー結果がノイズになる場合がある
++  - ユーザが追加指示等で細かくレビュー方針を指定しなくともコードやドキュメントレビューのベストプラクティスに沿うように実行して欲しい
 +- 受け入れ基準
-+  - suggest登録可能な範囲でsuggestする内容がない場合は、suggestの登録は不要である旨をpromptに明記する
++  - 以下を考慮してシステムプロンプトが改善されている
++    - レビュー結果がノイズになる場合は無理にレビューせず、レビュー対象外であることをコメントして欲しい
++      - ユーザはレビュー結果を元にMR承認の判断等をするはずで、無理やりレビューすることがむしろユーザの認知負担になり、いずれレビュー結果に対する信頼低下につながる
++    - コードやドキュメントレビューのベストプラクティスに沿ってレビューすること
++      - 細かく項目を挙げても良いし、LLMが「コードやドキュメントレビューのベストプラクティス」と伝えるだけでも正しく理解できるのであればそれでも良い
 +- 注意事項
 +- 指摘事項（in progressの場合のみ）
+diff --git a/docs/domain/review/business_rule.md b/docs/domain/review/business_rule.md
+index 3da2489..ffadd19 100644
+--- a/docs/domain/review/business_rule.md
++++ b/docs/domain/review/business_rule.md
+@@ -212,6 +212,19 @@
+     - 行範囲が重複しない以前のsuggestはそのまま残す
+   - 関連するユースケースorエンティティ: SuggestOverlapResolver, ReviewExecutionService
+ 
++- AIレビュー方針ルール
++  - 目的/背景
++    - レビュー結果がノイズになるとユーザの認知負担を増やしレビュー結果への信頼を損なうため、対象外項目は無理にレビューしない
++    - 細かい指示を毎回与えなくてもベストプラクティスに沿ったレビューを行わせる
++  - 条件
++    - チェック項目の要件がdiffの変更内容に対して評価対象外（無関係）と判断される場合
++    - それ以外の場合は通常通りレビューを実施する
++  - 結果(アクション)
++    - 評価対象外の場合: ユーザ定義の評定リスト内に out-of-scope（該当なし／評価対象外）相当の評定があればそれを優先利用、なければ予約フォールバックラベル `-` を選び、コメントで対象外である旨と理由を明示する
++    - 予約フォールバックラベル `-` は ReviewSettings.ratings に含まれていなくても storeReviewResult / CommentParser / ReviewSettings の3箇所で常時受理される
++    - レビュー実施時はコード/ドキュメントレビューのベストプラクティスに沿う
++  - 関連するユースケースorエンティティ: reviewAgent, ReviewSettings, Rating, storeReviewResultTool, CommentParser
++
+ - サジェスト行番号解決ルール
+   - 目的/背景
+     - Agentが生成したコード断片からGitLab APIのdiff discussion投稿に必要なposition情報を算出するため
 diff --git a/docs/domain/review/entity.md b/docs/domain/review/entity.md
-index 26fe860..5057d51 100644
+index 5057d51..78c724e 100644
 --- a/docs/domain/review/entity.md
 +++ b/docs/domain/review/entity.md
-@@ -85,6 +85,7 @@
-     - hiddenRatingLabels (string[])
-     - qualityGate (QualityGate)
-     - suggestEnabledRatingLabels (string[]): suggestを有効にする評定ラベル（デフォルト: ['C']、空配列で無効）
-+    - mrCommentTitle (string): MRコメント見出しのタイトル文言（デフォルト: 'AIKATA-PR レビュー結果'）
+@@ -35,6 +35,8 @@
+     - definition (string)
    - 振る舞い
-     - default(静的ファクトリ): デフォルト設定を生成
-     - isSuggestEnabled(): suggestEnabledRatingLabelsが空でないか判定
-diff --git a/src/application/review/commentPosting/CommentPostingCommand.ts b/src/application/review/commentPosting/CommentPostingCommand.ts
-index 616fdf5..fd77f88 100644
---- a/src/application/review/commentPosting/CommentPostingCommand.ts
-+++ b/src/application/review/commentPosting/CommentPostingCommand.ts
-@@ -27,4 +27,6 @@ export interface CommentPostingCommand {
-   headSha: string;
-   /** MRのdiff_refs.start_sha */
-   startSha: string;
-+  /** MRコメントの見出しタイトル */
-+  mrCommentTitle: string;
- }
-diff --git a/src/application/review/commentPosting/CommentPostingService.ts b/src/application/review/commentPosting/CommentPostingService.ts
-index 4793aa2..2adec53 100644
---- a/src/application/review/commentPosting/CommentPostingService.ts
-+++ b/src/application/review/commentPosting/CommentPostingService.ts
-@@ -26,6 +26,7 @@ export class CommentPostingService {
-       command.commitMessage,
-       command.hiddenRatingLabels,
-       command.qualityGateResult,
-+      command.mrCommentTitle,
-     );
+     - equals(other: Rating): 同値比較
++  - 予約ラベル
++    - `-` (OUT_OF_SCOPE_RATING_LABEL): out-of-scope（評価対象外）用の予約フォールバック評定。ユーザのReviewSettings.ratingsに含まれていなくてもAIによる格納・パースが常に許容される。ユーザが`-`を独自定義で含めている場合はそちらが優先される。
  
-     // 全結果が非表示評定に該当する場合はノート、それ以外はディスカッションとして投稿
-diff --git a/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts b/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-index 1a650a0..9afd79d 100644
---- a/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-+++ b/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
-@@ -79,6 +79,7 @@ describe('CommentPostingService', () => {
-     baseSha: 'base-sha-000',
-     headSha: 'head-sha-111',
-     startSha: 'start-sha-222',
-+    mrCommentTitle: 'AIKATA-PR レビュー結果',
-     ...overrides,
-   });
+ - レビュー結果
+   - 識別子: ReviewResult
+@@ -74,9 +76,9 @@
+   - 不変条件
+     - concurrentReviewCountがnullまたは1以上
+     - ratingsが空でないこと
+-    - hiddenRatingLabelsの各ラベルがratingsに存在すること
+-    - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること
+-    - suggestEnabledRatingLabelsの各ラベルがratingsに存在すること
++    - hiddenRatingLabelsの各ラベルがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
++    - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
++    - suggestEnabledRatingLabelsの各ラベルがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
+   - 属性
+     - additionalInstructions (string)
+     - concurrentReviewCount (number | null)
+diff --git a/src/application/shared/comment/CommentParser.ts b/src/application/shared/comment/CommentParser.ts
+index edede24..dbbbe10 100644
+--- a/src/application/shared/comment/CommentParser.ts
++++ b/src/application/shared/comment/CommentParser.ts
+@@ -1,6 +1,10 @@
+ import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/review/reviewResult/index.js';
+ import { CheckItem } from '../../../domain/review/checkItem/index.js';
+-import { Rating } from '../../../domain/review/rating/index.js';
++import {
++  Rating,
++  OUT_OF_SCOPE_RATING,
++  OUT_OF_SCOPE_RATING_LABEL,
++} from '../../../domain/review/rating/index.js';
+ import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './CommentFormatter.js';
  
-@@ -100,6 +101,7 @@ describe('CommentPostingService', () => {
-       command.commitMessage,
-       command.hiddenRatingLabels,
-       command.qualityGateResult,
-+      command.mrCommentTitle,
-     );
-     expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledWith(
-       '123',
-@@ -192,6 +194,26 @@ describe('CommentPostingService', () => {
-       'fix: bug fix',
-       ['A'],
-       qualityGateResult,
-+      'AIKATA-PR レビュー結果',
-+    );
-+
-+    formatSpy.mockRestore();
-+  });
-+
-+  it('mrCommentTitleがCommentFormatterに透過的に渡されること', async () => {
-+    const command = createCommand({ mrCommentTitle: 'API基盤チェック' });
-+    const formatSpy = vi.spyOn(CommentFormatter, 'formatComment');
-+
-+    await service.execute(command);
-+
-+    expect(formatSpy).toHaveBeenCalledWith(
-+      command.results,
-+      command.ratings,
-+      command.commitHash,
-+      command.commitMessage,
-+      command.hiddenRatingLabels,
-+      command.qualityGateResult,
-+      'API基盤チェック',
-     );
+ /** メタデータのJSON構造 */
+@@ -162,12 +166,17 @@ export class CommentParser {
  
-     formatSpy.mockRestore();
-diff --git a/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts b/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-index 28998f4..adca223 100644
---- a/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-+++ b/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
-@@ -61,6 +61,7 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
-       hiddenRatingLabels: [],
-       suggestEnabledRatingLabels: ['C'],
-       qualityGate: QualityGate.none(),
-+      mrCommentTitle: 'AIKATA-PR レビュー結果',
-     }),
-     skillsPaths: [],
-     projectDir: '/test/project',
-@@ -128,6 +129,7 @@ function createAikataComment(
-     'test commit',
-     hiddenRatingLabels,
-     { passed: true, violations: [] },
-+    'AIKATA-PR レビュー結果',
-   );
-   return { id: 1, body, createdAt };
- }
-@@ -1669,6 +1671,7 @@ describe('ReviewExecutionService', () => {
-           hiddenRatingLabels: [],
-           suggestEnabledRatingLabels: ['B', 'C'],
-           qualityGate: QualityGate.none(),
-+          mrCommentTitle: 'AIKATA-PR レビュー結果',
-         }),
-       });
-       const mrContext = createMrContext({ diff: 'full diff content' });
-@@ -1700,6 +1703,7 @@ describe('ReviewExecutionService', () => {
-           hiddenRatingLabels: [],
-           suggestEnabledRatingLabels: [],
-           qualityGate: QualityGate.none(),
-+          mrCommentTitle: 'AIKATA-PR レビュー結果',
-         }),
-       });
-       const mrContext = createMrContext();
-diff --git a/src/application/shared/comment/CommentFormatter.ts b/src/application/shared/comment/CommentFormatter.ts
-index ba89c3b..285f36f 100644
---- a/src/application/shared/comment/CommentFormatter.ts
-+++ b/src/application/shared/comment/CommentFormatter.ts
-@@ -30,6 +30,7 @@ export class CommentFormatter {
-     commitMessage: string,
-     hiddenRatingLabels: string[],
-     qualityGateResult: QualityGateResult,
-+    mrCommentTitle: string,
-   ): string {
-     // 表示/非表示に分割（エラー結果は常に表示）
-     const visibleResults = results.filter(
-@@ -60,7 +61,7 @@ export class CommentFormatter {
- 
-     // ヘッダー
-     lines.push('');
--    lines.push('## AIKATA-PR レビュー結果');
-+    lines.push(`## ${mrCommentTitle}`);
-     lines.push(`レビュー時最新コミット: ${commitMessage}`);
- 
-     // 品質ゲート警告（テーブルの上に表示）
-diff --git a/src/application/shared/comment/__tests__/CommentFormatter.test.ts b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
-index 59402bc..0f74fdf 100644
---- a/src/application/shared/comment/__tests__/CommentFormatter.test.ts
-+++ b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
-@@ -56,6 +56,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       // テーブルヘッダの確認
-@@ -66,7 +67,7 @@ describe('CommentFormatter', () => {
-       expect(output).toContain('| テストカバレッジ | B | カバレッジを改善してください |');
-     });
- 
--    it('ヘッダー「## AIKATA-PR レビュー結果」が含まれている', () => {
-+    it('mrCommentTitle引数がMarkdownのH2ヘッダーとして出力される', () => {
-       const results = [
-         ReviewResult.success(
-           new CheckItem('チェック項目1'),
-@@ -82,11 +83,35 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('## AIKATA-PR レビュー結果');
-     });
- 
-+    it('mrCommentTitleに任意文字列を渡すとそれがH2ヘッダーに反映される', () => {
-+      const results = [
-+        ReviewResult.success(
-+          new CheckItem('チェック項目1'),
-+          new Rating('A', '完全に満たしている'),
-+          'コメント1',
-+        ),
-+      ];
-+
-+      const output = CommentFormatter.formatComment(
-+        results,
-+        ratings,
-+        commitHash,
-+        commitMessage,
-+        [],
-+        PASSED_GATE,
-+        'API基盤チェック',
-+      );
-+
-+      expect(output).toContain('## API基盤チェック');
-+      expect(output).not.toContain('## AIKATA-PR レビュー結果');
-+    });
-+
-     it('ヘッダーの下にコミットメッセージが表示される', () => {
-       const results = [
-         ReviewResult.success(
-@@ -103,6 +128,7 @@ describe('CommentFormatter', () => {
-         'feat: implement login',
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('レビュー時最新コミット: feat: implement login');
-@@ -124,6 +150,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain(REVIEW_MARKER);
-@@ -145,6 +172,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       // メタデータマーカーの存在確認
-@@ -179,6 +207,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('| エラーのチェック項目 | エラー | Timeout occurred |');
-@@ -194,6 +223,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('<details>');
-@@ -212,6 +242,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).not.toContain('<details>');
-@@ -235,6 +266,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('| 条件A \\| 条件B の確認 | A | 問題ありません |');
-@@ -256,6 +288,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('| 可読性 | A | if (a \\| b) のパターンに注意 |');
-@@ -273,6 +306,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
-@@ -294,6 +328,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('| 可読性 | A | 1行目<br>2行目<br>3行目 |');
-@@ -318,6 +353,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
-@@ -341,6 +377,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain(
-@@ -371,6 +408,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('| チェック項目1 | A | コメント1 |');
-@@ -398,6 +436,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         ['A'],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
-@@ -425,6 +464,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         ['A'],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       // メタデータのJSON部分を抽出してパース
-@@ -455,6 +495,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         ['A'],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('| エラー項目 | エラー | タイムアウト |');
-@@ -477,6 +518,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         ['A'],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
-@@ -499,6 +541,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
-@@ -526,6 +569,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         ['A'],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       // A評定の結果が非表示になるため、visible件数はFOLD_THRESHOLD以下
-@@ -550,6 +594,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         PASSED_GATE,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).not.toContain('Quality Gate Failed');
-@@ -576,6 +621,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         gateResult,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('> **⚠ Quality Gate Failed**');
-@@ -600,6 +646,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         gateResult,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('> - Rating "C" : 2 (threshold: 1)');
-@@ -621,6 +668,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         [],
-         gateResult,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       // 警告がdetails開始タグの前に表示される
-@@ -650,6 +698,7 @@ describe('CommentFormatter', () => {
-         commitMessage,
-         ['A'],
-         gateResult,
-+        'AIKATA-PR レビュー結果',
-       );
- 
-       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
-diff --git a/src/application/shared/comment/__tests__/CommentParser.test.ts b/src/application/shared/comment/__tests__/CommentParser.test.ts
-index e13f78e..eb118e3 100644
---- a/src/application/shared/comment/__tests__/CommentParser.test.ts
-+++ b/src/application/shared/comment/__tests__/CommentParser.test.ts
-@@ -35,6 +35,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -77,6 +78,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -106,6 +108,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -129,6 +132,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       // 折りたたみ形式であることを確認
-       expect(comment).toContain('<details>');
-@@ -159,6 +163,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -192,6 +197,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -218,6 +224,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -253,6 +260,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -274,6 +282,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -300,6 +309,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -324,6 +334,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -348,6 +359,7 @@ describe('CommentParser', () => {
-         'test commit',
-         [],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -379,6 +391,7 @@ describe('CommentParser', () => {
-         'test commit',
-         ['A'],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-@@ -419,6 +432,7 @@ describe('CommentParser', () => {
-         'test commit',
-         ['A'],
-         { passed: true, violations: [] },
-+        'AIKATA-PR レビュー結果',
-       );
-       const parsed = CommentParser.parseComment(comment);
- 
-diff --git a/src/application/shared/parser/ReviewSettingsParser.ts b/src/application/shared/parser/ReviewSettingsParser.ts
-index 63ee254..d0518d1 100644
---- a/src/application/shared/parser/ReviewSettingsParser.ts
-+++ b/src/application/shared/parser/ReviewSettingsParser.ts
-@@ -31,6 +31,7 @@ const reviewSettingsSchema = z.object({
-       ),
-     })
-     .optional(),
-+  mrCommentTitle: z.string().min(1).optional(),
- });
- 
- /**
-@@ -81,6 +82,7 @@ export class ReviewSettingsParser {
-       suggestEnabledRatingLabels:
-         data.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
-       qualityGate,
-+      mrCommentTitle: data.mrCommentTitle ?? defaults.mrCommentTitle,
-     });
+   /**
+    * ラベルに一致するRatingをメタデータの定義から検索する
++   * out-of-scope の予約フォールバックラベルは ratings に未登録でも常に受理する
++   * （ユーザが評定リストから '-' を外している状況での再レビュー時クラッシュを防ぐ）
+    */
+   private static findRating(label: string, ratings: Rating[]): Rating {
+     const found = ratings.find((r) => r.label === label);
+-    if (!found) {
+-      throw new Error(`Rating definition not found for label: ${label}`);
++    if (found) {
++      return found;
+     }
+-    return found;
++    if (label === OUT_OF_SCOPE_RATING_LABEL) {
++      return OUT_OF_SCOPE_RATING;
++    }
++    throw new Error(`Rating definition not found for label: ${label}`);
    }
  }
-diff --git a/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts b/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
-index 56dda98..fd8823c 100644
---- a/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
-+++ b/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
-@@ -173,4 +173,22 @@ describe('ReviewSettingsParser', () => {
-     });
-     expect(() => ReviewSettingsParser.parse(json)).toThrow();
-   });
+diff --git a/src/domain/review/rating/index.ts b/src/domain/review/rating/index.ts
+index 6f5a709..a1ecab3 100644
+--- a/src/domain/review/rating/index.ts
++++ b/src/domain/review/rating/index.ts
+@@ -1 +1,6 @@
+ export { Rating } from './Rating.js';
++export {
++  OUT_OF_SCOPE_RATING_LABEL,
++  OUT_OF_SCOPE_RATING_DEFINITION,
++  OUT_OF_SCOPE_RATING,
++} from './outOfScopeRating.js';
+diff --git a/src/domain/review/rating/outOfScopeRating.ts b/src/domain/review/rating/outOfScopeRating.ts
+new file mode 100644
+index 0000000..8e9654a
+--- /dev/null
++++ b/src/domain/review/rating/outOfScopeRating.ts
+@@ -0,0 +1,22 @@
++import { Rating } from './Rating.js';
 +
-+  describe('mrCommentTitle', () => {
-+    it('指定された値がReviewSettingsに反映される', () => {
-+      const json = JSON.stringify({ mrCommentTitle: 'API基盤チェック' });
-+      const settings = ReviewSettingsParser.parse(json);
-+      expect(settings.mrCommentTitle).toBe('API基盤チェック');
-+    });
++/**
++ * out-of-scope（評価対象外）用の予約評定ラベル
++ *
++ * ユーザ設定の評定リスト（ReviewSettings.ratings）に含まれていなくても、
++ * AIが「diffの内容がチェック項目に対して評価対象外」と判断したケースで
++ * フォールバックとして常に格納可能とする。
++ *
++ * ユーザが評定リストに同じラベル '-' を独自定義で含めている場合は、
++ * そちらが優先される（storeReviewResult / CommentParser の通常検索パスでヒットするため）。
++ */
++export const OUT_OF_SCOPE_RATING_LABEL = '-';
 +
-+    it('未指定の場合はデフォルト値が適用される', () => {
-+      const settings = ReviewSettingsParser.parse('{}');
-+      expect(settings.mrCommentTitle).toBe(ReviewSettings.default().mrCommentTitle);
-+    });
++export const OUT_OF_SCOPE_RATING_DEFINITION =
++  'チェック項目の要件がdiffの変更内容に該当しない、または評価不能';
 +
-+    it('空文字が指定された場合はバリデーションエラーになる', () => {
-+      const json = JSON.stringify({ mrCommentTitle: '' });
-+      expect(() => ReviewSettingsParser.parse(json)).toThrow();
-+    });
-+  });
- });
-diff --git a/src/cli/review/__tests__/commandBuilder.test.ts b/src/cli/review/__tests__/commandBuilder.test.ts
-index 47cb4a9..2833e4b 100644
---- a/src/cli/review/__tests__/commandBuilder.test.ts
-+++ b/src/cli/review/__tests__/commandBuilder.test.ts
-@@ -49,6 +49,7 @@ function createReviewSettings(
-     hiddenRatingLabels: string[];
-     suggestEnabledRatingLabels: string[];
-     qualityGate: QualityGate;
-+    mrCommentTitle: string;
-   }>,
- ): ReviewSettings {
-   return new ReviewSettings({
-@@ -63,6 +64,7 @@ function createReviewSettings(
-     hiddenRatingLabels: overrides?.hiddenRatingLabels ?? ['A'],
-     suggestEnabledRatingLabels: overrides?.suggestEnabledRatingLabels ?? ['C'],
-     qualityGate: overrides?.qualityGate ?? new QualityGate([{ ratingLabel: 'C', threshold: 2 }]),
-+    mrCommentTitle: overrides?.mrCommentTitle ?? 'AIKATA-PR レビュー結果',
-   });
- }
- 
-@@ -347,6 +349,23 @@ describe('buildApiReviewRequest', () => {
- 
-     expect(result.userId).toBe('alice');
-   });
-+
-+  it('mrCommentTitleがReviewSettingsからAPIリクエストに設定されること', () => {
-+    const validated = {
-+      userId: 'u',
-+      projectId: 'p',
-+      mrIid: '1',
-+      gitlabToken: 't',
-+      checklistPath: '/c',
-+    };
-+    const checklist = createChecklist();
-+    const reviewSettings = createReviewSettings({ mrCommentTitle: 'API基盤チェック' });
-+    const options = createCliOptions();
-+
-+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
-+
-+    expect(result.reviewSettings?.mrCommentTitle).toBe('API基盤チェック');
-+  });
- });
- 
- describe('buildLocalReviewCommand', () => {
-diff --git a/src/cli/review/commandBuilder.ts b/src/cli/review/commandBuilder.ts
-index 9cd6668..da1f5fb 100644
---- a/src/cli/review/commandBuilder.ts
-+++ b/src/cli/review/commandBuilder.ts
-@@ -95,6 +95,7 @@ export function buildApiReviewRequest(
-           threshold: c.threshold,
-         })),
-       },
-+      mrCommentTitle: reviewSettings.mrCommentTitle,
-     },
-     options: {
-       commentLanguage: options.commentLanguage,
-diff --git a/src/cli/review/index.ts b/src/cli/review/index.ts
-index ca0fb09..f84c29b 100644
---- a/src/cli/review/index.ts
-+++ b/src/cli/review/index.ts
-@@ -188,6 +188,7 @@ export async function run(args: string[]): Promise<void> {
-             baseSha: apiResult.baseSha,
-             headSha: apiResult.headSha,
-             startSha: apiResult.startSha,
-+            mrCommentTitle: reviewSettings.mrCommentTitle,
-           });
-         }
- 
-@@ -292,6 +293,7 @@ export async function run(args: string[]): Promise<void> {
-           baseSha: reviewResult.baseSha,
-           headSha: reviewResult.headSha,
-           startSha: reviewResult.startSha,
-+          mrCommentTitle: reviewSettings.mrCommentTitle,
-         });
-       }
- 
++/** 予約フォールバック評定の固定インスタンス */
++export const OUT_OF_SCOPE_RATING = new Rating(
++  OUT_OF_SCOPE_RATING_LABEL,
++  OUT_OF_SCOPE_RATING_DEFINITION,
++);
 diff --git a/src/domain/review/reviewSettings/ReviewSettings.ts b/src/domain/review/reviewSettings/ReviewSettings.ts
-index 4cfe250..712c4c5 100644
+index 712c4c5..b125cc2 100644
 --- a/src/domain/review/reviewSettings/ReviewSettings.ts
 +++ b/src/domain/review/reviewSettings/ReviewSettings.ts
-@@ -16,6 +16,9 @@ const DEFAULT_RATINGS = [
-   new Rating('-', 'チェック項目の要件がdiffの変更内容に該当しない、または評価不能'),
+@@ -1,4 +1,4 @@
+-import { Rating } from '../rating/index.js';
++import { Rating, OUT_OF_SCOPE_RATING, OUT_OF_SCOPE_RATING_LABEL } from '../rating/index.js';
+ import { QualityGate } from '../qualityGate/index.js';
+ 
+ /** デフォルトのコメントフォーマット */
+@@ -13,7 +13,9 @@ const DEFAULT_RATINGS = [
+   new Rating('A', 'チェック項目の要件を完全に満たしている'),
+   new Rating('B', '概ね満たしているが軽微な指摘がある'),
+   new Rating('C', '要件を満たしていない'),
+-  new Rating('-', 'チェック項目の要件がdiffの変更内容に該当しない、または評価不能'),
++  // out-of-scope評定は予約定数を再利用（ユーザが評定リストから外した場合でも
++  // storeReviewResult / CommentParser 側でフォールバック格納可能）
++  OUT_OF_SCOPE_RATING,
  ];
  
-+/** デフォルトのMRコメントタイトル */
-+export const DEFAULT_MR_COMMENT_TITLE = 'AIKATA-PR レビュー結果';
-+
- /** ReviewSettingsのコンストラクタパラメータ */
- interface ReviewSettingsParams {
-   additionalInstructions: string;
-@@ -25,6 +28,7 @@ interface ReviewSettingsParams {
-   hiddenRatingLabels: string[];
-   suggestEnabledRatingLabels: string[];
-   qualityGate: QualityGate;
-+  mrCommentTitle: string;
- }
- 
- /**
-@@ -39,6 +43,7 @@ export class ReviewSettings {
-   readonly hiddenRatingLabels: string[];
-   readonly suggestEnabledRatingLabels: string[];
-   readonly qualityGate: QualityGate;
-+  readonly mrCommentTitle: string;
- 
-   constructor(params: ReviewSettingsParams) {
-     if (params.concurrentReviewCount !== null && params.concurrentReviewCount < 1) {
-@@ -47,6 +52,9 @@ export class ReviewSettings {
-     if (params.ratings.length === 0) {
-       throw new Error('ratings must not be empty');
+ /** デフォルトのMRコメントタイトル */
+@@ -56,18 +58,21 @@ export class ReviewSettings {
+       throw new Error('mrCommentTitle must not be empty');
      }
-+    if (params.mrCommentTitle.length === 0) {
-+      throw new Error('mrCommentTitle must not be empty');
-+    }
      const ratingLabels = new Set(params.ratings.map((r) => r.label));
++    // out-of-scope の予約フォールバックラベルは ratings に未登録でも常に許容する
++    const isAcceptedLabel = (label: string): boolean =>
++      ratingLabels.has(label) || label === OUT_OF_SCOPE_RATING_LABEL;
      for (const label of params.hiddenRatingLabels) {
-       if (!ratingLabels.has(label)) {
-@@ -72,6 +80,7 @@ export class ReviewSettings {
-     this.hiddenRatingLabels = params.hiddenRatingLabels;
-     this.suggestEnabledRatingLabels = params.suggestEnabledRatingLabels;
-     this.qualityGate = params.qualityGate;
-+    this.mrCommentTitle = params.mrCommentTitle;
-   }
- 
-   /** suggestが有効かどうか判定する */
-@@ -89,6 +98,7 @@ export class ReviewSettings {
-       hiddenRatingLabels: [],
-       suggestEnabledRatingLabels: ['C'],
-       qualityGate: QualityGate.none(),
-+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-     });
-   }
- }
+-      if (!ratingLabels.has(label)) {
++      if (!isAcceptedLabel(label)) {
+         throw new Error(`hiddenRatingLabels contains unknown label: ${label}`);
+       }
+     }
+     for (const label of params.suggestEnabledRatingLabels) {
+-      if (!ratingLabels.has(label)) {
++      if (!isAcceptedLabel(label)) {
+         throw new Error(`suggestEnabledRatingLabels contains unknown label: ${label}`);
+       }
+     }
+     for (const criterion of params.qualityGate.failureCriteria) {
+-      if (!ratingLabels.has(criterion.ratingLabel)) {
++      if (!isAcceptedLabel(criterion.ratingLabel)) {
+         throw new Error(
+           `qualityGate failureCriteria contains unknown rating label: ${criterion.ratingLabel}`,
+         );
 diff --git a/src/domain/review/reviewSettings/__tests__/ReviewSettings.test.ts b/src/domain/review/reviewSettings/__tests__/ReviewSettings.test.ts
-index a05b01c..b381d43 100644
+index b381d43..bdd7072 100644
 --- a/src/domain/review/reviewSettings/__tests__/ReviewSettings.test.ts
 +++ b/src/domain/review/reviewSettings/__tests__/ReviewSettings.test.ts
-@@ -1,5 +1,5 @@
- import { describe, it, expect } from 'vitest';
--import { ReviewSettings } from '../ReviewSettings.js';
-+import { ReviewSettings, DEFAULT_MR_COMMENT_TITLE } from '../ReviewSettings.js';
- import { Rating } from '../../rating/index.js';
- import { QualityGate } from '../../qualityGate/index.js';
- 
-@@ -15,6 +15,7 @@ describe('ReviewSettings', () => {
-       hiddenRatingLabels: ['A'],
-       suggestEnabledRatingLabels: ['B'],
-       qualityGate,
-+      mrCommentTitle: 'API基盤チェック',
+@@ -246,6 +246,51 @@ describe('ReviewSettings', () => {
      });
-     expect(settings.additionalInstructions).toBe('追加指示');
-     expect(settings.concurrentReviewCount).toBe(3);
-@@ -23,6 +24,7 @@ describe('ReviewSettings', () => {
-     expect(settings.hiddenRatingLabels).toEqual(['A']);
-     expect(settings.suggestEnabledRatingLabels).toEqual(['B']);
-     expect(settings.qualityGate).toBe(qualityGate);
-+    expect(settings.mrCommentTitle).toBe('API基盤チェック');
    });
  
-   it('concurrentReviewCountがnullの場合は正常に生成できる', () => {
-@@ -34,6 +36,7 @@ describe('ReviewSettings', () => {
-       hiddenRatingLabels: [],
-       suggestEnabledRatingLabels: [],
-       qualityGate: QualityGate.none(),
-+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-     });
-     expect(settings.concurrentReviewCount).toBeNull();
-   });
-@@ -48,6 +51,7 @@ describe('ReviewSettings', () => {
-     expect(settings.ratings[3].label).toBe('-');
-     expect(settings.hiddenRatingLabels).toEqual([]);
-     expect(settings.qualityGate.failureCriteria).toEqual([]);
-+    expect(settings.mrCommentTitle).toBe('AIKATA-PR レビュー結果');
-   });
- 
-   it('concurrentReviewCountが0以下の場合はエラーになる', () => {
-@@ -61,6 +65,7 @@ describe('ReviewSettings', () => {
-           hiddenRatingLabels: [],
-           suggestEnabledRatingLabels: [],
-           qualityGate: QualityGate.none(),
-+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-         }),
-     ).toThrow();
-     expect(
-@@ -73,6 +78,7 @@ describe('ReviewSettings', () => {
-           hiddenRatingLabels: [],
-           suggestEnabledRatingLabels: [],
-           qualityGate: QualityGate.none(),
-+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-         }),
-     ).toThrow();
-   });
-@@ -88,6 +94,7 @@ describe('ReviewSettings', () => {
-           hiddenRatingLabels: [],
-           suggestEnabledRatingLabels: [],
-           qualityGate: QualityGate.none(),
-+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-         }),
-     ).toThrow();
-   });
-@@ -101,6 +108,7 @@ describe('ReviewSettings', () => {
-       hiddenRatingLabels: [],
-       suggestEnabledRatingLabels: [],
-       qualityGate: QualityGate.none(),
-+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-     });
-     expect(settings.hiddenRatingLabels).toEqual([]);
-   });
-@@ -114,6 +122,7 @@ describe('ReviewSettings', () => {
-       hiddenRatingLabels: ['A', 'B'],
-       suggestEnabledRatingLabels: [],
-       qualityGate: QualityGate.none(),
-+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-     });
-     expect(settings.hiddenRatingLabels).toEqual(['A', 'B']);
-   });
-@@ -129,6 +138,7 @@ describe('ReviewSettings', () => {
-           hiddenRatingLabels: ['X'],
-           suggestEnabledRatingLabels: [],
-           qualityGate: QualityGate.none(),
-+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-         }),
-     ).toThrow();
-   });
-@@ -143,6 +153,7 @@ describe('ReviewSettings', () => {
-       hiddenRatingLabels: [],
-       suggestEnabledRatingLabels: [],
-       qualityGate,
-+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-     });
-     expect(settings.qualityGate.failureCriteria).toHaveLength(1);
-   });
-@@ -158,6 +169,7 @@ describe('ReviewSettings', () => {
-           hiddenRatingLabels: [],
-           suggestEnabledRatingLabels: [],
-           qualityGate: new QualityGate([{ ratingLabel: 'X', threshold: 1 }]),
-+          mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-         }),
-     ).toThrow();
-   });
-@@ -177,6 +189,7 @@ describe('ReviewSettings', () => {
-         hiddenRatingLabels: [],
-         suggestEnabledRatingLabels: ['B', 'C'],
-         qualityGate: QualityGate.none(),
-+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-       });
-       expect(settings.suggestEnabledRatingLabels).toEqual(['B', 'C']);
-     });
-@@ -190,6 +203,7 @@ describe('ReviewSettings', () => {
-         hiddenRatingLabels: [],
-         suggestEnabledRatingLabels: [],
-         qualityGate: QualityGate.none(),
-+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-       });
-       expect(settings.suggestEnabledRatingLabels).toEqual([]);
-     });
-@@ -205,6 +219,7 @@ describe('ReviewSettings', () => {
-             hiddenRatingLabels: [],
-             suggestEnabledRatingLabels: ['X'],
-             qualityGate: QualityGate.none(),
-+            mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-           }),
-       ).toThrow('suggestEnabledRatingLabels contains unknown label: X');
-     });
-@@ -225,8 +240,41 @@ describe('ReviewSettings', () => {
-         hiddenRatingLabels: [],
-         suggestEnabledRatingLabels: [],
-         qualityGate: QualityGate.none(),
-+        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
-       });
-       expect(settings.isSuggestEnabled()).toBe(false);
-     });
-   });
-+
-+  describe('mrCommentTitle', () => {
-+    it('任意の文字列を受け取って保持する', () => {
++  describe("予約フォールバックラベル '-' の許容", () => {
++    it("ratingsに '-' を含めなくても hiddenRatingLabels: ['-'] を指定できる", () => {
 +      const settings = new ReviewSettings({
 +        additionalInstructions: '',
 +        concurrentReviewCount: null,
 +        commentFormat: '{comment}',
-+        ratings: [new Rating('A', 'def')],
-+        hiddenRatingLabels: [],
++        ratings: [new Rating('A', 'def'), new Rating('C', 'def3')],
++        hiddenRatingLabels: ['-'],
 +        suggestEnabledRatingLabels: [],
 +        qualityGate: QualityGate.none(),
-+        mrCommentTitle: 'フロントエンドチェック',
++        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
 +      });
-+      expect(settings.mrCommentTitle).toBe('フロントエンドチェック');
++      expect(settings.hiddenRatingLabels).toEqual(['-']);
 +    });
 +
-+    it('空文字の場合はエラーになる', () => {
-+      expect(
-+        () =>
-+          new ReviewSettings({
-+            additionalInstructions: '',
-+            concurrentReviewCount: null,
-+            commentFormat: '{comment}',
-+            ratings: [new Rating('A', 'def')],
-+            hiddenRatingLabels: [],
-+            suggestEnabledRatingLabels: [],
-+            qualityGate: QualityGate.none(),
-+            mrCommentTitle: '',
-+          }),
-+      ).toThrow('mrCommentTitle must not be empty');
++    it("ratingsに '-' を含めなくても suggestEnabledRatingLabels: ['-'] を指定できる", () => {
++      const settings = new ReviewSettings({
++        additionalInstructions: '',
++        concurrentReviewCount: null,
++        commentFormat: '{comment}',
++        ratings: [new Rating('A', 'def'), new Rating('C', 'def3')],
++        hiddenRatingLabels: [],
++        suggestEnabledRatingLabels: ['-'],
++        qualityGate: QualityGate.none(),
++        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++      });
++      expect(settings.suggestEnabledRatingLabels).toEqual(['-']);
++    });
++
++    it("ratingsに '-' を含めなくても qualityGate.failureCriteria に '-' を指定できる", () => {
++      const qualityGate = new QualityGate([{ ratingLabel: '-', threshold: 5 }]);
++      const settings = new ReviewSettings({
++        additionalInstructions: '',
++        concurrentReviewCount: null,
++        commentFormat: '{comment}',
++        ratings: [new Rating('A', 'def'), new Rating('C', 'def3')],
++        hiddenRatingLabels: [],
++        suggestEnabledRatingLabels: [],
++        qualityGate,
++        mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++      });
++      expect(settings.qualityGate.failureCriteria[0].ratingLabel).toBe('-');
 +    });
 +  });
- });
-diff --git a/src/domain/review/reviewSettings/index.ts b/src/domain/review/reviewSettings/index.ts
-index fd17395..0e94bd1 100644
---- a/src/domain/review/reviewSettings/index.ts
-+++ b/src/domain/review/reviewSettings/index.ts
-@@ -1 +1 @@
--export { ReviewSettings } from './ReviewSettings.js';
-+export { ReviewSettings, DEFAULT_MR_COMMENT_TITLE } from './ReviewSettings.js';
-diff --git a/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts b/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-index fb57bde..a4ea088 100644
---- a/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-+++ b/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-@@ -18,6 +18,7 @@ export interface ReviewApiRequest {
-     qualityGate?: {
-       failureCriteria?: Array<{ ratingLabel: string; threshold: number }>;
-     };
-+    mrCommentTitle?: string;
-   };
-   options?: {
-     commentLanguage?: string;
++
+   describe('mrCommentTitle', () => {
+     it('任意の文字列を受け取って保持する', () => {
+       const settings = new ReviewSettings({
 diff --git a/src/mastra/review/agents/__tests__/reviewAgent.test.ts b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
-index 85d7d4d..f263136 100644
+index f263136..cddde56 100644
 --- a/src/mastra/review/agents/__tests__/reviewAgent.test.ts
 +++ b/src/mastra/review/agents/__tests__/reviewAgent.test.ts
-@@ -264,7 +264,7 @@ describe('buildInstructions', () => {
-     expect(result).toContain('Always reason and think in English');
-     expect(result).toContain('you MUST write them in English');
-     // storeReviewResultの説明にもコメント言語の指示が含まれる
--    expect(result).toContain('comment (MUST be written in English)');
-+    expect(result).toContain('comment (MUST be written in English; write this first)');
+@@ -142,6 +142,49 @@ describe('buildInstructions', () => {
+     expect(result).toContain('C: Does not satisfy requirements');
    });
  
-   it('デフォルト(Japanese)の場合もsystemプロンプトに言語指定が含まれる', () => {
-@@ -275,7 +275,7 @@ describe('buildInstructions', () => {
-     const result = buildInstructions(requestContext);
- 
-     expect(result).toContain('you MUST write them in Japanese');
--    expect(result).toContain('comment (MUST be written in Japanese)');
-+    expect(result).toContain('comment (MUST be written in Japanese; write this first)');
-   });
- 
-   it('additionalInstructionsが空の場合、Additional Instructionsセクションが含まれない', () => {
-@@ -375,6 +375,7 @@ describe('buildInstructions', () => {
-     expect(result).not.toContain('Suggestion Tools');
-     expect(result).not.toContain('storeSuggest');
-     expect(result).not.toContain('getSuggests');
-+    expect(result).not.toContain('do NOT register a suggestion');
-   });
- 
-   it('suggest有効時にCode Suggestion Guidelinesセクションが含まれる', () => {
-@@ -390,6 +391,17 @@ describe('buildInstructions', () => {
-     expect(result).toContain('Do NOT duplicate suggestions');
-   });
- 
-+  it('suggest有効時に、diff内に対象が無い場合は登録不要である旨のルールが含まれる', () => {
++  it("ratingsに '-' が含まれない場合、Rating Criteriaセクションに予約フォールバック行が末尾追加される", () => {
 +    const requestContext = createTestRequestContext({
-+      suggestEnabledRatingLabels: ['C'],
++      ratings: [
++        { label: 'A', definition: 'Fully satisfies' },
++        { label: 'C', definition: 'Not satisfied' },
++      ],
 +    });
 +
 +    const result = buildInstructions(requestContext);
++    // Rating Criteria セクション内に予約フォールバック行があるか確認
++    const sectionMatch = result.match(/## Rating Criteria\n([\s\S]*?)\n## /);
++    expect(sectionMatch).not.toBeNull();
++    const ratingCriteriaSection = sectionMatch![1];
 +
-+    expect(result).toContain('do NOT register a suggestion');
-+    expect(result).toContain('cannot be addressed by a concrete code change within the diff hunks');
++    expect(ratingCriteriaSection).toContain('A: Fully satisfies');
++    expect(ratingCriteriaSection).toContain('C: Not satisfied');
++    // 予約フォールバック行が含まれること
++    expect(ratingCriteriaSection).toMatch(/^- -:/m);
++    expect(ratingCriteriaSection).toContain('reserved fallback — always available');
 +  });
 +
-   it('suggest有効時にSuggestion Toolsセクションが含まれる', () => {
++  it("ratingsに '-' が含まれる場合、Rating Criteriaに予約フォールバック行は重複追加されない（ユーザ定義が尊重される）", () => {
++    const requestContext = createTestRequestContext({
++      ratings: [
++        { label: 'A', definition: 'Fully satisfies' },
++        { label: '-', definition: 'カスタム該当なし定義' },
++      ],
++    });
++
++    const result = buildInstructions(requestContext);
++    const sectionMatch = result.match(/## Rating Criteria\n([\s\S]*?)\n## /);
++    expect(sectionMatch).not.toBeNull();
++    const ratingCriteriaSection = sectionMatch![1];
++
++    // ユーザ定義のdefinitionは含まれる
++    expect(ratingCriteriaSection).toContain('カスタム該当なし定義');
++    // Rating Criteriaセクション内には予約フォールバック注記行が含まれない
++    expect(ratingCriteriaSection).not.toContain('reserved fallback — always available');
++    // - -: で始まる行が1行のみであることを確認（ユーザ定義の1行のみ）
++    const dashLines = ratingCriteriaSection.split('\n').filter((line) => /^- -:/.test(line));
++    expect(dashLines).toHaveLength(1);
++  });
++
+   it('コメントフォーマットがsystemプロンプトに含まれる', () => {
      const requestContext = createTestRequestContext({
-       suggestEnabledRatingLabels: ['C'],
+       commentFormat: '## Review\n{comment}',
+@@ -205,6 +248,36 @@ describe('buildInstructions', () => {
+     expect(result).toMatch(/Do NOT finish/i);
+   });
+ 
++  it('Review Principlesセクションが含まれ、ベストプラクティス遵守の指示がある', () => {
++    const requestContext = createTestRequestContext();
++
++    const result = buildInstructions(requestContext);
++
++    expect(result).toContain('## Review Principles');
++    expect(result).toMatch(/best practices/i);
++  });
++
++  it('対象外チェック項目を強制レビューしないようにする指示が含まれる', () => {
++    const requestContext = createTestRequestContext();
++
++    const result = buildInstructions(requestContext);
++
++    expect(result).toMatch(/do NOT force a review/i);
++    expect(result).toMatch(/out of scope/i);
++  });
++
++  it('out-of-scope評定の選択順序（ユーザ定義優先→予約フォールバック）が示される', () => {
++    const requestContext = createTestRequestContext();
++
++    const result = buildInstructions(requestContext);
++
++    // ユーザ定義評定を優先する旨
++    expect(result).toMatch(/user-configured rating/i);
++    // 予約フォールバックラベル '-' への言及
++    expect(result).toContain('"-"');
++    expect(result).toMatch(/reserved fallback/i);
++  });
++
+   it('MR情報（title, description, branches, diff）がsystemプロンプトに含まれない', () => {
+     const requestContext = createTestRequestContext({
+       mrTitle: 'UNIQUE_MR_TITLE',
 diff --git a/src/mastra/review/agents/reviewAgent.ts b/src/mastra/review/agents/reviewAgent.ts
-index c41c1e7..8d5eff7 100644
+index 8d5eff7..500b5bf 100644
 --- a/src/mastra/review/agents/reviewAgent.ts
 +++ b/src/mastra/review/agents/reviewAgent.ts
-@@ -77,7 +77,7 @@ Repeat the following until you can confidently rate the check item:
+@@ -13,6 +13,10 @@ import { getSuggestsTool } from '../tools/getSuggests.js';
+ import { containsImageFiles } from '../../../lib/imageFormat.js';
+ import { buildUserPromptTemplate } from '../../../application/shared/prompt/index.js';
+ import { WORKSPACE_TOOLS_CONFIG } from '../../shared/workspaceToolsConfig.js';
++import {
++  OUT_OF_SCOPE_RATING_LABEL,
++  OUT_OF_SCOPE_RATING_DEFINITION,
++} from '../../../domain/review/rating/index.js';
  
- **ACT**: Execute your decision.
- - If investigation is needed: call a workspace tool. State the reason before each call.
--- If you have sufficient evidence: determine the rating, write a comment using the specified format, and call storeReviewResult to record the result.
-+- If you have sufficient evidence: first write a comment using the specified format, then decide the rating that is consistent with what you wrote in the comment, and call storeReviewResult to record the result. Always write the comment before choosing the rating so the rating follows from the comment, not the other way around.
+ // 後方互換のため shared から re-export
+ export { buildPrepareStepForImageInjection } from '../../shared/prepareStepForImageInjection.js';
+@@ -44,7 +48,17 @@ export function buildInstructions(
+ ): string {
+   const ctx = requestContext.all;
  
- **OBSERVE**: Evaluate the result of your action.
- - If you used a workspace tool: did it answer your question? Does it raise new questions that affect your rating? If insufficient, return to REASON with updated understanding.
-@@ -122,7 +122,7 @@ You must strictly follow the above format. Do not add any extra sections or head
- ${additionalInstructionsSection}## Tool Reference
+-  const ratingsText = ctx.ratings.map((r) => `- ${r.label}: ${r.definition}`).join('\n');
++  // ユーザ設定の評定リストに out-of-scope予約ラベル '-' が含まれていない場合のみ、
++  // フォールバック行を末尾に追加する（含まれていればユーザ定義をそのまま尊重）
++  const hasUserOutOfScopeLabel = ctx.ratings.some((r) => r.label === OUT_OF_SCOPE_RATING_LABEL);
++  const userRatingLines = ctx.ratings.map((r) => `- ${r.label}: ${r.definition}`);
++  const ratingsText = hasUserOutOfScopeLabel
++    ? userRatingLines.join('\n')
++    : [
++        ...userRatingLines,
++        `- ${OUT_OF_SCOPE_RATING_LABEL}: ${OUT_OF_SCOPE_RATING_DEFINITION} (reserved fallback — always available)`,
++      ].join('\n');
++
+   const checkItemsText = ctx.checkItems
+     .map((item) => `[ID: ${item.id}]\n${item.content}`)
+     .join('\n\n');
+@@ -64,6 +78,16 @@ export function buildInstructions(
  
- ### Review Result Tools
--- storeReviewResult: Store a review result for a single check item. Parameters: checkItemId (the number shown in [ID: N]), ratingLabel (one of the rating labels above), comment (MUST be written in ${ctx.commentLanguage}). You MUST call this for EVERY check item listed above.
-+- storeReviewResult: Store a review result for a single check item. Parameters: checkItemId (the number shown in [ID: N]), comment (MUST be written in ${ctx.commentLanguage}; write this first), ratingLabel (one of the rating labels above; choose this after the comment so it is consistent with what you wrote). You MUST call this for EVERY check item listed above.
- - getReviewResults: Retrieve stored results to verify completeness. No arguments needed.
- ${
-   containsImageFiles(ctx.folderTree)
-@@ -183,6 +183,7 @@ For check items that receive a rating of [${suggestLabelsText}], you MUST genera
- 5. Provide a clear explanation in comment that references the same issue noted in your review
+ Always reason and think in English. When writing review comments, you MUST write them in ${ctx.commentLanguage}.
  
- ### Important rules
-+- If the issue described in your review comment cannot be addressed by a concrete code change within the diff hunks (e.g., the root cause is outside the diff, or no meaningful improvement fits inside the changed lines and their surrounding context), do NOT register a suggestion for that check item. A missing suggestion is better than a forced, low-quality one that does not genuinely resolve the issue.
- - You may create multiple suggestions per check item
- - Do NOT duplicate suggestions within this session (check with getSuggests)
- - Each line in originalCode must be copied in its entirety — do not truncate or omit parts of a line, even if the line is very long. Include the complete line from beginning to end.
++## Review Principles
++
++Apply the following principles when reviewing each check item:
++
++- Follow established best practices for code review and documentation review. Use professional judgment to focus on what genuinely affects quality, correctness, maintainability, and clarity, rather than surfacing trivial or speculative concerns.
++- If the diff has no content that is genuinely relevant to a given check item, do NOT force a review. Forcing reviews onto unrelated diffs produces noise that misleads the reviewer and erodes trust in the review output. In that case, select an out-of-scope rating using the following priority:
++    1. First, look at the Rating Criteria below. If a user-configured rating's definition explicitly covers the "out of scope / not applicable" case, use that rating (this takes priority over the reserved fallback).
++    2. Otherwise, use the reserved fallback rating label "${OUT_OF_SCOPE_RATING_LABEL}" (out of scope / not applicable). This reserved label is always accepted, even when it is not listed in the Rating Criteria.
++  In either case, clearly state in the comment that this check item is out of scope for the diff and explain briefly why. Storing such an out-of-scope result satisfies the completion requirement for that item.
++
+ ## Reasoning Framework (ReAct)
+ 
+ For each check item, apply the Reason-Act-Observe cycle.
 diff --git a/src/mastra/review/tools/__tests__/storeReviewResult.test.ts b/src/mastra/review/tools/__tests__/storeReviewResult.test.ts
-index 5c48e39..a23fb25 100644
+index a23fb25..42bc801 100644
 --- a/src/mastra/review/tools/__tests__/storeReviewResult.test.ts
 +++ b/src/mastra/review/tools/__tests__/storeReviewResult.test.ts
-@@ -22,8 +22,8 @@ const defaultRatings = [
- const executeStore = (
-   input: {
-     checkItemId: number;
--    ratingLabel: string;
-     comment: string;
-+    ratingLabel: string;
-   },
-   resultFilePath: string,
-   ratings: Array<{ label: string; definition: string }> = defaultRatings,
-@@ -61,8 +61,8 @@ describe('storeReviewResult', () => {
-     const result = await executeStore(
-       {
-         checkItemId: 1,
--        ratingLabel: 'A',
-         comment: '可読性は十分です',
-+        ratingLabel: 'A',
-       },
-       filePath,
-     );
-@@ -86,8 +86,8 @@ describe('storeReviewResult', () => {
-     await executeStore(
-       {
-         checkItemId: 1,
--        ratingLabel: 'A',
-         comment: '可読性は十分です',
-+        ratingLabel: 'A',
-       },
-       filePath,
-     );
-@@ -96,8 +96,8 @@ describe('storeReviewResult', () => {
-     await executeStore(
-       {
-         checkItemId: 2,
--        ratingLabel: 'B',
-         comment: 'カバレッジは75%です',
-+        ratingLabel: 'B',
-       },
-       filePath,
-     );
-@@ -114,8 +114,8 @@ describe('storeReviewResult', () => {
-     await executeStore(
-       {
-         checkItemId: 1,
--        ratingLabel: 'C',
-         comment: '可読性が低いです',
-+        ratingLabel: 'C',
-       },
-       filePath,
-     );
-@@ -124,8 +124,8 @@ describe('storeReviewResult', () => {
-     await executeStore(
-       {
-         checkItemId: 1,
--        ratingLabel: 'A',
-         comment: '修正後、可読性は十分です',
-+        ratingLabel: 'A',
-       },
-       filePath,
-     );
-@@ -141,8 +141,8 @@ describe('storeReviewResult', () => {
-     await executeStore(
-       {
-         checkItemId: 1,
--        ratingLabel: 'B',
-         comment: '概ね問題ありません',
-+        ratingLabel: 'B',
-       },
-       filePath,
-     );
-@@ -157,8 +157,8 @@ describe('storeReviewResult', () => {
-     const result = await executeStore(
-       {
-         checkItemId: 1,
--        ratingLabel: 'X',
-         comment: '問題ありません',
-+        ratingLabel: 'X',
-       },
-       filePath,
-     );
-@@ -174,8 +174,8 @@ describe('storeReviewResult', () => {
-     await executeStore(
-       {
-         checkItemId: 1,
--        ratingLabel: 'A',
-         comment: '問題ありません',
-+        ratingLabel: 'A',
-       },
-       filePath,
-     );
-@@ -192,8 +192,8 @@ describe('storeReviewResult', () => {
- const executeStoreWithContext = (
-   input: {
-     checkItemId: number;
--    ratingLabel: string;
-     comment: string;
-+    ratingLabel: string;
-   },
-   resultFilePath: string,
-   checkItems: IndexedCheckItem[],
-@@ -237,8 +237,8 @@ describe('storeReviewResult - チェック項目IDバリデーション', () =>
-     const result = await executeStoreWithContext(
-       {
-         checkItemId: 1,
--        ratingLabel: 'A',
-         comment: 'セキュリティは問題ありません',
-+        ratingLabel: 'A',
-       },
-       filePath,
-       checkItems,
-@@ -260,8 +260,8 @@ describe('storeReviewResult - チェック項目IDバリデーション', () =>
-     const result = await executeStoreWithContext(
-       {
-         checkItemId: 99,
--        ratingLabel: 'A',
-         comment: '問題ありません',
-+        ratingLabel: 'A',
-       },
-       filePath,
-       checkItems,
-@@ -282,8 +282,8 @@ describe('storeReviewResult - チェック項目IDバリデーション', () =>
-     const result = await executeStore(
-       {
-         checkItemId: 1,
--        ratingLabel: 'A',
-         comment: '問題ありません',
-+        ratingLabel: 'A',
-       },
-       filePath,
-     );
-diff --git a/src/mastra/review/tools/storeReviewResult.ts b/src/mastra/review/tools/storeReviewResult.ts
-index 1da0a71..fb15254 100644
---- a/src/mastra/review/tools/storeReviewResult.ts
-+++ b/src/mastra/review/tools/storeReviewResult.ts
-@@ -42,11 +42,18 @@ function releaseLock(lockPath: string): void {
-  */
- export const storeReviewResultTool = createTool({
-   id: 'store-review-result',
--  description: 'Store a review result for a single check item.',
-+  description:
-+    'Store a review result for a single check item. Write the comment first, then decide the ratingLabel that is consistent with what you wrote in the comment.',
-   inputSchema: z.object({
-     checkItemId: z.number().describe('ID of the check item (the number shown in [ID: N])'),
--    ratingLabel: z.string().describe('Rating label (e.g., A, B, C)'),
--    comment: z.string().describe('Review comment for this check item'),
-+    comment: z
-+      .string()
-+      .describe(
-+        'Review comment for this check item. Write this first — before choosing the ratingLabel — so the rating reflects the content of the comment.',
-+      ),
-+    ratingLabel: z
-+      .string()
-+      .describe('Rating label (e.g., A, B, C). Choose this based on the comment you just wrote.'),
-   }),
-   outputSchema: z.object({
-     success: z.boolean().describe('Whether the store operation succeeded'),
-diff --git a/src/presentation/api/review/__tests__/reviewHandler.test.ts b/src/presentation/api/review/__tests__/reviewHandler.test.ts
-index afc0ac8..86e75fb 100644
---- a/src/presentation/api/review/__tests__/reviewHandler.test.ts
-+++ b/src/presentation/api/review/__tests__/reviewHandler.test.ts
-@@ -195,4 +195,14 @@ describe('buildReviewSettings', () => {
-     const settings = buildReviewSettings({});
-     expect(settings.qualityGate.failureCriteria).toHaveLength(0);
+@@ -184,6 +184,47 @@ describe('storeReviewResult', () => {
+     expect(stored[0].isError).toBe(false);
+     expect(stored[0].errorMessage).toBeUndefined();
    });
 +
-+  it('mrCommentTitle指定時にその値が反映されること', () => {
-+    const settings = buildReviewSettings({ mrCommentTitle: 'API基盤チェック' });
-+    expect(settings.mrCommentTitle).toBe('API基盤チェック');
++  it("ratingsに '-' が含まれていなくても予約フォールバックラベル '-' は受理される", async () => {
++    createTmpDir();
++    // ユーザ設定の評定リストには '-' が含まれない
++    const result = await executeStore(
++      {
++        checkItemId: 1,
++        comment: '本チェック項目は今回のdiffの対象範囲外です',
++        ratingLabel: '-',
++      },
++      filePath,
++      defaultRatings,
++    );
++
++    expect(result.success).toBe(true);
++    const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
++    expect(stored).toHaveLength(1);
++    expect(stored[0].ratingLabel).toBe('-');
++    // 予約フォールバックの定義文がratingDefinitionに採用される
++    expect(stored[0].ratingDefinition).toBe(
++      'チェック項目の要件がdiffの変更内容に該当しない、または評価不能',
++    );
 +  });
 +
-+  it('mrCommentTitle未指定の場合にデフォルト値が適用されること', () => {
-+    const settings = buildReviewSettings({});
-+    expect(settings.mrCommentTitle).toBe('AIKATA-PR レビュー結果');
++  it("ユーザがratingsに '-' を独自定義している場合、ユーザ定義のdefinitionが優先される", async () => {
++    createTmpDir();
++    const customRatings = [...defaultRatings, { label: '-', definition: 'カスタム定義: 該当なし' }];
++    const result = await executeStore(
++      {
++        checkItemId: 1,
++        comment: '対象外です',
++        ratingLabel: '-',
++      },
++      filePath,
++      customRatings,
++    );
++
++    expect(result.success).toBe(true);
++    const stored = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
++    expect(stored[0].ratingDefinition).toBe('カスタム定義: 該当なし');
 +  });
  });
-diff --git a/src/presentation/api/review/reviewHandler.ts b/src/presentation/api/review/reviewHandler.ts
-index f228387..1748f4d 100644
---- a/src/presentation/api/review/reviewHandler.ts
-+++ b/src/presentation/api/review/reviewHandler.ts
-@@ -59,6 +59,7 @@ export const reviewRequestSchema = z.object({
-             .optional(),
-         })
-         .optional(),
-+      mrCommentTitle: z.string().min(1).optional(),
-     })
-     .optional(),
-   options: z
-@@ -407,5 +408,6 @@ export function buildReviewSettings(settings: ReviewRequest['reviewSettings']):
-     suggestEnabledRatingLabels:
-       settings.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
-     qualityGate,
-+    mrCommentTitle: settings.mrCommentTitle ?? defaults.mrCommentTitle,
-   });
- }
-diff --git a/src/server.ts b/src/server.ts
-index eb8b54e..bf17bc2 100644
---- a/src/server.ts
-+++ b/src/server.ts
-@@ -266,3 +266,15 @@ export async function startServer(): Promise<void> {
-   process.on('SIGTERM', shutdown);
-   process.on('SIGINT', shutdown);
- }
-+
-+// 直接実行時（例: npx tsx src/server.ts）にサーバーを起動する
-+const isDirectExecution =
-+  import.meta.url === `file://${process.argv[1]}` ||
-+  import.meta.url === new URL(process.argv[1] ?? '', 'file://').href;
-+
-+if (isDirectExecution) {
-+  startServer().catch((err) => {
-+    console.error('Failed to start server:', err);
-+    process.exit(1);
-+  });
-+}
+ 
+ /**
+diff --git a/src/mastra/review/tools/storeReviewResult.ts b/src/mastra/review/tools/storeReviewResult.ts
+index fb15254..044f4c4 100644
+--- a/src/mastra/review/tools/storeReviewResult.ts
++++ b/src/mastra/review/tools/storeReviewResult.ts
+@@ -3,6 +3,10 @@ import { z } from 'zod';
+ import * as fs from 'node:fs';
+ import { readStoredResults, type StoredReviewResult } from '../types.js';
+ import type { IndexedCheckItem } from '../indexedCheckItem.js';
++import {
++  OUT_OF_SCOPE_RATING_LABEL,
++  OUT_OF_SCOPE_RATING_DEFINITION,
++} from '../../../domain/review/rating/index.js';
+ 
+ // Atomics.waitによる同期スリープ用バッファ
+ const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
+@@ -70,7 +74,14 @@ export const storeReviewResultTool = createTool({
+       | Array<{ label: string; definition: string }>
+       | undefined;
+     const matchedRating = ratings?.find((r) => r.label === ratingLabel);
+-    if (!matchedRating) {
++    // ユーザ定義の評定リストにヒットしなかった場合でも、out-of-scope の予約フォールバック
++    // ラベルは常に受理する（ユーザが評定リストから '-' を外している場合のフォールバック）
++    let resolvedDefinition: string;
++    if (matchedRating) {
++      resolvedDefinition = matchedRating.definition;
++    } else if (ratingLabel === OUT_OF_SCOPE_RATING_LABEL) {
++      resolvedDefinition = OUT_OF_SCOPE_RATING_DEFINITION;
++    } else {
+       const validLabels = ratings?.map((r) => r.label).join(', ') ?? 'none';
+       return {
+         success: false,
+@@ -100,7 +111,7 @@ export const storeReviewResultTool = createTool({
+       const newResult: StoredReviewResult = {
+         checkItemId,
+         ratingLabel,
+-        ratingDefinition: matchedRating.definition,
++        ratingDefinition: resolvedDefinition,
+         comment,
+         isError: false,
+       };
