@@ -157,7 +157,6 @@ function createTestApp(
     cloneManager: createMockCloneManager(),
     serviceFactory: createMockServiceFactory(),
     rateLimiter: createMockRateLimiter(),
-    gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
     aiApiKey: 'test-api-key',
     aiApiEndpointUrl: 'https://ai.example.com',
     defaultAiModelName: 'test-server-model',
@@ -191,12 +190,13 @@ function createValidRequestBody(): Record<string, unknown> {
   return {
     userId: 'test-user',
     gitlabToken: 'test-gitlab-token',
+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
     projectId: 42,
     pipelineId: 2001,
     selfJobId: 3001,
     settings: {
       jobReportFormat: '### <jobName>',
-      additionalInstructions: 'be strict',
+      analysisInstructions: 'be strict',
       includeJobPatterns: ['^test:'],
       excludeJobPatterns: [],
     },
@@ -333,11 +333,42 @@ describe('pipelineReportRoute', () => {
       expect(cloneManager.clone).toHaveBeenCalledTimes(1);
       const cloneArgs = cloneManager.clone.mock.calls[0];
       expect(cloneArgs[0]).toBe('test-gitlab-token'); // gitlabToken
-      expect(cloneArgs[1]).toBe('https://gitlab.example.com/api/v4'); // baseUrl
+      expect(cloneArgs[1]).toBe('https://gitlab.example.com/api/v4'); // baseUrl from request body
       expect(cloneArgs[2]).toBe('42'); // projectId as string
       expect(cloneArgs[3]).toBe('main'); // sourceBranch = pipeline.ref
       expect(cloneArgs[4]).toBe('main'); // targetBranch = pipeline.ref
       expect(cloneArgs[5]).toBe('abc123def456'); // commitSha = pipeline.sha
+    });
+
+    it('リクエストボディの gitlabApiUrl が serviceFactory.create と cloneManager.clone に伝播すること', async () => {
+      const serviceFactory = createMockServiceFactory();
+      const cloneManager = createMockCloneManager();
+      const app = createTestApp({ serviceFactory, cloneManager });
+
+      const requestBody = {
+        ...createValidRequestBody(),
+        gitlabApiUrl: 'https://gitlab-tenant-b.example.com/api/v4',
+      };
+
+      const res = await app.request('/pipeline-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      await res.text();
+
+      const createMock = serviceFactory.create as ReturnType<typeof vi.fn>;
+      expect(createMock).toHaveBeenCalled();
+      // 全呼び出しで request.gitlabApiUrl が第2引数として渡される
+      for (const call of createMock.mock.calls) {
+        expect(call[1]).toBe('https://gitlab-tenant-b.example.com/api/v4');
+      }
+
+      // cloneManager.clone の第2引数も同じURL
+      expect(cloneManager.clone).toHaveBeenCalledTimes(1);
+      expect(cloneManager.clone.mock.calls[0][1]).toBe(
+        'https://gitlab-tenant-b.example.com/api/v4',
+      );
     });
 
     it('PipelineAnalysisExecutor.analyze に正しいコマンドが渡ること', async () => {

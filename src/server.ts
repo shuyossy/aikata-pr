@@ -128,11 +128,11 @@ export async function startServer(): Promise<void> {
   const logger = getLogger();
 
   // 必須環境変数の取得
+  // GitLab APIベースURLはマルチGitLabインスタンス対応のためサーバ起動時には読まず、
+  // リクエストごとに `request.gitlabApiUrl` で受け取る
   const serverVersion = requireEnv('AIKATA_PR_VERSION');
   const aiApiKey = requireEnv('AI_API_KEY');
   const aiApiEndpointUrl = requireEnv('AI_API_ENDPOINT_URL');
-  const gitlabApiBaseUrl =
-    process.env['GITLAB_API_URL'] ?? process.env['CI_API_V4_URL'] ?? 'https://gitlab.com/api/v4';
   const defaultAiModelName = process.env['AI_MODEL_NAME'] ?? 'openai/o4-mini';
 
   // 共有依存の組み立て
@@ -172,7 +172,6 @@ export async function startServer(): Promise<void> {
     cloneManager,
     serviceFactory,
     rateLimiter,
-    gitlabApiBaseUrl,
     aiApiKey,
     aiApiEndpointUrl,
     defaultAiModelName,
@@ -212,7 +211,6 @@ export async function startServer(): Promise<void> {
     cloneManager, // review と共有
     serviceFactory: pipelineReportServiceFactory,
     rateLimiter, // review と共有
-    gitlabApiBaseUrl,
     aiApiKey,
     aiApiEndpointUrl,
     defaultAiModelName,

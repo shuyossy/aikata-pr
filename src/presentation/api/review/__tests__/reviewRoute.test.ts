@@ -138,7 +138,6 @@ function createTestApp(
     cloneManager: createMockCloneManager(),
     serviceFactory: createMockServiceFactory(),
     rateLimiter: createMockRateLimiter(),
-    gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
     aiApiKey: 'test-api-key',
     aiApiEndpointUrl: 'https://ai.example.com',
     defaultAiModelName: 'openai/test-model',
@@ -173,6 +172,7 @@ function createValidRequestBody() {
   return {
     userId: 'test-user',
     gitlabToken: 'test-gitlab-token',
+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
     projectId: '123',
     mrIid: '45',
     checklist: ['Check item 1'],
@@ -354,6 +354,7 @@ describe('reviewRoute', () => {
       const requestBody = {
         userId: 'test-user',
         gitlabToken: 'test-token',
+        gitlabApiUrl: 'https://gitlab.example.com/api/v4',
         projectId: '123',
         mrIid: '45',
         checklist: ['Check item 1'],
@@ -562,6 +563,7 @@ describe('reviewRoute', () => {
       const requestBody = {
         userId: 'test-user',
         gitlabToken: 'test-token',
+        gitlabApiUrl: 'https://gitlab.example.com/api/v4',
         projectId: '123',
         mrIid: '45',
         checklist: ['Check item 1'],
@@ -741,6 +743,7 @@ describe('reviewRoute', () => {
       const requestBody = {
         userId: 'charlie',
         gitlabToken: 'my-gitlab-token',
+        gitlabApiUrl: 'https://gitlab-charlie.example.com/api/v4',
         projectId: '999',
         mrIid: '77',
         checklist: ['可読性チェック', 'セキュリティチェック'],
@@ -821,6 +824,7 @@ describe('reviewRoute', () => {
       const requestBody = {
         userId: 'test-user',
         gitlabToken: 'token',
+        gitlabApiUrl: 'https://gitlab.example.com/api/v4',
         projectId: '123',
         mrIid: '45',
         checklist: ['Check item 1'],
@@ -854,6 +858,7 @@ describe('reviewRoute', () => {
       const requestBody = {
         userId: 'test-user',
         gitlabToken: 'token',
+        gitlabApiUrl: 'https://gitlab.example.com/api/v4',
         projectId: '123',
         mrIid: '45',
         checklist: ['Check item 1'],
@@ -917,6 +922,37 @@ describe('reviewRoute', () => {
 
       const command = executeMock.mock.calls[0][0];
       expect(command.userId).toBe('dave');
+    });
+
+    it('リクエストボディのgitlabApiUrlがserviceFactory.createとcloneManager.cloneに伝播すること', async () => {
+      const { serviceFactory } = createCapturingServiceFactory();
+      const mockCloneManager = createMockCloneManager();
+      const app = createTestApp({ serviceFactory, cloneManager: mockCloneManager });
+
+      const requestBody = {
+        ...createValidRequestBody(),
+        gitlabApiUrl: 'https://gitlab-tenant-a.example.com/api/v4',
+      };
+
+      const res = await app.request('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      await res.text();
+
+      // serviceFactory.create の第2引数（gitlabApiBaseUrl）にリクエスト由来のURLが渡ること
+      const createMock = serviceFactory.create as ReturnType<typeof vi.fn>;
+      expect(createMock).toHaveBeenCalled();
+      // 全呼び出し（pre-clone + post-clone）で同じURLが渡る
+      for (const call of createMock.mock.calls) {
+        expect(call[1]).toBe('https://gitlab-tenant-a.example.com/api/v4');
+      }
+
+      // cloneManager.clone の第2引数（gitlabApiBaseUrl）にも伝播
+      const cloneMock = mockCloneManager.clone as ReturnType<typeof vi.fn>;
+      expect(cloneMock).toHaveBeenCalledTimes(1);
+      expect(cloneMock.mock.calls[0][1]).toBe('https://gitlab-tenant-a.example.com/api/v4');
     });
   });
 

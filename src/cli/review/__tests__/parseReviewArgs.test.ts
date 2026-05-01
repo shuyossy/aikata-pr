@@ -261,6 +261,78 @@ describe('parseCliOptions', () => {
     const result = parseCliOptions([], { AIKATA_JWT: 'env-jwt' });
     expect(result.aikataJwt).toBe('env-jwt');
   });
+
+  describe('gitlabApiUrl', () => {
+    it('--gitlab-api-urlオプションをパースできる', () => {
+      const result = parseCliOptions(['--gitlab-api-url', 'https://gitlab-a.example.com/api/v4']);
+      expect(result.gitlabApiUrl).toBe('https://gitlab-a.example.com/api/v4');
+    });
+
+    it('GITLAB_API_URL環境変数からgitlabApiUrlを取得できる', () => {
+      const result = parseCliOptions([], {
+        GITLAB_API_URL: 'https://gitlab-env.example.com/api/v4',
+      });
+      expect(result.gitlabApiUrl).toBe('https://gitlab-env.example.com/api/v4');
+    });
+
+    it('--gitlab-api-urlがGITLAB_API_URL環境変数より優先される', () => {
+      const result = parseCliOptions(
+        ['--gitlab-api-url', 'https://gitlab-cli.example.com/api/v4'],
+        {
+          GITLAB_API_URL: 'https://gitlab-env.example.com/api/v4',
+        },
+      );
+      expect(result.gitlabApiUrl).toBe('https://gitlab-cli.example.com/api/v4');
+    });
+
+    it('GITLAB_API_URLが未指定の場合はCI_API_V4_URL環境変数が使用される', () => {
+      const result = parseCliOptions([], {
+        CI_API_V4_URL: 'https://gitlab-ci.example.com/api/v4',
+      });
+      expect(result.gitlabApiUrl).toBe('https://gitlab-ci.example.com/api/v4');
+    });
+
+    it('GITLAB_API_URLが空文字の場合もCI_API_V4_URL環境変数が使用される（空文字をundefined扱い）', () => {
+      const result = parseCliOptions([], {
+        GITLAB_API_URL: '',
+        CI_API_V4_URL: 'https://gitlab-ci.example.com/api/v4',
+      });
+      expect(result.gitlabApiUrl).toBe('https://gitlab-ci.example.com/api/v4');
+    });
+
+    it('CI_API_V4_URLが空文字の場合はデフォルト値が使用される', () => {
+      const result = parseCliOptions([], {
+        GITLAB_API_URL: '',
+        CI_API_V4_URL: '',
+      });
+      expect(result.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
+    });
+
+    it('全て未指定の場合はデフォルト値https://gitlab.com/api/v4が使用される', () => {
+      const result = parseCliOptions([], {});
+      expect(result.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
+    });
+
+    it('優先順位: CLI > GITLAB_API_URL > CI_API_V4_URL > デフォルト', () => {
+      // CLI優先
+      const r1 = parseCliOptions(['--gitlab-api-url', 'https://cli.example.com/api/v4'], {
+        GITLAB_API_URL: 'https://env.example.com/api/v4',
+        CI_API_V4_URL: 'https://ci.example.com/api/v4',
+      });
+      expect(r1.gitlabApiUrl).toBe('https://cli.example.com/api/v4');
+
+      // GITLAB_API_URL優先
+      const r2 = parseCliOptions([], {
+        GITLAB_API_URL: 'https://env.example.com/api/v4',
+        CI_API_V4_URL: 'https://ci.example.com/api/v4',
+      });
+      expect(r2.gitlabApiUrl).toBe('https://env.example.com/api/v4');
+
+      // CI_API_V4_URL fallback
+      const r3 = parseCliOptions([], { CI_API_V4_URL: 'https://ci.example.com/api/v4' });
+      expect(r3.gitlabApiUrl).toBe('https://ci.example.com/api/v4');
+    });
+  });
 });
 
 describe('buildChecklistParseOptions', () => {
@@ -270,6 +342,7 @@ describe('buildChecklistParseOptions', () => {
       logLevel: 'info',
       commentLanguage: 'Japanese',
       prettyPrint: true,
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     });
     expect(result.columns).toBeNull();
     expect(result.noHeader).toBe(false);
@@ -282,6 +355,7 @@ describe('buildChecklistParseOptions', () => {
       logLevel: 'info',
       commentLanguage: 'Japanese',
       prettyPrint: true,
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     });
     expect(result.columns).toEqual([1, 3]);
   });
@@ -293,6 +367,7 @@ describe('buildChecklistParseOptions', () => {
       logLevel: 'info',
       commentLanguage: 'Japanese',
       prettyPrint: true,
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     });
     expect(result.columns).toEqual([2, 4]);
   });
@@ -303,6 +378,7 @@ describe('buildChecklistParseOptions', () => {
       logLevel: 'info',
       commentLanguage: 'Japanese',
       prettyPrint: true,
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     });
     expect(result.noHeader).toBe(true);
   });
@@ -315,6 +391,7 @@ describe('buildChecklistParseOptions', () => {
         logLevel: 'info',
         commentLanguage: 'Japanese',
         prettyPrint: true,
+        gitlabApiUrl: 'https://gitlab.com/api/v4',
       }),
     ).toThrow('Invalid column number');
   });
@@ -327,6 +404,7 @@ describe('buildChecklistParseOptions', () => {
         logLevel: 'info',
         commentLanguage: 'Japanese',
         prettyPrint: true,
+        gitlabApiUrl: 'https://gitlab.com/api/v4',
       }),
     ).toThrow('Invalid column number');
   });
@@ -339,6 +417,7 @@ describe('buildChecklistParseOptions', () => {
         logLevel: 'info',
         commentLanguage: 'Japanese',
         prettyPrint: true,
+        gitlabApiUrl: 'https://gitlab.com/api/v4',
       }),
     ).toThrow('Invalid column number');
   });
@@ -350,6 +429,7 @@ describe('buildChecklistParseOptions', () => {
       logLevel: 'info',
       commentLanguage: 'Japanese',
       prettyPrint: true,
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     });
     expect(result.columns).toBeNull();
   });

@@ -9,6 +9,8 @@ export interface PipelineReportApiRequest {
   userId: string;
   /** GitLab APIトークン（APIサーバーがGitLab APIアクセス・リポジトリクローンに使用） */
   gitlabToken: string;
+  /** GitLab APIベースURL。APIサーバーはここで指定されたGitLabインスタンスにアクセスする */
+  gitlabApiUrl: string;
   projectId: number;
   pipelineId: number;
   /** レポート出力ジョブ自身のID。null なら自己除外無し */

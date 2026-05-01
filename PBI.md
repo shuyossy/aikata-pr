@@ -11,27 +11,19 @@
 ```
 
 # ID: 1
-- PBI名: レビュー時suggestに関するprompt改善
+- PBI名: APIサーバが認識するGitLab API URLを動的に指定できるようにする
 - ステータス: done
 - 背景
-  - 現状は、指定の評定に関するsuggestを必ず登録しようとする
-    - suggestはMR diffの範囲内でしか実行できないという制約下で、無理矢理suggestを登録しようとしてしまうので、suggestの品質が悪くなる
+  - 複数のセルフホストGitLabに本テンプレートを導入する予定
+  - つまり、GitLabのURLは一意に定まらない
+  - CLIクラインアント側からGitLabのURLを連携する必要がある
 - 受け入れ基準
-  - suggest登録可能な範囲でsuggestする内容がない場合は、suggestの登録は不要である旨をpromptに明記する
+  - CLIクラインアント側からGitLabのURLを連携できている
+  - 横展開として、複数のセルフホストGitLabに対して一つのAPIサーバのみで対応できるか、GitLab API以外にも問題点はないか徹底的に確認できている
 - 注意事項
-- 指摘事項（in progressの場合のみ）
-
-# ID: 2
-- PBI名: レビュー実行時のプロンプト強化
-- ステータス: to do
-- 背景
-  - チェック項目に対して、人間の目から見るとdiffの内容がレビュー対象外でも無理やりレビューを実行しようとして、むしろレビュー結果がノイズになる場合がある
-  - ユーザが追加指示等で細かくレビュー方針を指定しなくともコードやドキュメントレビューのベストプラクティスに沿うように実行して欲しい
-- 受け入れ基準
-  - 以下を考慮してシステムプロンプトが改善されている
-    - レビュー結果がノイズになる場合は無理にレビューせず、レビュー対象外であることをコメントして欲しい
-      - ユーザはレビュー結果を元にMR承認の判断等をするはずで、無理やりレビューすることがむしろユーザの認知負担になり、いずれレビュー結果に対する信頼低下につながる
-    - コードやドキュメントレビューのベストプラクティスに沿ってレビューすること
-      - 細かく項目を挙げても良いし、LLMが「コードやドキュメントレビューのベストプラクティス」と伝えるだけでも正しく理解できるのであればそれでも良い
-- 注意事項
+  - マルチGitLabインスタンス対応の監査結果（受入基準#2）:
+    - 🔴 **JWT認証の issuer 固定**: `JWT_ISSUER` / `JWT_JWKS_URL` がサーバ起動時 env で1組のみ。複数GitLab対応時は **JWT認証を無効化** して運用するか、別途PBIで対応する必要がある（候補: issuerリスト受付 / JWTの`iss`から動的JWKS解決 / リクエスト由来`gitlabApiUrl`との照合）。`src/server.ts:228-244`、`src/infrastructure/adapter/auth/JwtAuthMiddleware.ts:55-77`
+    - 🟡 **レートリミッターのGitLabインスタンス未分離**: バケットキーが`projectId`のみのため、別GitLabの同一projectIdが同じバケットを共有する。AI APIレート制御目的のみで動作上の支障はなし。要対応の場合は`(gitlabApiUrl, projectId)`の合成キーへ。`src/infrastructure/adapter/rateLimiter/RateLimiter.ts`
+    - 🟡 **Mastra `WorkflowRequestContext` に gitlabApiUrl 未含有**: 現状ツールがGitLab APIを直接呼ばないため問題なし。ワークフロー内ツールからGitLab API呼び出しを追加する場合は`src/mastra/shared/requestContext.ts`に追加要。
+    - 🟢 安全箇所: `CloneManager`/`GitLabApiClient`/Logger/HTTP Gateway層は per-request で安全。
 - 指摘事項（in progressの場合のみ）

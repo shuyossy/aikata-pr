@@ -1,5 +1,13 @@
 import type { ChecklistParseOptions } from '../../application/shared/parser/index.js';
 
+/** 既定のGitLab APIベースURL */
+const DEFAULT_GITLAB_API_URL = 'https://gitlab.com/api/v4';
+
+/** 環境変数値が未定義または空文字の場合にundefinedを返す */
+function nonEmpty(value: string | undefined): string | undefined {
+  return value && value.length > 0 ? value : undefined;
+}
+
 /**
  * CLIオプションの型定義
  */
@@ -19,6 +27,8 @@ export interface CliOptions {
   prettyPrint: boolean;
   aikataApiUrl?: string;
   aikataJwt?: string;
+  /** GitLab APIベースURL。優先順位: --gitlab-api-url > GITLAB_API_URL > CI_API_V4_URL > 既定値 */
+  gitlabApiUrl: string;
 }
 
 /**
@@ -85,6 +95,9 @@ export function parseCliOptions(
       case '--aikata-api-url':
         parsed['aikataApiUrl'] = args[++i]!;
         break;
+      case '--gitlab-api-url':
+        parsed['gitlabApiUrl'] = args[++i]!;
+        break;
     }
   }
 
@@ -114,6 +127,11 @@ export function parseCliOptions(
           : true,
     aikataApiUrl: (parsed['aikataApiUrl'] as string) ?? env['AIKATA_API_URL'],
     aikataJwt: env['AIKATA_JWT'],
+    gitlabApiUrl:
+      (parsed['gitlabApiUrl'] as string) ??
+      nonEmpty(env['GITLAB_API_URL']) ??
+      nonEmpty(env['CI_API_V4_URL']) ??
+      DEFAULT_GITLAB_API_URL,
   };
 }
 

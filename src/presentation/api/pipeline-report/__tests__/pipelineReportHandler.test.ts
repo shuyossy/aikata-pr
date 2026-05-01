@@ -12,6 +12,7 @@ function createValidRequestBody(): Record<string, unknown> {
   return {
     userId: 'alice',
     gitlabToken: 'token-xyz',
+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
     projectId: 42,
     pipelineId: 2001,
     selfJobId: 3001,
@@ -54,6 +55,19 @@ describe('pipelineReportRequestSchema', () => {
     const { userId: _userId, ...rest } = createValidRequestBody();
     void _userId;
     const result = pipelineReportRequestSchema.safeParse(rest);
+    expect(result.success).toBe(false);
+  });
+
+  it('gitlabApiUrl が未指定の場合にバリデーションエラーとなること', () => {
+    const { gitlabApiUrl: _gitlabApiUrl, ...rest } = createValidRequestBody();
+    void _gitlabApiUrl;
+    const result = pipelineReportRequestSchema.safeParse(rest);
+    expect(result.success).toBe(false);
+  });
+
+  it('gitlabApiUrl がURL形式でない場合にバリデーションエラーとなること', () => {
+    const input = { ...createValidRequestBody(), gitlabApiUrl: 'not-a-url' };
+    const result = pipelineReportRequestSchema.safeParse(input);
     expect(result.success).toBe(false);
   });
 

@@ -140,6 +140,51 @@ describe('parsePipelineReportArgs', () => {
     expect(result.aikataJwt).toBe('jwt-token');
   });
 
+  describe('gitlabApiUrl', () => {
+    it('--gitlab-api-urlをパースできる', () => {
+      const result = parsePipelineReportArgs(
+        ['--gitlab-api-url', 'https://gitlab-a.example.com/api/v4'],
+        {},
+      );
+      expect(result.gitlabApiUrl).toBe('https://gitlab-a.example.com/api/v4');
+    });
+
+    it('GITLAB_API_URL環境変数にフォールバックする', () => {
+      const result = parsePipelineReportArgs([], {
+        GITLAB_API_URL: 'https://env.example.com/api/v4',
+      });
+      expect(result.gitlabApiUrl).toBe('https://env.example.com/api/v4');
+    });
+
+    it('--gitlab-api-urlがGITLAB_API_URLより優先される', () => {
+      const result = parsePipelineReportArgs(
+        ['--gitlab-api-url', 'https://cli.example.com/api/v4'],
+        { GITLAB_API_URL: 'https://env.example.com/api/v4' },
+      );
+      expect(result.gitlabApiUrl).toBe('https://cli.example.com/api/v4');
+    });
+
+    it('GITLAB_API_URLが無い場合CI_API_V4_URL環境変数にフォールバックする', () => {
+      const result = parsePipelineReportArgs([], {
+        CI_API_V4_URL: 'https://ci.example.com/api/v4',
+      });
+      expect(result.gitlabApiUrl).toBe('https://ci.example.com/api/v4');
+    });
+
+    it('GITLAB_API_URLが空文字でもCI_API_V4_URLが使用される', () => {
+      const result = parsePipelineReportArgs([], {
+        GITLAB_API_URL: '',
+        CI_API_V4_URL: 'https://ci.example.com/api/v4',
+      });
+      expect(result.gitlabApiUrl).toBe('https://ci.example.com/api/v4');
+    });
+
+    it('全て未指定の場合はデフォルト値https://gitlab.com/api/v4', () => {
+      const result = parsePipelineReportArgs([], {});
+      expect(result.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
+    });
+  });
+
   it('--result-fileをパースできる', () => {
     const result = parsePipelineReportArgs(['--result-file', '/tmp/report.md'], {});
     expect(result.resultFile).toBe('/tmp/report.md');

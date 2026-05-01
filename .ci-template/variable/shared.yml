@@ -4,7 +4,8 @@ variables:
   # VERSION
   AIKATA_PR_VERSION: "latest"
   # GitLab
-  GITLAB_API_URL: ""
+  # GITLAB_API_URL は明示的にデフォルトを設定しない。
+  # CLI 側の優先順位: --gitlab-api-url > $GITLAB_API_URL > $CI_API_V4_URL（GitLab自動付与）> https://gitlab.com/api/v4
   AIKATA_PR_GITLAB_TOKEN: ""
   GITLAB_PROJECT_ID: "$CI_PROJECT_ID"
   # AI共通

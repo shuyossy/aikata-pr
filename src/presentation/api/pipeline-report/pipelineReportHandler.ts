@@ -30,6 +30,11 @@ import { getLogger } from '../../../lib/logger.js';
 export const pipelineReportRequestSchema = z.object({
   userId: z.string().min(1),
   gitlabToken: z.string().min(1),
+  /**
+   * GitLab APIベースURL。CLI側で解決済みの値が送られる。
+   * マルチGitLabインスタンス対応のため、APIサーバ側のenvではなくリクエスト単位で受け取る。
+   */
+  gitlabApiUrl: z.string().url(),
   projectId: z.number().int().positive(),
   pipelineId: z.number().int().positive(),
   selfJobId: z.number().int().positive().nullable(),
@@ -113,6 +118,8 @@ export interface PipelineReportServiceFactory {
 
 /**
  * PipelineReportHandler の依存インターフェース
+ *
+ * GitLab API base URL は含めない（リクエスト単位で受け取る、マルチテナント対応）
  */
 export interface PipelineReportHandlerDeps {
   /** クローンマネージャ（review と共有インスタンス） */
@@ -126,8 +133,6 @@ export interface PipelineReportHandlerDeps {
   aiApiEndpointUrl: string;
   /** APIサーバー側で利用するデフォルトAIモデル名 */
   defaultAiModelName: string;
-  /** GitLab API の base URL */
-  gitlabApiBaseUrl: string;
   /** OpenAI reasoning モデルの reasoning effort 設定 */
   openaiReasoningEffort?: string;
   /** 解析全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
@@ -266,7 +271,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
         // 3. per-request サービス（metaFetcher + executor）を組み立てる
         // metaFetcher は gateway を内部共有する executor と同じインスタンスを使うため、
         // ここで 1 度だけ生成する
-        const services = deps.serviceFactory.create(request.gitlabToken, deps.gitlabApiBaseUrl);
+        const services = deps.serviceFactory.create(request.gitlabToken, request.gitlabApiUrl);
 
         // 4. pipeline メタ情報取得
         await stream.writeSSE({
@@ -288,7 +293,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
         });
         const cloneResult = await deps.cloneManager.clone(
           request.gitlabToken,
-          deps.gitlabApiBaseUrl,
+          request.gitlabApiUrl,
           String(request.projectId),
           pipelineMeta.ref,
           pipelineMeta.ref,

@@ -28,6 +28,8 @@ export interface ValidatedPipelineReportParams {
   /** 未指定時は null（自己除外無し） */
   selfJobId: number | null;
   gitlabToken: string;
+  /** GitLab APIベースURL。CLIオプション/環境変数/既定値から解決済み */
+  gitlabApiUrl: string;
   aiModelName: string;
   aiApiKey: string | undefined;
   aiApiEndpointUrl: string | undefined;
@@ -91,6 +93,7 @@ export function validateRequiredParams(
     pipelineId,
     selfJobId,
     gitlabToken: options.gitlabToken!,
+    gitlabApiUrl: options.gitlabApiUrl,
     aiModelName: options.aiModelName,
     aiApiKey: env['AI_API_KEY'],
     aiApiEndpointUrl: env['AI_API_ENDPOINT_URL'],
@@ -162,6 +165,7 @@ export function buildPipelineReportApiRequest(
   return {
     userId: validated.userId,
     gitlabToken: validated.gitlabToken,
+    gitlabApiUrl: validated.gitlabApiUrl,
     projectId: validated.projectId,
     pipelineId: validated.pipelineId,
     selfJobId: validated.selfJobId,

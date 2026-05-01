@@ -23,7 +23,6 @@ services:
       - REVIEW_TIMEOUT_MS
       - CLONE_MAX_DISK_MB
       - AIKATA_LOG_LEVEL
-      - GITLAB_API_URL
     volumes:
       - /tmp/aikata-pr-clones:/tmp/aikata-pr-clones
     restart: unless-stopped

@@ -6,6 +6,7 @@ describe('reviewRequestSchema', () => {
     const input = {
       userId: 'alice',
       gitlabToken: 'token123',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '42',
       mrIid: '10',
       checklist: ['item 1', 'item 2'],
@@ -18,6 +19,7 @@ describe('reviewRequestSchema', () => {
   it('userIdが未指定の場合にバリデーションエラーになること', () => {
     const input = {
       gitlabToken: 'token',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '42',
       mrIid: '10',
       checklist: ['item 1'],
@@ -31,6 +33,34 @@ describe('reviewRequestSchema', () => {
     const input = {
       userId: '',
       gitlabToken: 'token',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
+      projectId: '42',
+      mrIid: '10',
+      checklist: ['item 1'],
+    };
+
+    const result = reviewRequestSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('gitlabApiUrlが未指定の場合にバリデーションエラーになること', () => {
+    const input = {
+      userId: 'alice',
+      gitlabToken: 'token',
+      projectId: '42',
+      mrIid: '10',
+      checklist: ['item 1'],
+    };
+
+    const result = reviewRequestSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('gitlabApiUrlがURL形式でない場合にバリデーションエラーになること', () => {
+    const input = {
+      userId: 'alice',
+      gitlabToken: 'token',
+      gitlabApiUrl: 'not-a-url',
       projectId: '42',
       mrIid: '10',
       checklist: ['item 1'],
@@ -44,6 +74,7 @@ describe('reviewRequestSchema', () => {
     const input = {
       userId: 'alice',
       gitlabToken: 'token123',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '42',
       mrIid: '10',
       checklist: ['item 1'],
@@ -74,6 +105,7 @@ describe('reviewRequestSchema', () => {
   it('gitlabTokenが空文字の場合にバリデーションエラーになること', () => {
     const input = {
       gitlabToken: '',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '42',
       mrIid: '10',
       checklist: ['item 1'],
@@ -86,6 +118,7 @@ describe('reviewRequestSchema', () => {
   it('checklistが空配列の場合にバリデーションエラーになること', () => {
     const input = {
       gitlabToken: 'token',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '42',
       mrIid: '10',
       checklist: [],
@@ -98,6 +131,7 @@ describe('reviewRequestSchema', () => {
   it('checklistに空文字が含まれる場合にバリデーションエラーになること', () => {
     const input = {
       gitlabToken: 'token',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '42',
       mrIid: '10',
       checklist: ['item 1', ''],
@@ -111,6 +145,7 @@ describe('reviewRequestSchema', () => {
     const input = {
       userId: 'alice',
       gitlabToken: 'token',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '42',
       mrIid: '10',
       checklist: ['item 1'],

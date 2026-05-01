@@ -53,12 +53,14 @@ describe('PipelineReportApiClient', () => {
   const testRequest: PipelineReportApiRequest = {
     userId: 'alice',
     gitlabToken: 'gitlab-token',
+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
     projectId: 123,
     pipelineId: 4567,
     selfJobId: null,
     settings: {
       jobReportFormat: '## {jobName}\n{status}',
-      additionalInstructions: null,
+      analysisInstructions: null,
+      reportRefinementInstructions: null,
       includeJobPatterns: [],
       excludeJobPatterns: [],
     },
@@ -293,6 +295,12 @@ describe('PipelineReportApiClient', () => {
       },
       body: JSON.stringify(testRequest),
     });
+
+    // 送信ボディに gitlabApiUrl が含まれる（マルチGitLabインスタンス対応）
+    const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string) as {
+      gitlabApiUrl?: string;
+    };
+    expect(sentBody.gitlabApiUrl).toBe('https://gitlab.example.com/api/v4');
   });
 
   it('jwtがnullの場合はAuthorizationヘッダが付与されないこと', async () => {

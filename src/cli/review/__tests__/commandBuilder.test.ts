@@ -30,6 +30,7 @@ function createCliOptions(overrides?: Partial<CliOptions>): CliOptions {
     prettyPrint: true,
     aikataApiUrl: undefined,
     aikataJwt: undefined,
+    gitlabApiUrl: 'https://gitlab.com/api/v4',
     ...overrides,
   };
 }
@@ -186,6 +187,20 @@ describe('validateRequiredParams', () => {
     expect(result.aiApiKey).toBe('test-key');
     expect(result.aiApiEndpointUrl).toBe('https://api.example.com');
   });
+
+  it('gitlabApiUrlがValidatedParamsに伝播されること', () => {
+    const options = createCliOptions({
+      gitlabApiUrl: 'https://gitlab-x.example.com/api/v4',
+    });
+    const env = {
+      AI_API_KEY: 'test-key',
+      AI_API_ENDPOINT_URL: 'https://api.example.com',
+    };
+
+    const result = validateRequiredParams(options, env);
+
+    expect(result.gitlabApiUrl).toBe('https://gitlab-x.example.com/api/v4');
+  });
 });
 
 describe('buildApiReviewRequest', () => {
@@ -196,6 +211,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '42',
       gitlabToken: 'test-gitlab-token',
       checklistPath: '/path/to/checklist.csv',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings();
@@ -211,6 +227,7 @@ describe('buildApiReviewRequest', () => {
     expect(result.gitlabToken).toBe('test-gitlab-token');
     expect(result.projectId).toBe('project-1');
     expect(result.mrIid).toBe('42');
+    expect(result.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
     expect(result.checklist).toEqual(['コードの可読性', 'テストカバレッジ']);
 
     // reviewSettings
@@ -232,6 +249,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings();
@@ -253,6 +271,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings();
@@ -272,6 +291,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings();
@@ -289,6 +309,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings();
@@ -306,6 +327,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings({ suggestEnabledRatingLabels: ['B', 'C'] });
@@ -323,6 +345,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings({ suggestEnabledRatingLabels: [] });
@@ -340,6 +363,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings();
@@ -357,6 +381,7 @@ describe('buildApiReviewRequest', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
     };
     const checklist = createChecklist();
     const reviewSettings = createReviewSettings({ mrCommentTitle: 'API基盤チェック' });
@@ -365,6 +390,24 @@ describe('buildApiReviewRequest', () => {
     const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
 
     expect(result.reviewSettings?.mrCommentTitle).toBe('API基盤チェック');
+  });
+
+  it('gitlabApiUrlがValidatedParams経由でReviewApiRequestに設定されること', () => {
+    const validated = {
+      userId: 'u',
+      projectId: 'p',
+      mrIid: '1',
+      gitlabToken: 't',
+      checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab-y.example.com/api/v4',
+    };
+    const checklist = createChecklist();
+    const reviewSettings = createReviewSettings();
+    const options = createCliOptions();
+
+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
+
+    expect(result.gitlabApiUrl).toBe('https://gitlab-y.example.com/api/v4');
   });
 });
 
@@ -376,6 +419,7 @@ describe('buildLocalReviewCommand', () => {
       mrIid: '42',
       gitlabToken: 'test-gitlab-token',
       checklistPath: '/path/to/checklist.csv',
+      gitlabApiUrl: 'https://gitlab-z.example.com/api/v4',
       aiApiKey: 'test-api-key',
       aiApiEndpointUrl: 'https://api.example.com',
       aiModelName: 'openai/o4-mini',
@@ -423,6 +467,7 @@ describe('buildLocalReviewCommand', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
       aiApiKey: 'k',
       aiApiEndpointUrl: 'https://e',
       aiModelName: 'm',
@@ -449,6 +494,7 @@ describe('buildLocalReviewCommand', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
       aiApiKey: 'k',
       aiApiEndpointUrl: 'https://e',
       aiModelName: 'm',
@@ -475,6 +521,7 @@ describe('buildLocalReviewCommand', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
       aiApiKey: 'k',
       aiApiEndpointUrl: 'https://e',
       aiModelName: 'm',
@@ -501,6 +548,7 @@ describe('buildLocalReviewCommand', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
       aiApiKey: 'k',
       aiApiEndpointUrl: 'https://e',
       aiModelName: 'm',
@@ -528,6 +576,7 @@ describe('buildLocalReviewCommand', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
       aiApiKey: 'k',
       aiApiEndpointUrl: 'https://e',
       aiModelName: 'm',
@@ -555,6 +604,7 @@ describe('buildLocalReviewCommand', () => {
       mrIid: '1',
       gitlabToken: 't',
       checklistPath: '/c',
+      gitlabApiUrl: 'https://gitlab.com/api/v4',
       aiApiKey: 'k',
       aiApiEndpointUrl: 'https://e',
       aiModelName: 'm',

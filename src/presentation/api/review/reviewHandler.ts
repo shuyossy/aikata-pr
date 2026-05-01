@@ -28,6 +28,11 @@ import { getLogger } from '../../../lib/logger.js';
 export const reviewRequestSchema = z.object({
   userId: z.string().min(1),
   gitlabToken: z.string().min(1),
+  /**
+   * GitLab APIベースURL。CLI側で解決済みの値が送られる。
+   * マルチGitLabインスタンス対応のため、APIサーバ側のenvではなくリクエスト単位で受け取る。
+   */
+  gitlabApiUrl: z.string().url(),
   projectId: z.string().min(1),
   mrIid: z.string().min(1),
   checklist: z.array(z.string().min(1)).min(1),
@@ -114,6 +119,8 @@ export interface PerRequestServiceFactory {
 
 /**
  * ReviewHandlerの依存インターフェース
+ *
+ * GitLab APIベースURLは含めない（リクエスト単位で受け取る、マルチテナント対応）
  */
 export interface ReviewHandlerDeps {
   cloneManager: CloneManagerPort;
@@ -122,7 +129,6 @@ export interface ReviewHandlerDeps {
   aiApiKey: string;
   aiApiEndpointUrl: string;
   defaultAiModelName: string;
-  gitlabApiBaseUrl: string;
   /** OpenAI reasoningモデルのreasoning effort設定 */
   openaiReasoningEffort?: string;
   /** レビュー全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
@@ -211,7 +217,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
         // 2. MRブランチ情報取得用の一時サービス（クローン前はprojectDir不要な操作のみ）
         const preCloneServices = deps.serviceFactory.create(
           request.gitlabToken,
-          deps.gitlabApiBaseUrl,
+          request.gitlabApiUrl,
           '', // クローン前はprojectDirは空文字（MR情報取得のみ使用）
         );
 
@@ -236,7 +242,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
         // 6. リポジトリクローン
         const cloneResult = await deps.cloneManager.clone(
           request.gitlabToken,
-          deps.gitlabApiBaseUrl,
+          request.gitlabApiUrl,
           request.projectId,
           mrInfo.source_branch,
           mrInfo.target_branch,
@@ -252,7 +258,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
         // 7. クローン後のper-requestサービスを組み立て
         const services = deps.serviceFactory.create(
           request.gitlabToken,
-          deps.gitlabApiBaseUrl,
+          request.gitlabApiUrl,
           cloneResult.projectDir,
         );
 

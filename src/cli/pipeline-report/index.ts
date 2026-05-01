@@ -93,15 +93,13 @@ function defaultLocalDepsFactory(context: {
   initializeRateLimiter(rateLimiter);
   rateLimiter.registerProject(String(validated.projectId));
 
-  // GitLab APIベースURLを環境変数から取得（CI環境では CI_API_V4_URL を使用）
-  const gitlabApiBaseUrl =
-    env['GITLAB_API_URL'] ?? env['CI_API_V4_URL'] ?? 'https://gitlab.com/api/v4';
+  // GitLab APIベースURLはparsePipelineReportArgsで解決済み（CLI > GITLAB_API_URL > CI_API_V4_URL > 既定値）
 
   // ArtifactCache 設定を環境変数から取得
   const maxArtifactZipMb = Number(env['PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB'] ?? '50');
   const totalArtifactDiskMb = Number(env['PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB'] ?? '500');
 
-  const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
+  const gitlabClient = new GitLabApiClient(validated.gitlabApiUrl, validated.gitlabToken);
   const pipelineGateway = new GitLabPipelineGateway(gitlabClient);
   const projectTreeGateway = new LocalProjectTreeGateway();
   const archiveReader = new YauzlArtifactArchiveReader();

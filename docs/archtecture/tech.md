@@ -61,6 +61,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
     - `--project-id` / `GITLAB_PROJECT_ID`: GitLabプロジェクトID
     - `--skills` / `SKILLS_PATH`: skillsパス
     - `--aikata-pr-gitlab-token` / `AIKATA_PR_GITLAB_TOKEN`: GitLab APIトークン
+    - `--gitlab-api-url` / `GITLAB_API_URL`: GitLab APIベースURL（優先順位: CLI > `GITLAB_API_URL` > `CI_API_V4_URL` > `https://gitlab.com/api/v4`）。APIモード時はリクエストボディでAPIサーバへ送られ、1サーバで複数GitLabインスタンスに対応可能
     - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
     - `--log-level` / `AIKATA_LOG_LEVEL`: ログレベル
     - `--comment-language` / `COMMENT_LANGUAGE`: AI出力（レビューコメント/レポート）の言語（デフォルト: `Japanese`）

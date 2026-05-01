@@ -147,11 +147,8 @@ export async function run(args: string[]): Promise<void> {
 
         // エラーでない場合はコメント投稿
         if (!allResultsAreErrors) {
-          const gitlabApiBaseUrl =
-            process.env['GITLAB_API_URL'] ??
-            process.env['CI_API_V4_URL'] ??
-            'https://gitlab.com/api/v4';
-          const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
+          // GitLab APIベースURLはparseCliOptionsで解決済み（CLI > GITLAB_API_URL > CI_API_V4_URL > 既定値）
+          const gitlabClient = new GitLabApiClient(validated.gitlabApiUrl, validated.gitlabToken);
           const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
           const commentService = new CommentPostingService(mrDiscussionGateway);
 
@@ -232,17 +229,13 @@ export async function run(args: string[]): Promise<void> {
       initializeRateLimiter(rateLimiter);
       rateLimiter.registerProject(validated.projectId);
 
-      // GitLab APIベースURLを環境変数から取得（CI環境では CI_API_V4_URL を使用）
-      const gitlabApiBaseUrl =
-        process.env['GITLAB_API_URL'] ??
-        process.env['CI_API_V4_URL'] ??
-        'https://gitlab.com/api/v4';
+      // GitLab APIベースURLはparseCliOptionsで解決済み（CLI > GITLAB_API_URL > CI_API_V4_URL > 既定値）
 
       // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
       const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
 
       // DI組み立て
-      const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
+      const gitlabClient = new GitLabApiClient(validated.gitlabApiUrl, validated.gitlabToken);
       const apiMrGateway = new GitLabMrGateway(gitlabClient);
       const mrGateway = new LocalGitDiffMrGateway(projectDir, apiMrGateway, gitlabClient);
       const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);

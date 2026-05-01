@@ -20,6 +20,8 @@ export interface ValidatedParams {
   projectId: string;
   mrIid: string;
   gitlabToken: string;
+  /** GitLab APIベースURL。CLIオプション/環境変数/既定値から解決済み */
+  gitlabApiUrl: string;
   checklistPath: string;
   aiApiKey?: string;
   aiApiEndpointUrl?: string;
@@ -56,6 +58,7 @@ export function validateRequiredParams(
     projectId: options.projectId!,
     mrIid: options.mrIid!,
     gitlabToken: options.gitlabToken!,
+    gitlabApiUrl: options.gitlabApiUrl,
     checklistPath: options.checklist!,
     aiModelName: options.aiModelName,
     aiApiKey: env['AI_API_KEY'],
@@ -76,6 +79,7 @@ export function buildApiReviewRequest(
   return {
     userId: validated.userId,
     gitlabToken: validated.gitlabToken,
+    gitlabApiUrl: validated.gitlabApiUrl,
     projectId: validated.projectId,
     mrIid: validated.mrIid,
     checklist: checklist.items.map((i) => i.content),

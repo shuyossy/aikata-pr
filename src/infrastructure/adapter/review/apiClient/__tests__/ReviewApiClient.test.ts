@@ -48,6 +48,7 @@ describe('ReviewApiClient', () => {
   const testRequest: ReviewApiRequest = {
     userId: 'alice',
     gitlabToken: 'gitlab-token',
+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
     projectId: '123',
     mrIid: '42',
     checklist: ['項目1', '項目2'],
@@ -196,6 +197,7 @@ describe('ReviewApiClient', () => {
     const requestWithOptions: ReviewApiRequest = {
       userId: 'alice',
       gitlabToken: 'gitlab-token',
+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '123',
       mrIid: '42',
       checklist: ['項目1'],
@@ -239,8 +241,11 @@ describe('ReviewApiClient', () => {
     // 送信ボディに userId が含まれる
     const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string) as {
       userId?: string;
+      gitlabApiUrl?: string;
     };
     expect(sentBody.userId).toBe('alice');
+    // 送信ボディに gitlabApiUrl が含まれる（マルチGitLabインスタンス対応）
+    expect(sentBody.gitlabApiUrl).toBe('https://gitlab.example.com/api/v4');
   });
 
   it('X-Aikata-Versionヘッダがリクエストに含まれること', async () => {

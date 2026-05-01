@@ -24,6 +24,7 @@ function createCliOptions(overrides?: Partial<PipelineReportCliOptions>): Pipeli
     prettyPrint: true,
     aikataApiUrl: undefined,
     aikataJwt: undefined,
+    gitlabApiUrl: 'https://gitlab.com/api/v4',
     resultFile: './aikata-pipeline-report.md',
     maxCompletenessRetries: 3,
     treeMaxDepth: undefined,
@@ -63,6 +64,15 @@ describe('validateRequiredParams', () => {
     expect(result.selfJobId).toBeNull();
     expect(result.gitlabToken).toBe('gitlab-token');
     expect(result.aiModelName).toBe('openai/o4-mini');
+  });
+
+  it('gitlabApiUrlがValidatedParamsに伝播される', () => {
+    const options = createCliOptions({
+      gitlabApiUrl: 'https://gitlab-tenant-x.example.com/api/v4',
+    });
+    const env = { AI_API_KEY: 'k', AI_API_ENDPOINT_URL: 'https://x' };
+    const result = validateRequiredParams(options, env);
+    expect(result.gitlabApiUrl).toBe('https://gitlab-tenant-x.example.com/api/v4');
   });
 
   it('selfJobIdが指定されている場合は数値に変換される', () => {
@@ -228,6 +238,7 @@ describe('buildPipelineReportApiRequest', () => {
 
     expect(request.userId).toBe('alice');
     expect(request.gitlabToken).toBe('gitlab-token');
+    expect(request.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
     expect(request.projectId).toBe(123);
     expect(request.pipelineId).toBe(456);
     expect(request.selfJobId).toBeNull();

@@ -5,6 +5,8 @@ export interface ReviewApiRequest {
   /** 本テンプレートを実行したユーザID（通常は$GITLAB_USER_LOGIN）。APIサーバー側でログに記録される */
   userId: string;
   gitlabToken: string;
+  /** GitLab APIベースURL。APIサーバーはここで指定されたGitLabインスタンスにアクセスする */
+  gitlabApiUrl: string;
   projectId: string;
   mrIid: string;
   checklist: string[];

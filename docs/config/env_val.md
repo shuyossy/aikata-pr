@@ -9,7 +9,7 @@
 | AI | AI_API_ENDPOINT_URL | ローカルモード時必須 | - | AI APIエンドポイントURL。AI_API_KEY、AI_MODEL_NAMEと共に全て設定するとローカルモードで動作 | なし（環境変数のみ） | - |
 | AI | AI_MODEL_NAME | ローカルモード時必須 | - | AIモデル名。AI_API_KEY、AI_API_ENDPOINT_URLと共に全て設定するとローカルモードで動作 | --ai-model-name | - |
 | AI | OPENAI_REASONING_EFFORT | No | - | OpenAI reasoningモデルのreasoning effort（low/medium/high）。設定時はtemperature=1も自動適用 | なし（環境変数のみ） | - |
-| GitLab | GITLAB_API_URL | No | CI_API_V4_URLまたはhttps://gitlab.com/api/v4 | GitLab APIベースURL。CI_API_V4_URLが設定されている場合はそちらを優先 | なし（環境変数のみ） | - |
+| GitLab | GITLAB_API_URL | No | https://gitlab.com/api/v4（CI環境では`CI_API_V4_URL`が自動付与されfallback） | GitLab APIベースURL。CLIで解決後、APIモード時はリクエストボディに乗せてAPIサーバへ送る（マルチGitLabインスタンス対応）。優先順位: `--gitlab-api-url` > `GITLAB_API_URL` > `CI_API_V4_URL` > 既定値 | --gitlab-api-url | - |
 | GitLab | AIKATA_PR_GITLAB_TOKEN | Yes | - | GitLab APIトークン（秘密情報） | --aikata-pr-gitlab-token | - |
 | GitLab | GITLAB_PROJECT_ID | Yes | - | GitLabプロジェクトID | --project-id | - |
 | GitLab | GITLAB_MR_IID | reviewで必須 | - | マージリクエストIID（review機能で必須） | --mr-iid | - |
@@ -58,5 +58,4 @@ APIサーバー（`docker/prod/docker-compose.yml`）で設定する環境変数
 | タイムアウト | REVIEW_TIMEOUT_MS | No | 3600000 | レビュー全体タイムアウト（ミリ秒） |
 | サーバー | API_PORT | No | 3000 | APIサーバーのリッスンポート |
 | ログ | AIKATA_LOG_LEVEL | No | info | ログレベル |
-| GitLab | GITLAB_API_URL | No | https://gitlab.com/api/v4 | GitLab APIベースURL |
 | 動作設定 | MAX_CONTEXT_LENGTH | No | - | AIモデルのコンテキスト長（トークン数）。設定時、userプロンプトのトークン数がMAX_CONTEXT_LENGTH*0.6を超える場合にdiffを自動圧縮する。未設定時は圧縮しない |
