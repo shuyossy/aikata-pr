@@ -74,7 +74,8 @@ export class CloneManager implements CloneManagerPort {
    * 2. GitLab APIからプロジェクト情報を取得しクローンURLを構築
    * 3. git clone --filter=blob:none --no-checkout
    * 4. git fetch origin <sourceBranch> <targetBranch>
-   * 5. git checkout <sourceBranch>
+   * 5. checkout: commitSha 指定時は git checkout <commitSha>（detached HEAD）、
+   *    null の場合は git checkout <sourceBranch>
    * 6. ディスク使用量チェック
    * 7. CloneResultを返却
    */
@@ -118,22 +119,26 @@ export class CloneManager implements CloneManagerPort {
       });
       getLogger().info({ sourceBranch, targetBranch }, 'Branches fetched successfully');
 
-      // git checkout <sourceBranch>
-      await execFileAsync('git', ['checkout', sourceBranch], {
-        ...GIT_EXEC_OPTIONS,
-        cwd: tmpDir,
-        timeout: this.cloneTimeoutMs,
-      });
-      getLogger().info({ sourceBranch }, 'Source branch checked out');
-
-      // commitSha が指定されている場合、特定のコミットをcheckout（detached HEAD）
+      // commitSha 指定時は SHA を直接 checkout（detached HEAD）。
+      // pipeline-report はMRパイプラインで sourceBranch が refs/merge-requests/<iid>/head の
+      // 形式になりうるが、それはローカル ref として存在しないためブランチcheckoutは失敗する。
+      // git fetch でコミットオブジェクトは取得済みなので、SHA で checkout すれば
+      // ブランチ/タグ/MR ref のいずれでも成功する。
+      // commitSha が null（review機能）の場合は従来どおりブランチ名を checkout する。
       if (commitSha) {
         await execFileAsync('git', ['checkout', commitSha], {
           ...GIT_EXEC_OPTIONS,
           cwd: tmpDir,
           timeout: this.cloneTimeoutMs,
         });
-        getLogger().info({ commitSha }, 'Specific commit checked out');
+        getLogger().info({ commitSha }, 'Specific commit checked out (detached HEAD)');
+      } else {
+        await execFileAsync('git', ['checkout', sourceBranch], {
+          ...GIT_EXEC_OPTIONS,
+          cwd: tmpDir,
+          timeout: this.cloneTimeoutMs,
+        });
+        getLogger().info({ sourceBranch }, 'Source branch checked out');
       }
 
       // ディスク使用量チェック

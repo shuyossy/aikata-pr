@@ -207,13 +207,12 @@ describe('CloneManager', () => {
       expect(checkoutArgs).toContain(defaultSourceBranch);
     });
 
-    it('正常系: commitSha指定時にブランチcheckout後にSHAでcheckoutする', async () => {
+    it('正常系: commitSha指定時はブランチcheckoutをスキップしSHAでcheckoutする', async () => {
       mockGitLabProjectResponse();
-      // git clone → git fetch → git checkout(branch) → git checkout(sha) → du -sk
+      // git clone → git fetch → git checkout(sha) → du -sk（ブランチcheckoutは行わない）
       setupExecFileSequence([
         { stdout: '' }, // git clone
         { stdout: '' }, // git fetch
-        { stdout: '' }, // git checkout <sourceBranch>
         { stdout: '' }, // git checkout <commitSha>
         DU_OK, // du -sk
       ]);
@@ -229,12 +228,55 @@ describe('CloneManager', () => {
       );
 
       const mockedExecFile = vi.mocked(realExecFile);
-      // 4番目の呼び出しがgit checkout <commitSha>
-      const shaCheckoutCall = mockedExecFile.mock.calls[3];
+      // 3番目の呼び出しがgit checkout <commitSha>（detached HEAD）
+      const shaCheckoutCall = mockedExecFile.mock.calls[2];
       expect(shaCheckoutCall[0]).toBe('git');
       const shaCheckoutArgs = shaCheckoutCall[1] as string[];
       expect(shaCheckoutArgs[0]).toBe('checkout');
       expect(shaCheckoutArgs).toContain('abcdef1234567890');
+
+      // 中間のブランチcheckout（git checkout <sourceBranch>）は呼ばれない
+      const checkoutCalls = mockedExecFile.mock.calls.filter(
+        (call) => call[0] === 'git' && (call[1] as string[])[0] === 'checkout',
+      );
+      expect(checkoutCalls).toHaveLength(1);
+      expect(checkoutCalls[0][1] as string[]).not.toContain(defaultSourceBranch);
+
+      expect(result.projectDir).toMatch(clonePathPattern);
+      await result.cleanup();
+    });
+
+    it('正常系: sourceBranchがMR ref(refs/merge-requests/<iid>/head)でもcommitSha指定でcheckoutできる', async () => {
+      // pipeline-report のMRパイプライン再現: ref が refs/merge-requests/307/head 形式。
+      // このrefはローカルブランチとして存在しないため、ブランチcheckoutしてはならない。
+      mockGitLabProjectResponse();
+      setupExecFileSequence([
+        { stdout: '' }, // git clone
+        { stdout: '' }, // git fetch
+        { stdout: '' }, // git checkout <commitSha>
+        DU_OK, // du -sk
+      ]);
+
+      const mrRef = 'refs/merge-requests/307/head';
+      const commitSha = 'fedcba0987654321';
+      const manager = new CloneManager(300_000, 1024, 5, '/tmp/aikata-test-clones');
+      const result = await manager.clone(
+        defaultToken,
+        defaultApiBaseUrl,
+        defaultProjectId,
+        mrRef,
+        mrRef,
+        commitSha,
+      );
+
+      const mockedExecFile = vi.mocked(realExecFile);
+      const checkoutCalls = mockedExecFile.mock.calls.filter(
+        (call) => call[0] === 'git' && (call[1] as string[])[0] === 'checkout',
+      );
+      // checkout は SHA に対する1回のみ。MR ref への checkout は一切行われない
+      expect(checkoutCalls).toHaveLength(1);
+      expect(checkoutCalls[0][1] as string[]).toContain(commitSha);
+      expect(checkoutCalls[0][1] as string[]).not.toContain(mrRef);
 
       expect(result.projectDir).toMatch(clonePathPattern);
       await result.cleanup();
