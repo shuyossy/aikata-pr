@@ -1,1295 +1,159 @@
-diff --git a/.ci-template/variable/shared.yml b/.ci-template/variable/shared.yml
-index 33460d9..f8add92 100644
---- a/.ci-template/variable/shared.yml
-+++ b/.ci-template/variable/shared.yml
-@@ -4,7 +4,8 @@ variables:
-   # VERSION
-   AIKATA_PR_VERSION: "latest"
-   # GitLab
--  GITLAB_API_URL: ""
-+  # GITLAB_API_URL は明示的にデフォルトを設定しない。
-+  # CLI 側の優先順位: --gitlab-api-url > $GITLAB_API_URL > $CI_API_V4_URL（GitLab自動付与）> https://gitlab.com/api/v4
-   AIKATA_PR_GITLAB_TOKEN: ""
-   GITLAB_PROJECT_ID: "$CI_PROJECT_ID"
-   # AI共通
-diff --git a/.env.example b/.env.example
-index 2cc6118..4266438 100644
---- a/.env.example
-+++ b/.env.example
-@@ -8,6 +8,8 @@ AI_MODEL_NAME=
- OPENAI_REASONING_EFFORT=
- 
- # GitLab
-+# GITLAB_API_URL: CLI起動時に解決し、APIモードではリクエストボディに乗せてAPIサーバへ送る。
-+# 未指定時は CI_API_V4_URL（GitLab CI自動付与）→ デフォルト https://gitlab.com/api/v4 にフォールバック。
- GITLAB_API_URL=
- AIKATA_PR_GITLAB_TOKEN=your-gitlab-token
- GITLAB_PROJECT_ID=
 diff --git a/PBI.md b/PBI.md
-index cd84193..ace738d 100644
+index ace738d..e2fec2b 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -11,27 +11,19 @@
- ```
- 
- # ID: 1
--- PBI名: レビュー時suggestに関するprompt改善
-+- PBI名: APIサーバが認識するGitLab API URLを動的に指定できるようにする
- - ステータス: done
- - 背景
--  - 現状は、指定の評定に関するsuggestを必ず登録しようとする
--    - suggestはMR diffの範囲内でしか実行できないという制約下で、無理矢理suggestを登録しようとしてしまうので、suggestの品質が悪くなる
-+  - 複数のセルフホストGitLabに本テンプレートを導入する予定
-+  - つまり、GitLabのURLは一意に定まらない
-+  - CLIクラインアント側からGitLabのURLを連携する必要がある
+@@ -8,22 +8,4 @@
  - 受け入れ基準
--  - suggest登録可能な範囲でsuggestする内容がない場合は、suggestの登録は不要である旨をpromptに明記する
--- 注意事項
--- 指摘事項（in progressの場合のみ）
--
--# ID: 2
--- PBI名: レビュー実行時のプロンプト強化
--- ステータス: to do
--- 背景
--  - チェック項目に対して、人間の目から見るとdiffの内容がレビュー対象外でも無理やりレビューを実行しようとして、むしろレビュー結果がノイズになる場合がある
--  - ユーザが追加指示等で細かくレビュー方針を指定しなくともコードやドキュメントレビューのベストプラクティスに沿うように実行して欲しい
--- 受け入れ基準
--  - 以下を考慮してシステムプロンプトが改善されている
--    - レビュー結果がノイズになる場合は無理にレビューせず、レビュー対象外であることをコメントして欲しい
--      - ユーザはレビュー結果を元にMR承認の判断等をするはずで、無理やりレビューすることがむしろユーザの認知負担になり、いずれレビュー結果に対する信頼低下につながる
--    - コードやドキュメントレビューのベストプラクティスに沿ってレビューすること
--      - 細かく項目を挙げても良いし、LLMが「コードやドキュメントレビューのベストプラクティス」と伝えるだけでも正しく理解できるのであればそれでも良い
-+  - CLIクラインアント側からGitLabのURLを連携できている
-+  - 横展開として、複数のセルフホストGitLabに対して一つのAPIサーバのみで対応できるか、GitLab API以外にも問題点はないか徹底的に確認できている
  - 注意事項
-+  - マルチGitLabインスタンス対応の監査結果（受入基準#2）:
-+    - 🔴 **JWT認証の issuer 固定**: `JWT_ISSUER` / `JWT_JWKS_URL` がサーバ起動時 env で1組のみ。複数GitLab対応時は **JWT認証を無効化** して運用するか、別途PBIで対応する必要がある（候補: issuerリスト受付 / JWTの`iss`から動的JWKS解決 / リクエスト由来`gitlabApiUrl`との照合）。`src/server.ts:228-244`、`src/infrastructure/adapter/auth/JwtAuthMiddleware.ts:55-77`
-+    - 🟡 **レートリミッターのGitLabインスタンス未分離**: バケットキーが`projectId`のみのため、別GitLabの同一projectIdが同じバケットを共有する。AI APIレート制御目的のみで動作上の支障はなし。要対応の場合は`(gitlabApiUrl, projectId)`の合成キーへ。`src/infrastructure/adapter/rateLimiter/RateLimiter.ts`
-+    - 🟡 **Mastra `WorkflowRequestContext` に gitlabApiUrl 未含有**: 現状ツールがGitLab APIを直接呼ばないため問題なし。ワークフロー内ツールからGitLab API呼び出しを追加する場合は`src/mastra/shared/requestContext.ts`に追加要。
-+    - 🟢 安全箇所: `CloneManager`/`GitLabApiClient`/Logger/HTTP Gateway層は per-request で安全。
  - 指摘事項（in progressの場合のみ）
-diff --git a/docker/prod/docker-compose.yml b/docker/prod/docker-compose.yml
-index 0a1b1b3..1a37a5e 100644
---- a/docker/prod/docker-compose.yml
-+++ b/docker/prod/docker-compose.yml
-@@ -23,7 +23,6 @@ services:
-       - REVIEW_TIMEOUT_MS
-       - CLONE_MAX_DISK_MB
-       - AIKATA_LOG_LEVEL
--      - GITLAB_API_URL
-     volumes:
-       - /tmp/aikata-pr-clones:/tmp/aikata-pr-clones
-     restart: unless-stopped
-diff --git a/docs/archtecture/tech.md b/docs/archtecture/tech.md
-index 4c4eee0..7a0857b 100644
---- a/docs/archtecture/tech.md
-+++ b/docs/archtecture/tech.md
-@@ -61,6 +61,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
-     - `--project-id` / `GITLAB_PROJECT_ID`: GitLabプロジェクトID
-     - `--skills` / `SKILLS_PATH`: skillsパス
-     - `--aikata-pr-gitlab-token` / `AIKATA_PR_GITLAB_TOKEN`: GitLab APIトークン
-+    - `--gitlab-api-url` / `GITLAB_API_URL`: GitLab APIベースURL（優先順位: CLI > `GITLAB_API_URL` > `CI_API_V4_URL` > `https://gitlab.com/api/v4`）。APIモード時はリクエストボディでAPIサーバへ送られ、1サーバで複数GitLabインスタンスに対応可能
-     - `--ai-model-name` / `AI_MODEL_NAME`: AIモデル名（デフォルト: `openai/o4-mini`）
-     - `--log-level` / `AIKATA_LOG_LEVEL`: ログレベル
-     - `--comment-language` / `COMMENT_LANGUAGE`: AI出力（レビューコメント/レポート）の言語（デフォルト: `Japanese`）
-diff --git a/docs/config/env_val.md b/docs/config/env_val.md
-index 91d23f4..e3c4f04 100644
---- a/docs/config/env_val.md
-+++ b/docs/config/env_val.md
-@@ -9,7 +9,7 @@
- | AI | AI_API_ENDPOINT_URL | ローカルモード時必須 | - | AI APIエンドポイントURL。AI_API_KEY、AI_MODEL_NAMEと共に全て設定するとローカルモードで動作 | なし（環境変数のみ） | - |
- | AI | AI_MODEL_NAME | ローカルモード時必須 | - | AIモデル名。AI_API_KEY、AI_API_ENDPOINT_URLと共に全て設定するとローカルモードで動作 | --ai-model-name | - |
- | AI | OPENAI_REASONING_EFFORT | No | - | OpenAI reasoningモデルのreasoning effort（low/medium/high）。設定時はtemperature=1も自動適用 | なし（環境変数のみ） | - |
--| GitLab | GITLAB_API_URL | No | CI_API_V4_URLまたはhttps://gitlab.com/api/v4 | GitLab APIベースURL。CI_API_V4_URLが設定されている場合はそちらを優先 | なし（環境変数のみ） | - |
-+| GitLab | GITLAB_API_URL | No | https://gitlab.com/api/v4（CI環境では`CI_API_V4_URL`が自動付与されfallback） | GitLab APIベースURL。CLIで解決後、APIモード時はリクエストボディに乗せてAPIサーバへ送る（マルチGitLabインスタンス対応）。優先順位: `--gitlab-api-url` > `GITLAB_API_URL` > `CI_API_V4_URL` > 既定値 | --gitlab-api-url | - |
- | GitLab | AIKATA_PR_GITLAB_TOKEN | Yes | - | GitLab APIトークン（秘密情報） | --aikata-pr-gitlab-token | - |
- | GitLab | GITLAB_PROJECT_ID | Yes | - | GitLabプロジェクトID | --project-id | - |
- | GitLab | GITLAB_MR_IID | reviewで必須 | - | マージリクエストIID（review機能で必須） | --mr-iid | - |
-@@ -58,5 +58,4 @@ APIサーバー（`docker/prod/docker-compose.yml`）で設定する環境変数
- | タイムアウト | REVIEW_TIMEOUT_MS | No | 3600000 | レビュー全体タイムアウト（ミリ秒） |
- | サーバー | API_PORT | No | 3000 | APIサーバーのリッスンポート |
- | ログ | AIKATA_LOG_LEVEL | No | info | ログレベル |
--| GitLab | GITLAB_API_URL | No | https://gitlab.com/api/v4 | GitLab APIベースURL |
- | 動作設定 | MAX_CONTEXT_LENGTH | No | - | AIモデルのコンテキスト長（トークン数）。設定時、userプロンプトのトークン数がMAX_CONTEXT_LENGTH*0.6を超える場合にdiffを自動圧縮する。未設定時は圧縮しない |
-diff --git a/src/cli/pipeline-report/__tests__/commandBuilder.test.ts b/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
-index 1011ec0..b8c2916 100644
---- a/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
-+++ b/src/cli/pipeline-report/__tests__/commandBuilder.test.ts
-@@ -24,6 +24,7 @@ function createCliOptions(overrides?: Partial<PipelineReportCliOptions>): Pipeli
-     prettyPrint: true,
-     aikataApiUrl: undefined,
-     aikataJwt: undefined,
-+    gitlabApiUrl: 'https://gitlab.com/api/v4',
-     resultFile: './aikata-pipeline-report.md',
-     maxCompletenessRetries: 3,
-     treeMaxDepth: undefined,
-@@ -65,6 +66,15 @@ describe('validateRequiredParams', () => {
-     expect(result.aiModelName).toBe('openai/o4-mini');
-   });
+-```
+-
+-# ID: 1
+-- PBI名: APIサーバが認識するGitLab API URLを動的に指定できるようにする
+-- ステータス: done
+-- 背景
+-  - 複数のセルフホストGitLabに本テンプレートを導入する予定
+-  - つまり、GitLabのURLは一意に定まらない
+-  - CLIクラインアント側からGitLabのURLを連携する必要がある
+-- 受け入れ基準
+-  - CLIクラインアント側からGitLabのURLを連携できている
+-  - 横展開として、複数のセルフホストGitLabに対して一つのAPIサーバのみで対応できるか、GitLab API以外にも問題点はないか徹底的に確認できている
+-- 注意事項
+-  - マルチGitLabインスタンス対応の監査結果（受入基準#2）:
+-    - 🔴 **JWT認証の issuer 固定**: `JWT_ISSUER` / `JWT_JWKS_URL` がサーバ起動時 env で1組のみ。複数GitLab対応時は **JWT認証を無効化** して運用するか、別途PBIで対応する必要がある（候補: issuerリスト受付 / JWTの`iss`から動的JWKS解決 / リクエスト由来`gitlabApiUrl`との照合）。`src/server.ts:228-244`、`src/infrastructure/adapter/auth/JwtAuthMiddleware.ts:55-77`
+-    - 🟡 **レートリミッターのGitLabインスタンス未分離**: バケットキーが`projectId`のみのため、別GitLabの同一projectIdが同じバケットを共有する。AI APIレート制御目的のみで動作上の支障はなし。要対応の場合は`(gitlabApiUrl, projectId)`の合成キーへ。`src/infrastructure/adapter/rateLimiter/RateLimiter.ts`
+-    - 🟡 **Mastra `WorkflowRequestContext` に gitlabApiUrl 未含有**: 現状ツールがGitLab APIを直接呼ばないため問題なし。ワークフロー内ツールからGitLab API呼び出しを追加する場合は`src/mastra/shared/requestContext.ts`に追加要。
+-    - 🟢 安全箇所: `CloneManager`/`GitLabApiClient`/Logger/HTTP Gateway層は per-request で安全。
+-- 指摘事項（in progressの場合のみ）
++```
+\ No newline at end of file
+diff --git a/src/infrastructure/adapter/clone/CloneManager.ts b/src/infrastructure/adapter/clone/CloneManager.ts
+index 4d917d0..8a5323c 100644
+--- a/src/infrastructure/adapter/clone/CloneManager.ts
++++ b/src/infrastructure/adapter/clone/CloneManager.ts
+@@ -74,7 +74,8 @@ export class CloneManager implements CloneManagerPort {
+    * 2. GitLab APIからプロジェクト情報を取得しクローンURLを構築
+    * 3. git clone --filter=blob:none --no-checkout
+    * 4. git fetch origin <sourceBranch> <targetBranch>
+-   * 5. git checkout <sourceBranch>
++   * 5. checkout: commitSha 指定時は git checkout <commitSha>（detached HEAD）、
++   *    null の場合は git checkout <sourceBranch>
+    * 6. ディスク使用量チェック
+    * 7. CloneResultを返却
+    */
+@@ -118,22 +119,26 @@ export class CloneManager implements CloneManagerPort {
+       });
+       getLogger().info({ sourceBranch, targetBranch }, 'Branches fetched successfully');
  
-+  it('gitlabApiUrlがValidatedParamsに伝播される', () => {
-+    const options = createCliOptions({
-+      gitlabApiUrl: 'https://gitlab-tenant-x.example.com/api/v4',
-+    });
-+    const env = { AI_API_KEY: 'k', AI_API_ENDPOINT_URL: 'https://x' };
-+    const result = validateRequiredParams(options, env);
-+    expect(result.gitlabApiUrl).toBe('https://gitlab-tenant-x.example.com/api/v4');
-+  });
-+
-   it('selfJobIdが指定されている場合は数値に変換される', () => {
-     const options = createCliOptions({ selfJobId: '789' });
-     const env = { AI_API_KEY: 'k', AI_API_ENDPOINT_URL: 'https://x' };
-@@ -228,6 +238,7 @@ describe('buildPipelineReportApiRequest', () => {
- 
-     expect(request.userId).toBe('alice');
-     expect(request.gitlabToken).toBe('gitlab-token');
-+    expect(request.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
-     expect(request.projectId).toBe(123);
-     expect(request.pipelineId).toBe(456);
-     expect(request.selfJobId).toBeNull();
-diff --git a/src/cli/pipeline-report/__tests__/parsePipelineReportArgs.test.ts b/src/cli/pipeline-report/__tests__/parsePipelineReportArgs.test.ts
-index 9d7b1a5..3a0922e 100644
---- a/src/cli/pipeline-report/__tests__/parsePipelineReportArgs.test.ts
-+++ b/src/cli/pipeline-report/__tests__/parsePipelineReportArgs.test.ts
-@@ -140,6 +140,51 @@ describe('parsePipelineReportArgs', () => {
-     expect(result.aikataJwt).toBe('jwt-token');
-   });
- 
-+  describe('gitlabApiUrl', () => {
-+    it('--gitlab-api-urlをパースできる', () => {
-+      const result = parsePipelineReportArgs(
-+        ['--gitlab-api-url', 'https://gitlab-a.example.com/api/v4'],
-+        {},
-+      );
-+      expect(result.gitlabApiUrl).toBe('https://gitlab-a.example.com/api/v4');
-+    });
-+
-+    it('GITLAB_API_URL環境変数にフォールバックする', () => {
-+      const result = parsePipelineReportArgs([], {
-+        GITLAB_API_URL: 'https://env.example.com/api/v4',
-+      });
-+      expect(result.gitlabApiUrl).toBe('https://env.example.com/api/v4');
-+    });
-+
-+    it('--gitlab-api-urlがGITLAB_API_URLより優先される', () => {
-+      const result = parsePipelineReportArgs(
-+        ['--gitlab-api-url', 'https://cli.example.com/api/v4'],
-+        { GITLAB_API_URL: 'https://env.example.com/api/v4' },
-+      );
-+      expect(result.gitlabApiUrl).toBe('https://cli.example.com/api/v4');
-+    });
-+
-+    it('GITLAB_API_URLが無い場合CI_API_V4_URL環境変数にフォールバックする', () => {
-+      const result = parsePipelineReportArgs([], {
-+        CI_API_V4_URL: 'https://ci.example.com/api/v4',
-+      });
-+      expect(result.gitlabApiUrl).toBe('https://ci.example.com/api/v4');
-+    });
-+
-+    it('GITLAB_API_URLが空文字でもCI_API_V4_URLが使用される', () => {
-+      const result = parsePipelineReportArgs([], {
-+        GITLAB_API_URL: '',
-+        CI_API_V4_URL: 'https://ci.example.com/api/v4',
-+      });
-+      expect(result.gitlabApiUrl).toBe('https://ci.example.com/api/v4');
-+    });
-+
-+    it('全て未指定の場合はデフォルト値https://gitlab.com/api/v4', () => {
-+      const result = parsePipelineReportArgs([], {});
-+      expect(result.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
-+    });
-+  });
-+
-   it('--result-fileをパースできる', () => {
-     const result = parsePipelineReportArgs(['--result-file', '/tmp/report.md'], {});
-     expect(result.resultFile).toBe('/tmp/report.md');
-diff --git a/src/cli/pipeline-report/commandBuilder.ts b/src/cli/pipeline-report/commandBuilder.ts
-index 73bedd2..5a373cc 100644
---- a/src/cli/pipeline-report/commandBuilder.ts
-+++ b/src/cli/pipeline-report/commandBuilder.ts
-@@ -28,6 +28,8 @@ export interface ValidatedPipelineReportParams {
-   /** 未指定時は null（自己除外無し） */
-   selfJobId: number | null;
-   gitlabToken: string;
-+  /** GitLab APIベースURL。CLIオプション/環境変数/既定値から解決済み */
-+  gitlabApiUrl: string;
-   aiModelName: string;
-   aiApiKey: string | undefined;
-   aiApiEndpointUrl: string | undefined;
-@@ -91,6 +93,7 @@ export function validateRequiredParams(
-     pipelineId,
-     selfJobId,
-     gitlabToken: options.gitlabToken!,
-+    gitlabApiUrl: options.gitlabApiUrl,
-     aiModelName: options.aiModelName,
-     aiApiKey: env['AI_API_KEY'],
-     aiApiEndpointUrl: env['AI_API_ENDPOINT_URL'],
-@@ -162,6 +165,7 @@ export function buildPipelineReportApiRequest(
-   return {
-     userId: validated.userId,
-     gitlabToken: validated.gitlabToken,
-+    gitlabApiUrl: validated.gitlabApiUrl,
-     projectId: validated.projectId,
-     pipelineId: validated.pipelineId,
-     selfJobId: validated.selfJobId,
-diff --git a/src/cli/pipeline-report/index.ts b/src/cli/pipeline-report/index.ts
-index 0093c92..c1e35a5 100644
---- a/src/cli/pipeline-report/index.ts
-+++ b/src/cli/pipeline-report/index.ts
-@@ -93,15 +93,13 @@ function defaultLocalDepsFactory(context: {
-   initializeRateLimiter(rateLimiter);
-   rateLimiter.registerProject(String(validated.projectId));
- 
--  // GitLab APIベースURLを環境変数から取得（CI環境では CI_API_V4_URL を使用）
--  const gitlabApiBaseUrl =
--    env['GITLAB_API_URL'] ?? env['CI_API_V4_URL'] ?? 'https://gitlab.com/api/v4';
-+  // GitLab APIベースURLはparsePipelineReportArgsで解決済み（CLI > GITLAB_API_URL > CI_API_V4_URL > 既定値）
- 
-   // ArtifactCache 設定を環境変数から取得
-   const maxArtifactZipMb = Number(env['PIPELINE_REPORT_MAX_ARTIFACT_ZIP_MB'] ?? '50');
-   const totalArtifactDiskMb = Number(env['PIPELINE_REPORT_TOTAL_ARTIFACT_DISK_MB'] ?? '500');
- 
--  const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
-+  const gitlabClient = new GitLabApiClient(validated.gitlabApiUrl, validated.gitlabToken);
-   const pipelineGateway = new GitLabPipelineGateway(gitlabClient);
-   const projectTreeGateway = new LocalProjectTreeGateway();
-   const archiveReader = new YauzlArtifactArchiveReader();
-diff --git a/src/cli/pipeline-report/parsePipelineReportArgs.ts b/src/cli/pipeline-report/parsePipelineReportArgs.ts
-index 0216e52..392412b 100644
---- a/src/cli/pipeline-report/parsePipelineReportArgs.ts
-+++ b/src/cli/pipeline-report/parsePipelineReportArgs.ts
-@@ -1,3 +1,11 @@
-+/** 既定のGitLab APIベースURL */
-+const DEFAULT_GITLAB_API_URL = 'https://gitlab.com/api/v4';
-+
-+/** 環境変数値が未定義または空文字の場合にundefinedを返す */
-+function nonEmpty(value: string | undefined): string | undefined {
-+  return value && value.length > 0 ? value : undefined;
-+}
-+
- /**
-  * pipeline-report サブコマンドの CLI オプション型。
-  *
-@@ -19,6 +27,8 @@ export interface PipelineReportCliOptions {
-   prettyPrint: boolean;
-   aikataApiUrl: string | undefined;
-   aikataJwt: string | undefined;
-+  /** GitLab APIベースURL。優先順位: --gitlab-api-url > GITLAB_API_URL > CI_API_V4_URL > 既定値 */
-+  gitlabApiUrl: string;
-   /** 結果ファイルの出力パス（必ず値が入る。デフォルト: `./aikata-pipeline-report.md`） */
-   resultFile: string;
-   /** 完成判定の最大リトライ回数（必ず値が入る。デフォルト: 3） */
-@@ -124,6 +134,9 @@ export function parsePipelineReportArgs(
-       case '--skip-completeness-check':
-         parsed['skipCompletenessCheck'] = true;
-         break;
-+      case '--gitlab-api-url':
-+        parsed['gitlabApiUrl'] = args[++i]!;
-+        break;
-     }
-   }
- 
-@@ -179,6 +192,11 @@ export function parsePipelineReportArgs(
-           : true,
-     aikataApiUrl: (parsed['aikataApiUrl'] as string) ?? env['AIKATA_API_URL'],
-     aikataJwt: env['AIKATA_JWT'],
-+    gitlabApiUrl:
-+      (parsed['gitlabApiUrl'] as string) ??
-+      nonEmpty(env['GITLAB_API_URL']) ??
-+      nonEmpty(env['CI_API_V4_URL']) ??
-+      DEFAULT_GITLAB_API_URL,
-     resultFile,
-     maxCompletenessRetries,
-     treeMaxDepth,
-diff --git a/src/cli/review/__tests__/commandBuilder.test.ts b/src/cli/review/__tests__/commandBuilder.test.ts
-index 2833e4b..09b6e29 100644
---- a/src/cli/review/__tests__/commandBuilder.test.ts
-+++ b/src/cli/review/__tests__/commandBuilder.test.ts
-@@ -30,6 +30,7 @@ function createCliOptions(overrides?: Partial<CliOptions>): CliOptions {
-     prettyPrint: true,
-     aikataApiUrl: undefined,
-     aikataJwt: undefined,
-+    gitlabApiUrl: 'https://gitlab.com/api/v4',
-     ...overrides,
-   };
- }
-@@ -186,6 +187,20 @@ describe('validateRequiredParams', () => {
-     expect(result.aiApiKey).toBe('test-key');
-     expect(result.aiApiEndpointUrl).toBe('https://api.example.com');
-   });
-+
-+  it('gitlabApiUrlがValidatedParamsに伝播されること', () => {
-+    const options = createCliOptions({
-+      gitlabApiUrl: 'https://gitlab-x.example.com/api/v4',
-+    });
-+    const env = {
-+      AI_API_KEY: 'test-key',
-+      AI_API_ENDPOINT_URL: 'https://api.example.com',
-+    };
-+
-+    const result = validateRequiredParams(options, env);
-+
-+    expect(result.gitlabApiUrl).toBe('https://gitlab-x.example.com/api/v4');
-+  });
- });
- 
- describe('buildApiReviewRequest', () => {
-@@ -196,6 +211,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '42',
-       gitlabToken: 'test-gitlab-token',
-       checklistPath: '/path/to/checklist.csv',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings();
-@@ -211,6 +227,7 @@ describe('buildApiReviewRequest', () => {
-     expect(result.gitlabToken).toBe('test-gitlab-token');
-     expect(result.projectId).toBe('project-1');
-     expect(result.mrIid).toBe('42');
-+    expect(result.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
-     expect(result.checklist).toEqual(['コードの可読性', 'テストカバレッジ']);
- 
-     // reviewSettings
-@@ -232,6 +249,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings();
-@@ -253,6 +271,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings();
-@@ -272,6 +291,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings();
-@@ -289,6 +309,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings();
-@@ -306,6 +327,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings({ suggestEnabledRatingLabels: ['B', 'C'] });
-@@ -323,6 +345,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings({ suggestEnabledRatingLabels: [] });
-@@ -340,6 +363,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings();
-@@ -357,6 +381,7 @@ describe('buildApiReviewRequest', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     };
-     const checklist = createChecklist();
-     const reviewSettings = createReviewSettings({ mrCommentTitle: 'API基盤チェック' });
-@@ -366,6 +391,24 @@ describe('buildApiReviewRequest', () => {
- 
-     expect(result.reviewSettings?.mrCommentTitle).toBe('API基盤チェック');
-   });
-+
-+  it('gitlabApiUrlがValidatedParams経由でReviewApiRequestに設定されること', () => {
-+    const validated = {
-+      userId: 'u',
-+      projectId: 'p',
-+      mrIid: '1',
-+      gitlabToken: 't',
-+      checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab-y.example.com/api/v4',
-+    };
-+    const checklist = createChecklist();
-+    const reviewSettings = createReviewSettings();
-+    const options = createCliOptions();
-+
-+    const result = buildApiReviewRequest(validated, checklist, reviewSettings, options, undefined);
-+
-+    expect(result.gitlabApiUrl).toBe('https://gitlab-y.example.com/api/v4');
-+  });
- });
- 
- describe('buildLocalReviewCommand', () => {
-@@ -376,6 +419,7 @@ describe('buildLocalReviewCommand', () => {
-       mrIid: '42',
-       gitlabToken: 'test-gitlab-token',
-       checklistPath: '/path/to/checklist.csv',
-+      gitlabApiUrl: 'https://gitlab-z.example.com/api/v4',
-       aiApiKey: 'test-api-key',
-       aiApiEndpointUrl: 'https://api.example.com',
-       aiModelName: 'openai/o4-mini',
-@@ -423,6 +467,7 @@ describe('buildLocalReviewCommand', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-       aiApiKey: 'k',
-       aiApiEndpointUrl: 'https://e',
-       aiModelName: 'm',
-@@ -449,6 +494,7 @@ describe('buildLocalReviewCommand', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-       aiApiKey: 'k',
-       aiApiEndpointUrl: 'https://e',
-       aiModelName: 'm',
-@@ -475,6 +521,7 @@ describe('buildLocalReviewCommand', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-       aiApiKey: 'k',
-       aiApiEndpointUrl: 'https://e',
-       aiModelName: 'm',
-@@ -501,6 +548,7 @@ describe('buildLocalReviewCommand', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-       aiApiKey: 'k',
-       aiApiEndpointUrl: 'https://e',
-       aiModelName: 'm',
-@@ -528,6 +576,7 @@ describe('buildLocalReviewCommand', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-       aiApiKey: 'k',
-       aiApiEndpointUrl: 'https://e',
-       aiModelName: 'm',
-@@ -555,6 +604,7 @@ describe('buildLocalReviewCommand', () => {
-       mrIid: '1',
-       gitlabToken: 't',
-       checklistPath: '/c',
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-       aiApiKey: 'k',
-       aiApiEndpointUrl: 'https://e',
-       aiModelName: 'm',
-diff --git a/src/cli/review/__tests__/parseReviewArgs.test.ts b/src/cli/review/__tests__/parseReviewArgs.test.ts
-index 3d32c04..d3d84df 100644
---- a/src/cli/review/__tests__/parseReviewArgs.test.ts
-+++ b/src/cli/review/__tests__/parseReviewArgs.test.ts
-@@ -261,6 +261,78 @@ describe('parseCliOptions', () => {
-     const result = parseCliOptions([], { AIKATA_JWT: 'env-jwt' });
-     expect(result.aikataJwt).toBe('env-jwt');
-   });
-+
-+  describe('gitlabApiUrl', () => {
-+    it('--gitlab-api-urlオプションをパースできる', () => {
-+      const result = parseCliOptions(['--gitlab-api-url', 'https://gitlab-a.example.com/api/v4']);
-+      expect(result.gitlabApiUrl).toBe('https://gitlab-a.example.com/api/v4');
-+    });
-+
-+    it('GITLAB_API_URL環境変数からgitlabApiUrlを取得できる', () => {
-+      const result = parseCliOptions([], {
-+        GITLAB_API_URL: 'https://gitlab-env.example.com/api/v4',
-+      });
-+      expect(result.gitlabApiUrl).toBe('https://gitlab-env.example.com/api/v4');
-+    });
-+
-+    it('--gitlab-api-urlがGITLAB_API_URL環境変数より優先される', () => {
-+      const result = parseCliOptions(
-+        ['--gitlab-api-url', 'https://gitlab-cli.example.com/api/v4'],
-+        {
-+          GITLAB_API_URL: 'https://gitlab-env.example.com/api/v4',
-+        },
-+      );
-+      expect(result.gitlabApiUrl).toBe('https://gitlab-cli.example.com/api/v4');
-+    });
-+
-+    it('GITLAB_API_URLが未指定の場合はCI_API_V4_URL環境変数が使用される', () => {
-+      const result = parseCliOptions([], {
-+        CI_API_V4_URL: 'https://gitlab-ci.example.com/api/v4',
-+      });
-+      expect(result.gitlabApiUrl).toBe('https://gitlab-ci.example.com/api/v4');
-+    });
-+
-+    it('GITLAB_API_URLが空文字の場合もCI_API_V4_URL環境変数が使用される（空文字をundefined扱い）', () => {
-+      const result = parseCliOptions([], {
-+        GITLAB_API_URL: '',
-+        CI_API_V4_URL: 'https://gitlab-ci.example.com/api/v4',
-+      });
-+      expect(result.gitlabApiUrl).toBe('https://gitlab-ci.example.com/api/v4');
-+    });
-+
-+    it('CI_API_V4_URLが空文字の場合はデフォルト値が使用される', () => {
-+      const result = parseCliOptions([], {
-+        GITLAB_API_URL: '',
-+        CI_API_V4_URL: '',
-+      });
-+      expect(result.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
-+    });
-+
-+    it('全て未指定の場合はデフォルト値https://gitlab.com/api/v4が使用される', () => {
-+      const result = parseCliOptions([], {});
-+      expect(result.gitlabApiUrl).toBe('https://gitlab.com/api/v4');
-+    });
-+
-+    it('優先順位: CLI > GITLAB_API_URL > CI_API_V4_URL > デフォルト', () => {
-+      // CLI優先
-+      const r1 = parseCliOptions(['--gitlab-api-url', 'https://cli.example.com/api/v4'], {
-+        GITLAB_API_URL: 'https://env.example.com/api/v4',
-+        CI_API_V4_URL: 'https://ci.example.com/api/v4',
-+      });
-+      expect(r1.gitlabApiUrl).toBe('https://cli.example.com/api/v4');
-+
-+      // GITLAB_API_URL優先
-+      const r2 = parseCliOptions([], {
-+        GITLAB_API_URL: 'https://env.example.com/api/v4',
-+        CI_API_V4_URL: 'https://ci.example.com/api/v4',
-+      });
-+      expect(r2.gitlabApiUrl).toBe('https://env.example.com/api/v4');
-+
-+      // CI_API_V4_URL fallback
-+      const r3 = parseCliOptions([], { CI_API_V4_URL: 'https://ci.example.com/api/v4' });
-+      expect(r3.gitlabApiUrl).toBe('https://ci.example.com/api/v4');
-+    });
-+  });
- });
- 
- describe('buildChecklistParseOptions', () => {
-@@ -270,6 +342,7 @@ describe('buildChecklistParseOptions', () => {
-       logLevel: 'info',
-       commentLanguage: 'Japanese',
-       prettyPrint: true,
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     });
-     expect(result.columns).toBeNull();
-     expect(result.noHeader).toBe(false);
-@@ -282,6 +355,7 @@ describe('buildChecklistParseOptions', () => {
-       logLevel: 'info',
-       commentLanguage: 'Japanese',
-       prettyPrint: true,
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     });
-     expect(result.columns).toEqual([1, 3]);
-   });
-@@ -293,6 +367,7 @@ describe('buildChecklistParseOptions', () => {
-       logLevel: 'info',
-       commentLanguage: 'Japanese',
-       prettyPrint: true,
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     });
-     expect(result.columns).toEqual([2, 4]);
-   });
-@@ -303,6 +378,7 @@ describe('buildChecklistParseOptions', () => {
-       logLevel: 'info',
-       commentLanguage: 'Japanese',
-       prettyPrint: true,
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     });
-     expect(result.noHeader).toBe(true);
-   });
-@@ -315,6 +391,7 @@ describe('buildChecklistParseOptions', () => {
-         logLevel: 'info',
-         commentLanguage: 'Japanese',
-         prettyPrint: true,
-+        gitlabApiUrl: 'https://gitlab.com/api/v4',
-       }),
-     ).toThrow('Invalid column number');
-   });
-@@ -327,6 +404,7 @@ describe('buildChecklistParseOptions', () => {
-         logLevel: 'info',
-         commentLanguage: 'Japanese',
-         prettyPrint: true,
-+        gitlabApiUrl: 'https://gitlab.com/api/v4',
-       }),
-     ).toThrow('Invalid column number');
-   });
-@@ -339,6 +417,7 @@ describe('buildChecklistParseOptions', () => {
-         logLevel: 'info',
-         commentLanguage: 'Japanese',
-         prettyPrint: true,
-+        gitlabApiUrl: 'https://gitlab.com/api/v4',
-       }),
-     ).toThrow('Invalid column number');
-   });
-@@ -350,6 +429,7 @@ describe('buildChecklistParseOptions', () => {
-       logLevel: 'info',
-       commentLanguage: 'Japanese',
-       prettyPrint: true,
-+      gitlabApiUrl: 'https://gitlab.com/api/v4',
-     });
-     expect(result.columns).toBeNull();
-   });
-diff --git a/src/cli/review/commandBuilder.ts b/src/cli/review/commandBuilder.ts
-index da1f5fb..2137862 100644
---- a/src/cli/review/commandBuilder.ts
-+++ b/src/cli/review/commandBuilder.ts
-@@ -20,6 +20,8 @@ export interface ValidatedParams {
-   projectId: string;
-   mrIid: string;
-   gitlabToken: string;
-+  /** GitLab APIベースURL。CLIオプション/環境変数/既定値から解決済み */
-+  gitlabApiUrl: string;
-   checklistPath: string;
-   aiApiKey?: string;
-   aiApiEndpointUrl?: string;
-@@ -56,6 +58,7 @@ export function validateRequiredParams(
-     projectId: options.projectId!,
-     mrIid: options.mrIid!,
-     gitlabToken: options.gitlabToken!,
-+    gitlabApiUrl: options.gitlabApiUrl,
-     checklistPath: options.checklist!,
-     aiModelName: options.aiModelName,
-     aiApiKey: env['AI_API_KEY'],
-@@ -76,6 +79,7 @@ export function buildApiReviewRequest(
-   return {
-     userId: validated.userId,
-     gitlabToken: validated.gitlabToken,
-+    gitlabApiUrl: validated.gitlabApiUrl,
-     projectId: validated.projectId,
-     mrIid: validated.mrIid,
-     checklist: checklist.items.map((i) => i.content),
-diff --git a/src/cli/review/index.ts b/src/cli/review/index.ts
-index f84c29b..17a9dab 100644
---- a/src/cli/review/index.ts
-+++ b/src/cli/review/index.ts
-@@ -147,11 +147,8 @@ export async function run(args: string[]): Promise<void> {
- 
-         // エラーでない場合はコメント投稿
-         if (!allResultsAreErrors) {
--          const gitlabApiBaseUrl =
--            process.env['GITLAB_API_URL'] ??
--            process.env['CI_API_V4_URL'] ??
--            'https://gitlab.com/api/v4';
--          const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
-+          // GitLab APIベースURLはparseCliOptionsで解決済み（CLI > GITLAB_API_URL > CI_API_V4_URL > 既定値）
-+          const gitlabClient = new GitLabApiClient(validated.gitlabApiUrl, validated.gitlabToken);
-           const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
-           const commentService = new CommentPostingService(mrDiscussionGateway);
- 
-@@ -232,17 +229,13 @@ export async function run(args: string[]): Promise<void> {
-       initializeRateLimiter(rateLimiter);
-       rateLimiter.registerProject(validated.projectId);
- 
--      // GitLab APIベースURLを環境変数から取得（CI環境では CI_API_V4_URL を使用）
--      const gitlabApiBaseUrl =
--        process.env['GITLAB_API_URL'] ??
--        process.env['CI_API_V4_URL'] ??
--        'https://gitlab.com/api/v4';
-+      // GitLab APIベースURLはparseCliOptionsで解決済み（CLI > GITLAB_API_URL > CI_API_V4_URL > 既定値）
- 
-       // プロジェクトディレクトリ: CI環境ではCI_PROJECT_DIR、ローカルではcwd
-       const projectDir = process.env['CI_PROJECT_DIR'] ?? process.cwd();
- 
-       // DI組み立て
--      const gitlabClient = new GitLabApiClient(gitlabApiBaseUrl, validated.gitlabToken);
-+      const gitlabClient = new GitLabApiClient(validated.gitlabApiUrl, validated.gitlabToken);
-       const apiMrGateway = new GitLabMrGateway(gitlabClient);
-       const mrGateway = new LocalGitDiffMrGateway(projectDir, apiMrGateway, gitlabClient);
-       const mrDiscussionGateway = new GitLabMrDiscussionGateway(gitlabClient);
-diff --git a/src/cli/review/parseReviewArgs.ts b/src/cli/review/parseReviewArgs.ts
-index d73cfe1..0985929 100644
---- a/src/cli/review/parseReviewArgs.ts
-+++ b/src/cli/review/parseReviewArgs.ts
-@@ -1,5 +1,13 @@
- import type { ChecklistParseOptions } from '../../application/shared/parser/index.js';
- 
-+/** 既定のGitLab APIベースURL */
-+const DEFAULT_GITLAB_API_URL = 'https://gitlab.com/api/v4';
-+
-+/** 環境変数値が未定義または空文字の場合にundefinedを返す */
-+function nonEmpty(value: string | undefined): string | undefined {
-+  return value && value.length > 0 ? value : undefined;
-+}
-+
- /**
-  * CLIオプションの型定義
-  */
-@@ -19,6 +27,8 @@ export interface CliOptions {
-   prettyPrint: boolean;
-   aikataApiUrl?: string;
-   aikataJwt?: string;
-+  /** GitLab APIベースURL。優先順位: --gitlab-api-url > GITLAB_API_URL > CI_API_V4_URL > 既定値 */
-+  gitlabApiUrl: string;
- }
- 
- /**
-@@ -85,6 +95,9 @@ export function parseCliOptions(
-       case '--aikata-api-url':
-         parsed['aikataApiUrl'] = args[++i]!;
-         break;
-+      case '--gitlab-api-url':
-+        parsed['gitlabApiUrl'] = args[++i]!;
-+        break;
-     }
-   }
- 
-@@ -114,6 +127,11 @@ export function parseCliOptions(
-           : true,
-     aikataApiUrl: (parsed['aikataApiUrl'] as string) ?? env['AIKATA_API_URL'],
-     aikataJwt: env['AIKATA_JWT'],
-+    gitlabApiUrl:
-+      (parsed['gitlabApiUrl'] as string) ??
-+      nonEmpty(env['GITLAB_API_URL']) ??
-+      nonEmpty(env['CI_API_V4_URL']) ??
-+      DEFAULT_GITLAB_API_URL,
-   };
- }
- 
-diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
-index f554458..5a1c6fb 100644
---- a/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
-+++ b/src/infrastructure/adapter/pipeline-report/apiClient/PipelineReportApiClient.ts
-@@ -9,6 +9,8 @@ export interface PipelineReportApiRequest {
-   userId: string;
-   /** GitLab APIトークン（APIサーバーがGitLab APIアクセス・リポジトリクローンに使用） */
-   gitlabToken: string;
-+  /** GitLab APIベースURL。APIサーバーはここで指定されたGitLabインスタンスにアクセスする */
-+  gitlabApiUrl: string;
-   projectId: number;
-   pipelineId: number;
-   /** レポート出力ジョブ自身のID。null なら自己除外無し */
-diff --git a/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts b/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
-index c1c4963..6a1349f 100644
---- a/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
-+++ b/src/infrastructure/adapter/pipeline-report/apiClient/__tests__/PipelineReportApiClient.test.ts
-@@ -53,12 +53,14 @@ describe('PipelineReportApiClient', () => {
-   const testRequest: PipelineReportApiRequest = {
-     userId: 'alice',
-     gitlabToken: 'gitlab-token',
-+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-     projectId: 123,
-     pipelineId: 4567,
-     selfJobId: null,
-     settings: {
-       jobReportFormat: '## {jobName}\n{status}',
--      additionalInstructions: null,
-+      analysisInstructions: null,
-+      reportRefinementInstructions: null,
-       includeJobPatterns: [],
-       excludeJobPatterns: [],
-     },
-@@ -293,6 +295,12 @@ describe('PipelineReportApiClient', () => {
-       },
-       body: JSON.stringify(testRequest),
-     });
-+
-+    // 送信ボディに gitlabApiUrl が含まれる（マルチGitLabインスタンス対応）
-+    const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string) as {
-+      gitlabApiUrl?: string;
-+    };
-+    expect(sentBody.gitlabApiUrl).toBe('https://gitlab.example.com/api/v4');
-   });
- 
-   it('jwtがnullの場合はAuthorizationヘッダが付与されないこと', async () => {
-diff --git a/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts b/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-index a4ea088..6620789 100644
---- a/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-+++ b/src/infrastructure/adapter/review/apiClient/ReviewApiClient.ts
-@@ -5,6 +5,8 @@ export interface ReviewApiRequest {
-   /** 本テンプレートを実行したユーザID（通常は$GITLAB_USER_LOGIN）。APIサーバー側でログに記録される */
-   userId: string;
-   gitlabToken: string;
-+  /** GitLab APIベースURL。APIサーバーはここで指定されたGitLabインスタンスにアクセスする */
-+  gitlabApiUrl: string;
-   projectId: string;
-   mrIid: string;
-   checklist: string[];
-diff --git a/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts b/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
-index edcf28c..1005507 100644
---- a/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
-+++ b/src/infrastructure/adapter/review/apiClient/__tests__/ReviewApiClient.test.ts
-@@ -48,6 +48,7 @@ describe('ReviewApiClient', () => {
-   const testRequest: ReviewApiRequest = {
-     userId: 'alice',
-     gitlabToken: 'gitlab-token',
-+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-     projectId: '123',
-     mrIid: '42',
-     checklist: ['項目1', '項目2'],
-@@ -196,6 +197,7 @@ describe('ReviewApiClient', () => {
-     const requestWithOptions: ReviewApiRequest = {
-       userId: 'alice',
-       gitlabToken: 'gitlab-token',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-       projectId: '123',
-       mrIid: '42',
-       checklist: ['項目1'],
-@@ -239,8 +241,11 @@ describe('ReviewApiClient', () => {
-     // 送信ボディに userId が含まれる
-     const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string) as {
-       userId?: string;
-+      gitlabApiUrl?: string;
-     };
-     expect(sentBody.userId).toBe('alice');
-+    // 送信ボディに gitlabApiUrl が含まれる（マルチGitLabインスタンス対応）
-+    expect(sentBody.gitlabApiUrl).toBe('https://gitlab.example.com/api/v4');
-   });
- 
-   it('X-Aikata-Versionヘッダがリクエストに含まれること', async () => {
-diff --git a/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts b/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
-index 3d10075..d1439a2 100644
---- a/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
-+++ b/src/presentation/api/pipeline-report/__tests__/pipelineReportHandler.test.ts
-@@ -12,6 +12,7 @@ function createValidRequestBody(): Record<string, unknown> {
-   return {
-     userId: 'alice',
-     gitlabToken: 'token-xyz',
-+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-     projectId: 42,
-     pipelineId: 2001,
-     selfJobId: 3001,
-@@ -57,6 +58,19 @@ describe('pipelineReportRequestSchema', () => {
-     expect(result.success).toBe(false);
-   });
- 
-+  it('gitlabApiUrl が未指定の場合にバリデーションエラーとなること', () => {
-+    const { gitlabApiUrl: _gitlabApiUrl, ...rest } = createValidRequestBody();
-+    void _gitlabApiUrl;
-+    const result = pipelineReportRequestSchema.safeParse(rest);
-+    expect(result.success).toBe(false);
-+  });
-+
-+  it('gitlabApiUrl がURL形式でない場合にバリデーションエラーとなること', () => {
-+    const input = { ...createValidRequestBody(), gitlabApiUrl: 'not-a-url' };
-+    const result = pipelineReportRequestSchema.safeParse(input);
-+    expect(result.success).toBe(false);
-+  });
-+
-   it('gitlabToken が空文字の場合にバリデーションエラーとなること', () => {
-     const input = { ...createValidRequestBody(), gitlabToken: '' };
-     const result = pipelineReportRequestSchema.safeParse(input);
-diff --git a/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts b/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
-index 87510e8..f0e72db 100644
---- a/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
-+++ b/src/presentation/api/pipeline-report/__tests__/pipelineReportRoute.test.ts
-@@ -157,7 +157,6 @@ function createTestApp(
-     cloneManager: createMockCloneManager(),
-     serviceFactory: createMockServiceFactory(),
-     rateLimiter: createMockRateLimiter(),
--    gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
-     aiApiKey: 'test-api-key',
-     aiApiEndpointUrl: 'https://ai.example.com',
-     defaultAiModelName: 'test-server-model',
-@@ -191,12 +190,13 @@ function createValidRequestBody(): Record<string, unknown> {
-   return {
-     userId: 'test-user',
-     gitlabToken: 'test-gitlab-token',
-+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-     projectId: 42,
-     pipelineId: 2001,
-     selfJobId: 3001,
-     settings: {
-       jobReportFormat: '### <jobName>',
--      additionalInstructions: 'be strict',
-+      analysisInstructions: 'be strict',
-       includeJobPatterns: ['^test:'],
-       excludeJobPatterns: [],
-     },
-@@ -333,13 +333,44 @@ describe('pipelineReportRoute', () => {
-       expect(cloneManager.clone).toHaveBeenCalledTimes(1);
-       const cloneArgs = cloneManager.clone.mock.calls[0];
-       expect(cloneArgs[0]).toBe('test-gitlab-token'); // gitlabToken
--      expect(cloneArgs[1]).toBe('https://gitlab.example.com/api/v4'); // baseUrl
-+      expect(cloneArgs[1]).toBe('https://gitlab.example.com/api/v4'); // baseUrl from request body
-       expect(cloneArgs[2]).toBe('42'); // projectId as string
-       expect(cloneArgs[3]).toBe('main'); // sourceBranch = pipeline.ref
-       expect(cloneArgs[4]).toBe('main'); // targetBranch = pipeline.ref
-       expect(cloneArgs[5]).toBe('abc123def456'); // commitSha = pipeline.sha
-     });
- 
-+    it('リクエストボディの gitlabApiUrl が serviceFactory.create と cloneManager.clone に伝播すること', async () => {
-+      const serviceFactory = createMockServiceFactory();
-+      const cloneManager = createMockCloneManager();
-+      const app = createTestApp({ serviceFactory, cloneManager });
-+
-+      const requestBody = {
-+        ...createValidRequestBody(),
-+        gitlabApiUrl: 'https://gitlab-tenant-b.example.com/api/v4',
-+      };
-+
-+      const res = await app.request('/pipeline-report', {
-+        method: 'POST',
-+        headers: { 'Content-Type': 'application/json' },
-+        body: JSON.stringify(requestBody),
-+      });
-+      await res.text();
-+
-+      const createMock = serviceFactory.create as ReturnType<typeof vi.fn>;
-+      expect(createMock).toHaveBeenCalled();
-+      // 全呼び出しで request.gitlabApiUrl が第2引数として渡される
-+      for (const call of createMock.mock.calls) {
-+        expect(call[1]).toBe('https://gitlab-tenant-b.example.com/api/v4');
-+      }
-+
-+      // cloneManager.clone の第2引数も同じURL
-+      expect(cloneManager.clone).toHaveBeenCalledTimes(1);
-+      expect(cloneManager.clone.mock.calls[0][1]).toBe(
-+        'https://gitlab-tenant-b.example.com/api/v4',
-+      );
-+    });
-+
-     it('PipelineAnalysisExecutor.analyze に正しいコマンドが渡ること', async () => {
-       const analysisResult = createDefaultAnalysisResult();
-       const analyzeMock = vi
-diff --git a/src/presentation/api/pipeline-report/pipelineReportHandler.ts b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-index 422b3a0..5f059fa 100644
---- a/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-+++ b/src/presentation/api/pipeline-report/pipelineReportHandler.ts
-@@ -30,6 +30,11 @@ import { getLogger } from '../../../lib/logger.js';
- export const pipelineReportRequestSchema = z.object({
-   userId: z.string().min(1),
-   gitlabToken: z.string().min(1),
-+  /**
-+   * GitLab APIベースURL。CLI側で解決済みの値が送られる。
-+   * マルチGitLabインスタンス対応のため、APIサーバ側のenvではなくリクエスト単位で受け取る。
-+   */
-+  gitlabApiUrl: z.string().url(),
-   projectId: z.number().int().positive(),
-   pipelineId: z.number().int().positive(),
-   selfJobId: z.number().int().positive().nullable(),
-@@ -113,6 +118,8 @@ export interface PipelineReportServiceFactory {
- 
- /**
-  * PipelineReportHandler の依存インターフェース
-+ *
-+ * GitLab API base URL は含めない（リクエスト単位で受け取る、マルチテナント対応）
-  */
- export interface PipelineReportHandlerDeps {
-   /** クローンマネージャ（review と共有インスタンス） */
-@@ -126,8 +133,6 @@ export interface PipelineReportHandlerDeps {
-   aiApiEndpointUrl: string;
-   /** APIサーバー側で利用するデフォルトAIモデル名 */
-   defaultAiModelName: string;
--  /** GitLab API の base URL */
--  gitlabApiBaseUrl: string;
-   /** OpenAI reasoning モデルの reasoning effort 設定 */
-   openaiReasoningEffort?: string;
-   /** 解析全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
-@@ -266,7 +271,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
-         // 3. per-request サービス（metaFetcher + executor）を組み立てる
-         // metaFetcher は gateway を内部共有する executor と同じインスタンスを使うため、
-         // ここで 1 度だけ生成する
--        const services = deps.serviceFactory.create(request.gitlabToken, deps.gitlabApiBaseUrl);
-+        const services = deps.serviceFactory.create(request.gitlabToken, request.gitlabApiUrl);
- 
-         // 4. pipeline メタ情報取得
-         await stream.writeSSE({
-@@ -288,7 +293,7 @@ export function createPipelineReportHandler(deps: PipelineReportHandlerDeps) {
+-      // git checkout <sourceBranch>
+-      await execFileAsync('git', ['checkout', sourceBranch], {
+-        ...GIT_EXEC_OPTIONS,
+-        cwd: tmpDir,
+-        timeout: this.cloneTimeoutMs,
+-      });
+-      getLogger().info({ sourceBranch }, 'Source branch checked out');
+-
+-      // commitSha が指定されている場合、特定のコミットをcheckout（detached HEAD）
++      // commitSha 指定時は SHA を直接 checkout（detached HEAD）。
++      // pipeline-report はMRパイプラインで sourceBranch が refs/merge-requests/<iid>/head の
++      // 形式になりうるが、それはローカル ref として存在しないためブランチcheckoutは失敗する。
++      // git fetch でコミットオブジェクトは取得済みなので、SHA で checkout すれば
++      // ブランチ/タグ/MR ref のいずれでも成功する。
++      // commitSha が null（review機能）の場合は従来どおりブランチ名を checkout する。
+       if (commitSha) {
+         await execFileAsync('git', ['checkout', commitSha], {
+           ...GIT_EXEC_OPTIONS,
+           cwd: tmpDir,
+           timeout: this.cloneTimeoutMs,
          });
-         const cloneResult = await deps.cloneManager.clone(
-           request.gitlabToken,
--          deps.gitlabApiBaseUrl,
-+          request.gitlabApiUrl,
-           String(request.projectId),
-           pipelineMeta.ref,
-           pipelineMeta.ref,
-diff --git a/src/presentation/api/review/__tests__/reviewHandler.test.ts b/src/presentation/api/review/__tests__/reviewHandler.test.ts
-index 86e75fb..6d9a9f4 100644
---- a/src/presentation/api/review/__tests__/reviewHandler.test.ts
-+++ b/src/presentation/api/review/__tests__/reviewHandler.test.ts
-@@ -6,6 +6,7 @@ describe('reviewRequestSchema', () => {
-     const input = {
-       userId: 'alice',
-       gitlabToken: 'token123',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-       projectId: '42',
-       mrIid: '10',
-       checklist: ['item 1', 'item 2'],
-@@ -18,6 +19,7 @@ describe('reviewRequestSchema', () => {
-   it('userIdが未指定の場合にバリデーションエラーになること', () => {
-     const input = {
-       gitlabToken: 'token',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-       projectId: '42',
-       mrIid: '10',
-       checklist: ['item 1'],
-@@ -31,6 +33,34 @@ describe('reviewRequestSchema', () => {
-     const input = {
-       userId: '',
-       gitlabToken: 'token',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-+      projectId: '42',
-+      mrIid: '10',
-+      checklist: ['item 1'],
-+    };
-+
-+    const result = reviewRequestSchema.safeParse(input);
-+    expect(result.success).toBe(false);
-+  });
-+
-+  it('gitlabApiUrlが未指定の場合にバリデーションエラーになること', () => {
-+    const input = {
-+      userId: 'alice',
-+      gitlabToken: 'token',
-+      projectId: '42',
-+      mrIid: '10',
-+      checklist: ['item 1'],
-+    };
-+
-+    const result = reviewRequestSchema.safeParse(input);
-+    expect(result.success).toBe(false);
-+  });
-+
-+  it('gitlabApiUrlがURL形式でない場合にバリデーションエラーになること', () => {
-+    const input = {
-+      userId: 'alice',
-+      gitlabToken: 'token',
-+      gitlabApiUrl: 'not-a-url',
-       projectId: '42',
-       mrIid: '10',
-       checklist: ['item 1'],
-@@ -44,6 +74,7 @@ describe('reviewRequestSchema', () => {
-     const input = {
-       userId: 'alice',
-       gitlabToken: 'token123',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-       projectId: '42',
-       mrIid: '10',
-       checklist: ['item 1'],
-@@ -74,6 +105,7 @@ describe('reviewRequestSchema', () => {
-   it('gitlabTokenが空文字の場合にバリデーションエラーになること', () => {
-     const input = {
-       gitlabToken: '',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-       projectId: '42',
-       mrIid: '10',
-       checklist: ['item 1'],
-@@ -86,6 +118,7 @@ describe('reviewRequestSchema', () => {
-   it('checklistが空配列の場合にバリデーションエラーになること', () => {
-     const input = {
-       gitlabToken: 'token',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-       projectId: '42',
-       mrIid: '10',
-       checklist: [],
-@@ -98,6 +131,7 @@ describe('reviewRequestSchema', () => {
-   it('checklistに空文字が含まれる場合にバリデーションエラーになること', () => {
-     const input = {
-       gitlabToken: 'token',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-       projectId: '42',
-       mrIid: '10',
-       checklist: ['item 1', ''],
-@@ -111,6 +145,7 @@ describe('reviewRequestSchema', () => {
-     const input = {
-       userId: 'alice',
-       gitlabToken: 'token',
-+      gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-       projectId: '42',
-       mrIid: '10',
-       checklist: ['item 1'],
-diff --git a/src/presentation/api/review/__tests__/reviewRoute.test.ts b/src/presentation/api/review/__tests__/reviewRoute.test.ts
-index 4cbc197..2b29726 100644
---- a/src/presentation/api/review/__tests__/reviewRoute.test.ts
-+++ b/src/presentation/api/review/__tests__/reviewRoute.test.ts
-@@ -138,7 +138,6 @@ function createTestApp(
-     cloneManager: createMockCloneManager(),
-     serviceFactory: createMockServiceFactory(),
-     rateLimiter: createMockRateLimiter(),
--    gitlabApiBaseUrl: 'https://gitlab.example.com/api/v4',
-     aiApiKey: 'test-api-key',
-     aiApiEndpointUrl: 'https://ai.example.com',
-     defaultAiModelName: 'openai/test-model',
-@@ -173,6 +172,7 @@ function createValidRequestBody() {
-   return {
-     userId: 'test-user',
-     gitlabToken: 'test-gitlab-token',
-+    gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-     projectId: '123',
-     mrIid: '45',
-     checklist: ['Check item 1'],
-@@ -354,6 +354,7 @@ describe('reviewRoute', () => {
-       const requestBody = {
-         userId: 'test-user',
-         gitlabToken: 'test-token',
-+        gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-         projectId: '123',
-         mrIid: '45',
-         checklist: ['Check item 1'],
-@@ -562,6 +563,7 @@ describe('reviewRoute', () => {
-       const requestBody = {
-         userId: 'test-user',
-         gitlabToken: 'test-token',
-+        gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-         projectId: '123',
-         mrIid: '45',
-         checklist: ['Check item 1'],
-@@ -741,6 +743,7 @@ describe('reviewRoute', () => {
-       const requestBody = {
-         userId: 'charlie',
-         gitlabToken: 'my-gitlab-token',
-+        gitlabApiUrl: 'https://gitlab-charlie.example.com/api/v4',
-         projectId: '999',
-         mrIid: '77',
-         checklist: ['可読性チェック', 'セキュリティチェック'],
-@@ -821,6 +824,7 @@ describe('reviewRoute', () => {
-       const requestBody = {
-         userId: 'test-user',
-         gitlabToken: 'token',
-+        gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-         projectId: '123',
-         mrIid: '45',
-         checklist: ['Check item 1'],
-@@ -854,6 +858,7 @@ describe('reviewRoute', () => {
-       const requestBody = {
-         userId: 'test-user',
-         gitlabToken: 'token',
-+        gitlabApiUrl: 'https://gitlab.example.com/api/v4',
-         projectId: '123',
-         mrIid: '45',
-         checklist: ['Check item 1'],
-@@ -918,6 +923,37 @@ describe('reviewRoute', () => {
-       const command = executeMock.mock.calls[0][0];
-       expect(command.userId).toBe('dave');
+-        getLogger().info({ commitSha }, 'Specific commit checked out');
++        getLogger().info({ commitSha }, 'Specific commit checked out (detached HEAD)');
++      } else {
++        await execFileAsync('git', ['checkout', sourceBranch], {
++          ...GIT_EXEC_OPTIONS,
++          cwd: tmpDir,
++          timeout: this.cloneTimeoutMs,
++        });
++        getLogger().info({ sourceBranch }, 'Source branch checked out');
+       }
+ 
+       // ディスク使用量チェック
+diff --git a/src/infrastructure/adapter/clone/__tests__/CloneManager.test.ts b/src/infrastructure/adapter/clone/__tests__/CloneManager.test.ts
+index a7b19a6..239cae8 100644
+--- a/src/infrastructure/adapter/clone/__tests__/CloneManager.test.ts
++++ b/src/infrastructure/adapter/clone/__tests__/CloneManager.test.ts
+@@ -207,13 +207,12 @@ describe('CloneManager', () => {
+       expect(checkoutArgs).toContain(defaultSourceBranch);
      });
+ 
+-    it('正常系: commitSha指定時にブランチcheckout後にSHAでcheckoutする', async () => {
++    it('正常系: commitSha指定時はブランチcheckoutをスキップしSHAでcheckoutする', async () => {
+       mockGitLabProjectResponse();
+-      // git clone → git fetch → git checkout(branch) → git checkout(sha) → du -sk
++      // git clone → git fetch → git checkout(sha) → du -sk（ブランチcheckoutは行わない）
+       setupExecFileSequence([
+         { stdout: '' }, // git clone
+         { stdout: '' }, // git fetch
+-        { stdout: '' }, // git checkout <sourceBranch>
+         { stdout: '' }, // git checkout <commitSha>
+         DU_OK, // du -sk
+       ]);
+@@ -229,13 +228,56 @@ describe('CloneManager', () => {
+       );
+ 
+       const mockedExecFile = vi.mocked(realExecFile);
+-      // 4番目の呼び出しがgit checkout <commitSha>
+-      const shaCheckoutCall = mockedExecFile.mock.calls[3];
++      // 3番目の呼び出しがgit checkout <commitSha>（detached HEAD）
++      const shaCheckoutCall = mockedExecFile.mock.calls[2];
+       expect(shaCheckoutCall[0]).toBe('git');
+       const shaCheckoutArgs = shaCheckoutCall[1] as string[];
+       expect(shaCheckoutArgs[0]).toBe('checkout');
+       expect(shaCheckoutArgs).toContain('abcdef1234567890');
+ 
++      // 中間のブランチcheckout（git checkout <sourceBranch>）は呼ばれない
++      const checkoutCalls = mockedExecFile.mock.calls.filter(
++        (call) => call[0] === 'git' && (call[1] as string[])[0] === 'checkout',
++      );
++      expect(checkoutCalls).toHaveLength(1);
++      expect(checkoutCalls[0][1] as string[]).not.toContain(defaultSourceBranch);
 +
-+    it('リクエストボディのgitlabApiUrlがserviceFactory.createとcloneManager.cloneに伝播すること', async () => {
-+      const { serviceFactory } = createCapturingServiceFactory();
-+      const mockCloneManager = createMockCloneManager();
-+      const app = createTestApp({ serviceFactory, cloneManager: mockCloneManager });
-+
-+      const requestBody = {
-+        ...createValidRequestBody(),
-+        gitlabApiUrl: 'https://gitlab-tenant-a.example.com/api/v4',
-+      };
-+
-+      const res = await app.request('/review', {
-+        method: 'POST',
-+        headers: { 'Content-Type': 'application/json' },
-+        body: JSON.stringify(requestBody),
-+      });
-+      await res.text();
-+
-+      // serviceFactory.create の第2引数（gitlabApiBaseUrl）にリクエスト由来のURLが渡ること
-+      const createMock = serviceFactory.create as ReturnType<typeof vi.fn>;
-+      expect(createMock).toHaveBeenCalled();
-+      // 全呼び出し（pre-clone + post-clone）で同じURLが渡る
-+      for (const call of createMock.mock.calls) {
-+        expect(call[1]).toBe('https://gitlab-tenant-a.example.com/api/v4');
-+      }
-+
-+      // cloneManager.clone の第2引数（gitlabApiBaseUrl）にも伝播
-+      const cloneMock = mockCloneManager.clone as ReturnType<typeof vi.fn>;
-+      expect(cloneMock).toHaveBeenCalledTimes(1);
-+      expect(cloneMock.mock.calls[0][1]).toBe('https://gitlab-tenant-a.example.com/api/v4');
++      expect(result.projectDir).toMatch(clonePathPattern);
++      await result.cleanup();
 +    });
-   });
- 
-   describe('POST /review - resultイベントのReviewApiResponse形式', () => {
-diff --git a/src/presentation/api/review/reviewHandler.ts b/src/presentation/api/review/reviewHandler.ts
-index 1748f4d..091450a 100644
---- a/src/presentation/api/review/reviewHandler.ts
-+++ b/src/presentation/api/review/reviewHandler.ts
-@@ -28,6 +28,11 @@ import { getLogger } from '../../../lib/logger.js';
- export const reviewRequestSchema = z.object({
-   userId: z.string().min(1),
-   gitlabToken: z.string().min(1),
-+  /**
-+   * GitLab APIベースURL。CLI側で解決済みの値が送られる。
-+   * マルチGitLabインスタンス対応のため、APIサーバ側のenvではなくリクエスト単位で受け取る。
-+   */
-+  gitlabApiUrl: z.string().url(),
-   projectId: z.string().min(1),
-   mrIid: z.string().min(1),
-   checklist: z.array(z.string().min(1)).min(1),
-@@ -114,6 +119,8 @@ export interface PerRequestServiceFactory {
- 
- /**
-  * ReviewHandlerの依存インターフェース
-+ *
-+ * GitLab APIベースURLは含めない（リクエスト単位で受け取る、マルチテナント対応）
-  */
- export interface ReviewHandlerDeps {
-   cloneManager: CloneManagerPort;
-@@ -122,7 +129,6 @@ export interface ReviewHandlerDeps {
-   aiApiKey: string;
-   aiApiEndpointUrl: string;
-   defaultAiModelName: string;
--  gitlabApiBaseUrl: string;
-   /** OpenAI reasoningモデルのreasoning effort設定 */
-   openaiReasoningEffort?: string;
-   /** レビュー全体タイムアウト（ミリ秒）。未設定時はタイムアウトなし */
-@@ -211,7 +217,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
-         // 2. MRブランチ情報取得用の一時サービス（クローン前はprojectDir不要な操作のみ）
-         const preCloneServices = deps.serviceFactory.create(
-           request.gitlabToken,
--          deps.gitlabApiBaseUrl,
-+          request.gitlabApiUrl,
-           '', // クローン前はprojectDirは空文字（MR情報取得のみ使用）
-         );
- 
-@@ -236,7 +242,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
-         // 6. リポジトリクローン
-         const cloneResult = await deps.cloneManager.clone(
-           request.gitlabToken,
--          deps.gitlabApiBaseUrl,
-+          request.gitlabApiUrl,
-           request.projectId,
-           mrInfo.source_branch,
-           mrInfo.target_branch,
-@@ -252,7 +258,7 @@ export function createReviewHandler(deps: ReviewHandlerDeps) {
-         // 7. クローン後のper-requestサービスを組み立て
-         const services = deps.serviceFactory.create(
-           request.gitlabToken,
--          deps.gitlabApiBaseUrl,
-+          request.gitlabApiUrl,
-           cloneResult.projectDir,
-         );
- 
-diff --git a/src/server.ts b/src/server.ts
-index bf17bc2..2d6e334 100644
---- a/src/server.ts
-+++ b/src/server.ts
-@@ -128,11 +128,11 @@ export async function startServer(): Promise<void> {
-   const logger = getLogger();
- 
-   // 必須環境変数の取得
-+  // GitLab APIベースURLはマルチGitLabインスタンス対応のためサーバ起動時には読まず、
-+  // リクエストごとに `request.gitlabApiUrl` で受け取る
-   const serverVersion = requireEnv('AIKATA_PR_VERSION');
-   const aiApiKey = requireEnv('AI_API_KEY');
-   const aiApiEndpointUrl = requireEnv('AI_API_ENDPOINT_URL');
--  const gitlabApiBaseUrl =
--    process.env['GITLAB_API_URL'] ?? process.env['CI_API_V4_URL'] ?? 'https://gitlab.com/api/v4';
-   const defaultAiModelName = process.env['AI_MODEL_NAME'] ?? 'openai/o4-mini';
- 
-   // 共有依存の組み立て
-@@ -172,7 +172,6 @@ export async function startServer(): Promise<void> {
-     cloneManager,
-     serviceFactory,
-     rateLimiter,
--    gitlabApiBaseUrl,
-     aiApiKey,
-     aiApiEndpointUrl,
-     defaultAiModelName,
-@@ -212,7 +211,6 @@ export async function startServer(): Promise<void> {
-     cloneManager, // review と共有
-     serviceFactory: pipelineReportServiceFactory,
-     rateLimiter, // review と共有
--    gitlabApiBaseUrl,
-     aiApiKey,
-     aiApiEndpointUrl,
-     defaultAiModelName,
++
++    it('正常系: sourceBranchがMR ref(refs/merge-requests/<iid>/head)でもcommitSha指定でcheckoutできる', async () => {
++      // pipeline-report のMRパイプライン再現: ref が refs/merge-requests/307/head 形式。
++      // このrefはローカルブランチとして存在しないため、ブランチcheckoutしてはならない。
++      mockGitLabProjectResponse();
++      setupExecFileSequence([
++        { stdout: '' }, // git clone
++        { stdout: '' }, // git fetch
++        { stdout: '' }, // git checkout <commitSha>
++        DU_OK, // du -sk
++      ]);
++
++      const mrRef = 'refs/merge-requests/307/head';
++      const commitSha = 'fedcba0987654321';
++      const manager = new CloneManager(300_000, 1024, 5, '/tmp/aikata-test-clones');
++      const result = await manager.clone(
++        defaultToken,
++        defaultApiBaseUrl,
++        defaultProjectId,
++        mrRef,
++        mrRef,
++        commitSha,
++      );
++
++      const mockedExecFile = vi.mocked(realExecFile);
++      const checkoutCalls = mockedExecFile.mock.calls.filter(
++        (call) => call[0] === 'git' && (call[1] as string[])[0] === 'checkout',
++      );
++      // checkout は SHA に対する1回のみ。MR ref への checkout は一切行われない
++      expect(checkoutCalls).toHaveLength(1);
++      expect(checkoutCalls[0][1] as string[]).toContain(commitSha);
++      expect(checkoutCalls[0][1] as string[]).not.toContain(mrRef);
++
+       expect(result.projectDir).toMatch(clonePathPattern);
+       await result.cleanup();
+     });
