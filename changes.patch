@@ -1,159 +1,4630 @@
+diff --git a/.ci-template/variable/review.yml b/.ci-template/variable/review.yml
+index 28dc12e..ade44b6 100644
+--- a/.ci-template/variable/review.yml
++++ b/.ci-template/variable/review.yml
+@@ -6,6 +6,7 @@ variables:
+   CHECKLIST_PATH: ""
+   CHECKLIST_COLUMNS: ""
+   CHECKLIST_NO_HEADER: "false"
++  CHECKLIST_DISPLAY_COLUMNS: ""
+   REVIEW_SETTINGS_PATH: ""
+   SKILLS_PATH: ""
+   # レビュー出力設定
+diff --git a/.env.example b/.env.example
+index 4266438..9f1b0d3 100644
+--- a/.env.example
++++ b/.env.example
+@@ -19,6 +19,7 @@ GITLAB_MR_IID=
+ CHECKLIST_PATH=
+ CHECKLIST_COLUMNS=
+ CHECKLIST_NO_HEADER=false
++CHECKLIST_DISPLAY_COLUMNS=
+ REVIEW_SETTINGS_PATH=
+ SKILLS_PATH=
+ 
+diff --git a/AGENTS.md b/AGENTS.md
+index 6ef9ba5..a8c9821 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -106,12 +106,14 @@ node dist/index.js server                                       # APIサーバ
+ - 最終的にアプリのビルドエラーやアクセス時エラーがないことを確認すること
+ - 新規追加や編集した箇所については必ずテストを更新し、最終的に全てのテストがパスすることを確認すること
+ - 本アプリは最終的に外部ネットワークに繋がらない社内環境で利用するため、CDNなどの利用はしないこと
+-- このシステムはまだリリースされていないので、コードを変更する際、後方互換製を考慮する必要はない
++- 本システムは既にリリースであるためユーザのインタフェース（設定ファイル等）は後方互換性があるように考慮すること
++  - 昔の設定でも問題なく動作するように注意して欲しいということ
+ - デフォルトの環境変数は.env.exampleと`.ci-template/variable/variables.yml`に入れておくこと
+ - 関数の引数は特別な理由がない限りオプショナルは避けること（バグの温床になるため）
+ - 新機能（AIレビュー以外のジョブ）を追加する場合は `docs/archtecture/feature-extension.md` を参照すること
+   - CLIはサブコマンド方式（`node dist/index.js <feature> [options]`）で動作するので、新機能のCLI実装は `src/cli/<feature>/` に配置し `CliFeatureModule` をエクスポートして `src/cli/dispatch.ts` の `defaultFeatures` に追加する
+ - GitLabはv16を想定すること
++- review機能のユーザガイドが`docs/user-guide.md`に配置してある。review機能を更新する際はユーザガイドに変更が必要かどうか確認すること。ユーザガイドは簡潔に、ユーザのメンタルモデルに沿った理解しやすい構成にすること
+ 
+ # PBI
+ @PBI.md
 diff --git a/PBI.md b/PBI.md
-index ace738d..e2fec2b 100644
+index e2fec2b..ab08e14 100644
 --- a/PBI.md
 +++ b/PBI.md
-@@ -8,22 +8,4 @@
+@@ -8,4 +8,48 @@
  - 受け入れ基準
  - 注意事項
  - 指摘事項（in progressの場合のみ）
 -```
--
--# ID: 1
--- PBI名: APIサーバが認識するGitLab API URLを動的に指定できるようにする
--- ステータス: done
--- 背景
--  - 複数のセルフホストGitLabに本テンプレートを導入する予定
--  - つまり、GitLabのURLは一意に定まらない
--  - CLIクラインアント側からGitLabのURLを連携する必要がある
--- 受け入れ基準
--  - CLIクラインアント側からGitLabのURLを連携できている
--  - 横展開として、複数のセルフホストGitLabに対して一つのAPIサーバのみで対応できるか、GitLab API以外にも問題点はないか徹底的に確認できている
--- 注意事項
--  - マルチGitLabインスタンス対応の監査結果（受入基準#2）:
--    - 🔴 **JWT認証の issuer 固定**: `JWT_ISSUER` / `JWT_JWKS_URL` がサーバ起動時 env で1組のみ。複数GitLab対応時は **JWT認証を無効化** して運用するか、別途PBIで対応する必要がある（候補: issuerリスト受付 / JWTの`iss`から動的JWKS解決 / リクエスト由来`gitlabApiUrl`との照合）。`src/server.ts:228-244`、`src/infrastructure/adapter/auth/JwtAuthMiddleware.ts:55-77`
--    - 🟡 **レートリミッターのGitLabインスタンス未分離**: バケットキーが`projectId`のみのため、別GitLabの同一projectIdが同じバケットを共有する。AI APIレート制御目的のみで動作上の支障はなし。要対応の場合は`(gitlabApiUrl, projectId)`の合成キーへ。`src/infrastructure/adapter/rateLimiter/RateLimiter.ts`
--    - 🟡 **Mastra `WorkflowRequestContext` に gitlabApiUrl 未含有**: 現状ツールがGitLab APIを直接呼ばないため問題なし。ワークフロー内ツールからGitLab API呼び出しを追加する場合は`src/mastra/shared/requestContext.ts`に追加要。
--    - 🟢 安全箇所: `CloneManager`/`GitLabApiClient`/Logger/HTTP Gateway層は per-request で安全。
--- 指摘事項（in progressの場合のみ）
-+```
 \ No newline at end of file
-diff --git a/src/infrastructure/adapter/clone/CloneManager.ts b/src/infrastructure/adapter/clone/CloneManager.ts
-index 4d917d0..8a5323c 100644
---- a/src/infrastructure/adapter/clone/CloneManager.ts
-+++ b/src/infrastructure/adapter/clone/CloneManager.ts
-@@ -74,7 +74,8 @@ export class CloneManager implements CloneManagerPort {
-    * 2. GitLab APIからプロジェクト情報を取得しクローンURLを構築
-    * 3. git clone --filter=blob:none --no-checkout
-    * 4. git fetch origin <sourceBranch> <targetBranch>
--   * 5. git checkout <sourceBranch>
-+   * 5. checkout: commitSha 指定時は git checkout <commitSha>（detached HEAD）、
-+   *    null の場合は git checkout <sourceBranch>
-    * 6. ディスク使用量チェック
-    * 7. CloneResultを返却
++```
++---
++
++# ID: 2
++- PBI名: レビュー結果コメントの出力フォーマットのカスタマイズ
++- ステータス: done
++- ユーザストーリー/背景
++  - レビュー結果は「チェック項目｜評定｜コメント」の3列テーブルに固定されており、利用者側で変更できなかった
++  - テーブルセル内は横幅が狭く詳細が見切れる、Markdownの表をネストできない、という制約があった
++  - 「チェック項目」列にはAIへの指示文がそのまま表示されるため、指示を詳しく書くほど表示が冗長になっていた
++- 受け入れ基準
++  - レビュー設定(`review-settings.json`)の`reviewCommentLayout`で出力レイアウトを選択できること
++    - `table`（デフォルト・従来形式）/ `sections`（2列サマリ表＋テーブル外に詳細をMarkdownで展開）
++    - `sections`ではコメント本文がエスケープされず、表のネスト・見出し・箇条書きが利用できること
++  - `CHECKLIST_DISPLAY_COLUMNS`でレビュー結果コメントに表示する列を、AIへの指示用の列とは独立に指定できること
++  - 未設定時は従来と同一の出力になること（後方互換）
++- 注意事項
++  - 既存バグの同時修正: 複数列チェックリストでは、コメントの表を逆パースして復元したチェック項目が表示用フォーマットになるため、
++    AI用フォーマットとの突合に失敗し前回レビュー結果が再利用されていなかった
++    - 全レビュー結果をコメント内メタデータJSONへ格納し、表示部分は表示専用とすることで解消した
++    - メタデータに可視結果を持たない旧フォーマットのコメントは、従来どおり表をパースして復元する
++  - コメント整形・品質ゲート評価はローカル/APIモードとも常にCLI側で実行されるため、APIリクエストスキーマは変更していない
++
++---
++
++# ID: 3
++- PBI名: レビュー結果コメントのメタデータからコメント本文を除去
++- ステータス: done
++- ユーザストーリー/背景
++  - PBI2でレビュー結果をコメント内メタデータJSONへ格納するようにしたが、コメント本文が
++    表示部分とメタデータの両方に入るためコメント全体の文字数がおよそ2倍になっていた
++  - コメント本文は表示部分に既に存在するため、メタデータから除去して重複をなくしたい
++- 受け入れ基準
++  - メタデータの可視結果にコメント本文が含まれないこと（checkItemContentと評定ラベルのみ）
++  - 前回レビュー結果のコメント本文が表示部分から復元できること
++    - sectionsレイアウトは生Markdown（見出し・ネスト表等）を含んでいても完全一致で復元できること
++    - tableレイアウトはコメント列のセルから復元できること
++  - 表示部分を持たない非表示結果のコメント本文は従来どおりメタデータから復元できること
++  - 旧フォーマットのコメント（メタデータにコメント本文を持つ／可視結果を持たない）からも
++    従来どおり復元できること（後方互換）
++- 注意事項
++  - リトライ（コミット変更なし）時は前回コメント本文がそのまま再投稿されるため、復元は無損失である必要がある
++    - sectionsレイアウトは区切りマーカー（aikata-c）で囲んで無損失に復元する
++    - tableレイアウトはセルエスケープ（改行→`<br>`、`|`→`\|`）を経由するためPBI2以前と同程度の
++      復元精度となる（本文中のリテラル`<br>`のみ改行に変わる）
+diff --git a/docs/archtecture/review/overallflow_concept.md b/docs/archtecture/review/overallflow_concept.md
+index dab76fa..d86a40e 100644
+--- a/docs/archtecture/review/overallflow_concept.md
++++ b/docs/archtecture/review/overallflow_concept.md
+@@ -5,9 +5,14 @@ review 機能（AI MRレビュー）の処理フロー概要を以下に示す
+ 2. 本プロジェクトの`.ci-template/pipelines/template.yml`を`.gitlab-ci.yml`上で`include`する
+   - チェックリスト、レビュー設定、レビュー実行時のskillsのパスを環境変数で指定する
+ 3. 初回MR作成時はMRのdiffが存在する場合にチェックが実行され、チェック結果に関するコメントが投稿される
+-  - コメントにはMarkdown表形式のチェック結果（チェック項目、評定、コメント）と最新のコミットハッシュが合わせて表示されている
+-    - 表については15項目超えた場合は折りたたみ形式（details,summaryタグ）で表示されている
+-    - エラーになった場合は、評定欄に「エラー」、コメント欄にエラーメッセージが表示されている
++  - コメントにはチェック結果と最新のコミットハッシュが合わせて表示されている
++    - レビュー設定の`reviewCommentLayout`で出力レイアウトを選択できる
++      - `table`（デフォルト）: Markdown表形式（チェック項目、評定、コメント）
++      - `sections`: 「チェック項目、評定」の2列サマリ表＋その下にチェック項目ごとの詳細をMarkdownで縦展開。詳細はエスケープされないため表のネストや見出しが利用できる
++    - 表示件数が折りたたみ閾値（`FOLD_THRESHOLD`=2）を超えた場合は折りたたみ形式（details,summaryタグ）で表示される
++      - `table`では表全体、`sections`では詳細部分全体が折りたたまれる（サマリ表は常時表示）
++    - エラーになった場合は、評定に「エラー」、コメントにエラーメッセージが表示されている
++    - チェックリストCSVのうちコメントに表示する列は`CHECKLIST_DISPLAY_COLUMNS`で絞り込める（AIへの指示に使う列とは独立）
+ 4. MR更新前に、前回のチェック結果を前提にレビューさせたくない場合はそのチェック結果を含むコメントを削除する
+ 5. MR更新時は前回チェック結果がコメントに含まれていた場合は、そのチェック結果を前提にレビューされる
+ 6. パイプラインをリトライした場合（新しいコミットなし）、前回成功したレビュー結果はそのまま再利用され、エラーだった項目や結果がない項目のみ再レビューされる
+@@ -70,6 +75,13 @@ review 機能（AI MRレビュー）の処理フロー概要を以下に示す
+             - つまり、Agentが過去のメッセージ履歴を保持しておく必要があるので注意
+ 3. コメント投稿
+   - 2でチェックリスト内のチェック項目全てのチェックが完了した後に、チェック結果と今回チェック時点のコミットハッシュをまとめてMRのコメントに投稿する
++  - チェック結果の突合キー（AI用のチェック項目content）と評定はコメント内のメタデータ（HTMLコメント）に格納する
++    - 表示部分（表／セクション）は表示専用となり、再レビュー時のチェック項目・評定の復元はメタデータから行う
++    - コメント本文は文字数の二重化を避けるためメタデータに持たず、表示部分から順序対応で復元する
++      - sectionsレイアウトはコメント本文を区切りマーカーで囲んで無損失に復元する
++      - 表示されない非表示結果のみ、コメント本文もメタデータに格納する
++    - 旧フォーマットのコメント（メタデータにコメント本文を持つ／メタデータに可視結果を持たない）も
++      従来どおり復元できる（後方互換）
+ 
+ ## エラーハンドリング
+ チェック実行中のエラーは種別に応じて処理される:
+diff --git a/docs/archtecture/tech.md b/docs/archtecture/tech.md
+index 7a0857b..5f7ef6e 100644
+--- a/docs/archtecture/tech.md
++++ b/docs/archtecture/tech.md
+@@ -71,6 +71,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
+     - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス
+     - `--checklist-columns` / `CHECKLIST_COLUMNS`: チェックリストCSVの抽出列番号（カンマ区切り、1始まり）
+     - `--checklist-no-header` / `CHECKLIST_NO_HEADER`: 抽出列が1列の場合にヘッダを除外するか（デフォルト: `false`）
++    - `--checklist-display-columns` / `CHECKLIST_DISPLAY_COLUMNS`: レビュー結果コメントに表示する列番号（カンマ区切り、1始まり）。未指定時は `--checklist-columns` と同じ列を使用
+     - `--review-settings` / `REVIEW_SETTINGS_PATH`: レビュー設定ファイルパス
+   - pipeline-report サブコマンド固有CLIオプション
+     - `--pipeline-id` / `GITLAB_PIPELINE_ID` / `CI_PIPELINE_ID`: 分析対象のパイプラインID
+diff --git a/docs/config/env_val.md b/docs/config/env_val.md
+index e3c4f04..86823f3 100644
+--- a/docs/config/env_val.md
++++ b/docs/config/env_val.md
+@@ -18,6 +18,7 @@
+ | 入力 | CHECKLIST_PATH | reviewで必須 | - | チェックリストファイルパス | --checklist | - |
+ | 入力 | CHECKLIST_COLUMNS | No | - | チェックリストCSVの抽出列番号（カンマ区切り、1始まり）。未指定時は全列を抽出 | --checklist-columns | - |
+ | 入力 | CHECKLIST_NO_HEADER | No | false | 抽出列が1列の場合にヘッダを除外するか | --checklist-no-header | - |
++| 入力 | CHECKLIST_DISPLAY_COLUMNS | No | - | レビュー結果コメントに表示する列番号（カンマ区切り、1始まり）。未指定時は `CHECKLIST_COLUMNS` と同じ列を使用（＝AIへの指示文と同一表示） | --checklist-display-columns | - |
+ | 入力 | REVIEW_SETTINGS_PATH | No | - | レビュー設定ファイルパス | --review-settings | - |
+ | 入力 | PIPELINE_REPORT_SETTINGS_PATH | No | - | pipeline-report 分析設定ファイルパス（JSON）。`jobReportFormat` / `analysisInstructions` / `reportRefinementInstructions` / `includeJobPatterns` / `excludeJobPatterns` | --pipeline-report-settings | - |
+ | 入力 | SKILLS_PATH | No | - | skillsパス | --skills | - |
+diff --git a/docs/domain/review/business_rule.md b/docs/domain/review/business_rule.md
+index ffadd19..25ede91 100644
+--- a/docs/domain/review/business_rule.md
++++ b/docs/domain/review/business_rule.md
+@@ -52,12 +52,67 @@
+     - 再レビュー時に前回の結果を考慮するため
+   - 条件
+     - MRコメントからaikataマーカーを持つ最新のコメントを検索
++    - レビュー結果の復元はコメント内メタデータ（aikata-review-data）を優先する
++      - メタデータに可視結果（visibleResults）が含まれる場合はそこから復元する
++        - コメント本文はメタデータに含まれないため、コメントの表示部分から順序対応で復元する
++        - 旧フォーマットとしてメタデータにコメント本文が含まれる場合はそちらを優先する
++      - 含まれない場合（旧フォーマットのコメント）はMarkdownテーブルをパースして復元する
+     - 前回結果のうちエラーになった項目は除外し、今回のチェックリストに含まれる項目のみフィルタ
+     - 前回レビュー以降のコミットとdiffを取得
+   - 結果(アクション)
+     - PriorReviewContext | null
+   - 関連するユースケースorエンティティ: ReviewExecutionService, CommentParser
+ 
++- レビュー結果メタデータ格納ルール
++  - 目的/背景
++    - コメントの表示レイアウトを変更しても前回レビュー結果を正しく復元できるようにするため
++    - 表示用に変換されたチェック項目テキストからはAI用フォーマットのcontentを復元できないため
++    - 一方で、表示部分から復元できる情報をメタデータにも持つとコメントの文字数が二重になるため
++  - 条件
++    - メタデータには「表示部分から復元できない情報」のみを格納する
++    - 可視結果はcheckItemContentと評定ラベルのみを格納し、コメント本文は格納しない
++      - コメント本文は表示部分から復元する（メタデータと表示部分の並び順は常に一致する）
++      - sectionsレイアウトではコメント本文を区切りマーカー（aikata-c）で囲み、
++        生Markdownのまま無損失に復元できるようにする
++      - tableレイアウトではコメント列のセルから復元する（セルエスケープの復元を伴う）
++    - 非表示結果は表示部分を持たないため、コメント本文もメタデータへ格納する
++    - メタデータに格納するcheckItemContentは表示用ではなくAI用の生contentとする（突合キーであるため）
++    - エラー結果は評定ラベル「エラー」として格納する（コメント本文にエラーメッセージが入る）
++  - 結果(アクション)
++    - Markdownテーブル/セクションは表示専用となり、レイアウトを自由に変更できる
++    - コメント本文がコメント内で二重化しない
++  - 関連するユースケースorエンティティ: CommentFormatter, CommentParser
++
++- レビューコメントレイアウトルール
++  - 目的/背景
++    - Markdownテーブルのセル内では横幅が狭く、表のネストもできないため詳細が読みづらい
++  - 条件
++    - reviewCommentLayoutが'table'の場合（デフォルト）
++      - 「チェック項目・評定・コメント」の3列テーブルで出力する（従来形式）
++      - セル内のパイプと改行はエスケープする
++    - reviewCommentLayoutが'sections'の場合
++      - 「チェック項目・評定」の2列サマリテーブルを出力する
++      - サマリテーブルの下に、チェック項目ごとに「見出し＋評定＋コメント本文」を縦展開する
++        - 見出しは表示用チェック項目を1行化した文字列とする
++        - コメント本文はエスケープせず生Markdownとして出力する（表・見出し・箇条書きが利用可能）
++    - いずれのレイアウトでも、表示対象の件数が折りたたみ閾値を超えた場合は折りたたみ（details,summaryタグ）で表示する
++      - 'table'ではテーブル全体、'sections'では詳細部分全体を折りたたむ（サマリテーブルは常時表示）
++  - 結果(アクション)
++    - MRコメント本文のMarkdown
++  - 関連するユースケースorエンティティ: ReviewSettings, CommentFormatter, CommentPostingService
++
++- チェック項目表示列ルール
++  - 目的/背景
++    - AIへの指示は詳細にしつつ、レビュー結果上の表示は簡潔にしたいため
++  - 条件
++    - 表示用の列が指定された場合、その列のみをチェックリストCSVから抽出して表示用テキストを生成する
++    - 表示用の列が指定されない場合、AI指示用の列（チェックリスト抽出列）と同じ列を使用する（従来と同一表示）
++    - 表示用テキストの生成方法はAI指示用と同じ（ヘッダ付き構造化フォーマット、1列指定かつヘッダ除外時は値のみ）
++    - 表示用テキストはコメント表示にのみ使用し、AIへの指示・結果の突合キーには使用しない
++  - 結果(アクション)
++    - チェック項目のAI用contentと表示用contentの対応表
++  - 関連するユースケースorエンティティ: ChecklistParser, CommentFormatter, SuggestCommentFormatter
++
+ - エラー分類ルール
+   - 目的/背景
+     - レビュー実行時のエラーを種別に応じて適切に処理するため
+diff --git a/docs/domain/review/entity.md b/docs/domain/review/entity.md
+index 78c724e..8cbe292 100644
+--- a/docs/domain/review/entity.md
++++ b/docs/domain/review/entity.md
+@@ -79,6 +79,7 @@
+     - hiddenRatingLabelsの各ラベルがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
+     - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
+     - suggestEnabledRatingLabelsの各ラベルがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
++    - reviewCommentLayoutが'table'または'sections'のいずれかであること
+   - 属性
+     - additionalInstructions (string)
+     - concurrentReviewCount (number | null)
+@@ -88,9 +89,14 @@
+     - qualityGate (QualityGate)
+     - suggestEnabledRatingLabels (string[]): suggestを有効にする評定ラベル（デフォルト: ['C']、空配列で無効）
+     - mrCommentTitle (string): MRコメント見出しのタイトル文言（デフォルト: 'AIKATA-PR レビュー結果'）
++    - reviewCommentLayout (ReviewCommentLayout): レビュー結果コメントの出力レイアウト（デフォルト: 'table'）
+   - 振る舞い
+     - default(静的ファクトリ): デフォルト設定を生成
+     - isSuggestEnabled(): suggestEnabledRatingLabelsが空でないか判定
++  - 関連型
++    - ReviewCommentLayout: 'table' | 'sections'
++      - 'table': チェック項目・評定・コメントの3列テーブル（従来形式）
++      - 'sections': チェック項目・評定の2列サマリテーブル＋テーブル外に詳細をMarkdownで展開
+ 
+ - チェックリスト
+   - 識別子: Checklist
+diff --git a/docs/domain/review/usecase.md b/docs/domain/review/usecase.md
+index 0aaafc2..f9726ff 100644
+--- a/docs/domain/review/usecase.md
++++ b/docs/domain/review/usecase.md
+@@ -59,7 +59,7 @@
+   - 識別子: CommentPostingService
+   - 前提条件
+     - レビュー結果が存在すること
+-  - 入力: CommentPostingCommand（projectId, mrIid, results, ratings, commitHash, commitMessage, hiddenRatingLabels, qualityGateResult）
++  - 入力: CommentPostingCommand（projectId, mrIid, results, ratings, commitHash, commitMessage, hiddenRatingLabels, qualityGateResult, mrCommentTitle, reviewCommentLayout, checkItemDisplayContents）
+   - 出力: void
+   - メインフロー
+     1. レビュー結果をMarkdownコメントとして整形（品質ゲート結果を含む）
+diff --git a/docs/user-guide.md b/docs/user-guide.md
+new file mode 100644
+index 0000000..b8f5fa4
+--- /dev/null
++++ b/docs/user-guide.md
+@@ -0,0 +1,533 @@
++## お知らせ
++ 
++## 1. AIKATA-PRとは
++ AIKATA-PRは、GitLabのマージリクエスト（MR）に対してAIがチェックリストに沿ったレビューを自動実行するCI/CDパイプラインテンプレートです。
++ ![image.png](/attachment/69cf920ae4feef880872c39f)
++
++ ### 特徴
++ - 定義済みのパイプラインを取り込むだけで簡単に実行
++ - チェックリストに定義した観点でMRを自動レビュー
++   - チェックリストの内容やdiffの内容によってはAgentがコードベース全体を自律的に調査
++ - チェック結果に対する改善提案を受けることが可能
++ - 評定基準やコメントフォーマット、レビュー結果の表示レイアウトのカスタマイズが可能
++
++ ### 処理フロー
++
++ ```
++ 1. MR作成・更新
++    ↓
++ 2. CIパイプラインが起動し、AIKATA-PRが提供するジョブが実行される
++    ↓
++ 3. MRのdiff・最新レビュー結果・メタ情報を取得
++    ↓
++ 4. AIエージェントがレビューを実行
++    （コードベース全体の調査が必要な場合はAIエージェントが自律的に調査を実行）
++    ↓
++ 5. 全チェック項目のレビュー完了後、結果をMRにコメント投稿
++ ```
++
++ ---
++
++ ## 2. 前提条件
++ 
++特にありません。
++ ユーザごとにAIモデルを指定することもできますし、特別に指定しない場合はAIKATA-PR用に用意したAIモデル（AI-bow）が稼働します。（※1）
++>※1
++ AIモデルを指定した場合は、ジョブが実行されるRunner上で指定されたAIモデルに通信しながらレビューを実行するため、RunnerとAIモデルが疎通できる必要があります。
++ 指定しない場合はDSSサーバ（DSS GitLabやRedmineが稼働しているサーバ）上に構築したレビュー実行用APIサーバ上でレビューを実行するため、RunnerとDSSサーバが疎通できる必要があります。
++
++ ~~AIKATA-PRを導入するには、AI-bow API等のOpenAI互換のAIモデルを利用者自身で用意する必要があります。
++ AIKATA-PRではCI/CDジョブから直接AIモデルを呼びだすので、ジョブが実行されるGitLab RunnerとAIモデルが疎通できる状態である必要があります。
++ 本番AIbow API（PTU）を利用したい場合はDSS GitLabの[共用Runner](https://references.pages.rp.dss.itmufg/dss/guide/docs/Gitlab_CICD/About-Runner#gitlab-runner%E3%81%…
++ ※
++ 将来的にはAIKATA-PR自体にAIモデルを組み込むことで、AIモデルを用意せずとも利用できる様に計画しています（2026/5月中までには対応予定）
++ ゴールデンパスとして組み込む可能性もあります~~
++
++ ---
++ ## 3.照会先
++ 
++[照会フォーム](https://apps.powerapps.com/play/e/default-3a498a73-f68c-4993-9940-40f5dc4b029b/a/79c32efa-193c-44f1…
++ シンクラにて操作をお願いします
++ 
++---
++
++ ## 4. 導入手順
++
++ ### 4.1 CIテンプレートの設定
++
++ 対象プロジェクトの`.gitlab-ci.yml`に以下を追記してください。
++
++ ```yaml
++ include:
++   - project: systems/bkstm0/aikata-pr
++ 	file: .ci-template/pipelines/template.yml
++ ```
++ 
++※ITCS GitLabの場合は以下のように指定してください
++ ```yaml
++ include:
++   - project: bkstm0/aikata-pr
++ 	file: .ci-template/pipelines/template.yml
++ ```
++
++ これにより、MR作成時に`aikata-pr-review`ジョブが自動実行されます。
++
++> **補足1**: テンプレートにはステージを定義していないため、GitLab CI/CDの仕様により`test`ステージで実行されます。ステージを指定したい場合は適用対象パイプラインにて以下の様にジョブを上書きしてください。
++ ```yaml
++ include:
++   - project: systems/bkstm0/aikata-pr
++ 	file: .ci-template/pipelines/template.yml
++
++ stages:
++   - lint
++   - build
++   - test
++   - deploy
++
++ aikata-pr-review:
++   stage: lint
++ ```
++ 
++> **補足2**: includeする際にバージョンを指定しないでください。レビュー実行用APIサーバと通信する際にバージョン不整合でエラーになります。
++
++ ### 4.2 CI/CD変数の設定
++
++ GitLabプロジェクトの **Settings > CI/CD > Variables** から以下の変数を設定してください。
++ 変数設定時はProtect variableにチェックを入れない様に注意してください。
++ ![image.png](/attachment/69cf688ee4feef880871c869)
++ ![image.png](/attachment/69cf779de4feef8808723452)
++
++ 尚、これらの変数は環境変数としてGitLab CI/CDパイプライン実行時に読み込まれます。直接`.gitlab-ci.yml`の`variable`セクションに記載いたいても問題ありません。
++
++ #### 必須変数
++
++ | 変数名 | 説明 | 例 |
++ |--------|------|-----|
++ | `AIKATA_PR_GITLAB_TOKEN` | GitLab APIトークン（apiスコープ） | `123456789` |
++ | `CHECKLIST_PATH` | チェックリストファイルのパス | `.aikata-pr/checklist.csv` |
++
++> **注意**: `AI_API_KEY`と`AIKATA_PR_GITLAB_TOKEN`は秘密情報です。変数設定時に「Mask variable」を有効にしてください。
++
++ #### 任意変数
++
++ | 変数名                	| 説明                                                                                                                                                                                                                                                                 	| デフォルト値   	|
++ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
++ | `CHECKLIST_COLUMNS`   	| チェックリストCSVの抽出列番号（カンマ区切り、1始まり）。未指定時は全列を抽出                                                                                                                                                                                         	| なし（全列）   	|
++ | `CHECKLIST_NO_HEADER` 	| 抽出列が1列の場合にヘッダ行を除外するか。複数列の場合は無視される                                                                                                                                                                                                    	| `false`        	|
++ | `CHECKLIST_DISPLAY_COLUMNS` | レビュー結果コメントに表示する列番号（カンマ区切り、1始まり）。AIへの指示に使う列（`CHECKLIST_COLUMNS`）とは独立に指定できる。未指定時は`CHECKLIST_COLUMNS`と同じ列を表示 | なし（`CHECKLIST_COLUMNS`と同じ） |
++ | `REVIEW_SETTINGS_PATH`	| レビュー設定ファイルのパス                                                                                                                                                                                                                                           	| なし           	|
++ | `SKILLS_PATH`         	| Skillsファイル/ディレクトリのパス。レビュー時にAIが適宜指定したSkillsを読み込みながら作業を実行します                                                                                                                                                                	| なし           	|
++ | `COMMENT_LANGUAGE`    	| レビューコメントの言語                                                                                                                                                                                                                                               	| `Japanese`     	|
++ | `AIKATA_LOG_LEVEL`    	| ログレベル（trace/debug/info/warn/error/fatal）                                                                                                                                                                                                                      	| `info`         	|
++ | `AI_API_KEY` | AIモデルのAPIキー（※2） | `123456789` |
++ | `AI_API_ENDPOINT_URL` | AIモデルのAPIエンドポイントURL（※2）  | `https://mufg-openai-api.azure-api.net/aoai004/openai/v1` |
++ | `AI_MODEL_NAME` | 使用するAIモデル名（※2）  | `PBkBKGPT0SpkSub001OAI001MDL015` |
++ | `MAX_CONTEXT_LENGTH`  	| AIモデルの最大コンテキスト長（トークン数）。設定時、プロンプトのトークン数がコンテキスト長の一定割合を超えるとdiffを自動圧縮（AIエージェントは必要な際に自律的に圧縮された部分のdiffを参照）（※2） <br>【参考】aibow gpt-4oの最大コンテキスト長: 128000, aibow gpt-5 〃: 272000 | なし（圧縮しない） |
++ | `OPENAI_REASONING_EFFORT` | OpenAI reasoningモデルのreasoning effort（minimal/low/medium/high）。reasoningモデルの場合は設定必須。そうでない場合は必ず設定しない   （※2）                                                                                                                                   	| なし           	|
++ | `AIKATA_PR_DISABLED`  	| `true`に設定するとAIレビューをスキップ                                                                                                                                                                                                                               	| `false`        	|
++
++> ※2
++ ユーザ独自で利用するAIモデルを変更したい場合は設定してください。`AI_API_KEY`,`AI_API_ENDPOINT_URL`,`AI_MODEL_NAME`がすべて設定されていた場合のみAIモデルが変更されます
++
++ ### 4.3 チェックリストファイルの作成
++
++ チェックリストはCSV形式で作成し、プロジェクトリポジトリ内に配置します。
++ CSVの1行目はヘッダ行、2行目以降が各チェック項目に対応します（1行1チェック項目）。
++
++ #### デフォルト動作（複数列・ヘッダあり）
++
++ デフォルトでは、CSVの全列を抽出し、ヘッダ名をキーとした構造化フォーマットでAIに渡されます。
++
++ **入力例: `checklist.csv`**
++
++ ```
++ カテゴリ,チェック項目,説明
++ セキュリティ,SQLインジェクション対策,バインド変数が使用されているか確認
++ パフォーマンス,N+1クエリ,ループ内でのDB問い合わせがないか確認
++ ```
++
++ **AIに渡されるフォーマット（1チェック項目あたり）:**
++
++ ```
++ カテゴリ:
++ ---
++ セキュリティ
++ ---
++ チェック項目:
++ ---
++ SQLインジェクション対策
++ ---
++ 説明:
++ ---
++ バインド変数が使用されているか確認
++ ---
++ ```
++
++ #### オプション: 特定列のみ抽出（`CHECKLIST_COLUMNS`）
++
++ `CHECKLIST_COLUMNS`を指定すると、CSVの特定列のみを抽出できます。列番号は1始まりのカンマ区切りで指定します。
++
++ **例:** 4列のCSVからNo列を除外し、2列目と3列目のみ抽出する場合
++ ```
++ CHECKLIST_COLUMNS=2,3
++ ```
++ ```
++ No,カテゴリ,チェック項目,説明
++ 1,セキュリティ,SQLインジェクション対策,バインド変数が使用されているか確認
++ ```
++ この場合、AIには以下のフォーマットで渡されます:
++ ```
++ カテゴリ:
++ ---
++ セキュリティ
++ ---
++ チェック項目:
++ ---
++ SQLインジェクション対策
++ ---
++ ```
++
++ #### オプション: ヘッダ除外（`CHECKLIST_NO_HEADER`）
++
++ 抽出結果が1列になる場合に限り、`CHECKLIST_NO_HEADER=true`を指定するとヘッダ行を除外して値のみを抽出できます。これは従来の「1行1チェック項目」形式に相当します。
++> **注意**: 抽出結果が複数列の場合、`CHECKLIST_NO_HEADER`は無視されます。
++ **例:** 1列のCSVからヘッダを除外する場合
++ ```
++ CHECKLIST_NO_HEADER=true
++ ```
++ ```
++ チェック項目
++ コードの可読性が十分か
++ テストが適切に記述されているか
++ セキュリティ上の問題がないか
++ ```
++ この場合、AIには以下のようにヘッダなしの値のみが渡されます:
++ ```
++ コードの可読性が十分か
++ テストが適切に記述されているか
++ セキュリティ上の問題がないか
++ ```
++
++ #### オプション: レビュー結果に表示する列の指定（`CHECKLIST_DISPLAY_COLUMNS`）
++
++ `CHECKLIST_COLUMNS`はAIに渡す列の指定ですが、`CHECKLIST_DISPLAY_COLUMNS`はレビュー結果コメントに表示する列の指定です。
++ これにより「AIへの指示は詳細に書きつつ、コメント上の表示は簡潔にする」ことができます。
++
++ **例:** AIには「カテゴリ・チェック項目・説明」を渡し、コメントには「チェック項目」だけを表示する場合
++ ```
++ CHECKLIST_COLUMNS=2,3,4
++ CHECKLIST_DISPLAY_COLUMNS=3
++ CHECKLIST_NO_HEADER=true
++ ```
++ ```
++ No,カテゴリ,チェック項目,説明
++ 1,セキュリティ,SQLインジェクション対策,バインド変数が使用されているか確認。動的SQLを組み立てている箇所は必ず指摘すること
++ ```
++ AIには従来どおり3列すべてがヘッダ付きで渡されますが、レビュー結果コメントのチェック項目欄には以下のみが表示されます:
++ ```
++ SQLインジェクション対策
++ ```
++
++ 未指定の場合は`CHECKLIST_COLUMNS`と同じ列が表示されるため、これまでと表示は変わりません。
++
++> **注意**: `CHECKLIST_NO_HEADER`はAIへの指示用と表示用で共通の設定です。上の例のように表示列が1列かつ`CHECKLIST_NO_HEADER=true`の場合、表示はヘッダなしの値のみになります（AIへの指示は複数列のため`CHECKLIST_NO_HEADER`が無視され、ヘッダ付きのまま渡されます）。
++
++ #### オプション組み合わせ一覧
++
++ | `CHECKLIST_COLUMNS` | `CHECKLIST_NO_HEADER` | 抽出列数 | AIへの出力形式 |
++ |---|---|---|---|
++ | 未指定 | `false` | 全列 | ヘッダ付き構造化フォーマット |
++ | 未指定 | `true` | 1列のみのCSV | ヘッダなし（値のみ） |
++ | 指定（複数列） | `false` | 複数列 | ヘッダ付き構造化フォーマット |
++ | 指定（複数列） | `true` | 複数列 | ヘッダ付き構造化フォーマット（`noHeader`は無視） |
++ | 指定（1列） | `false` | 1列 | ヘッダ付き構造化フォーマット |
++ | 指定（1列） | `true` | 1列 | ヘッダなし（値のみ） |
++
++ この表はAIへの出力形式の一覧です。レビュー結果コメントの表示形式は`CHECKLIST_DISPLAY_COLUMNS`で独立に指定できます（未指定時は上表と同じ形式で表示されます）。
++
++ **仕様:**
++ - CSVの1行目はヘッダ行として扱われる
++ - 2行目以降の各行が1つのチェック項目に対応
++ - 空行は無視される
++ - 最低1つのチェック項目（ヘッダ行 + データ行1行以上）が必要
++> **注意**: チェックリストCSVにID列（No列など）を含めないでください。AIKATA-PRはレビュー時に各チェック項目へ独自のIDを自動採番します。CSV側にID列があるとレビュー結果のID管理と競合する可能性があります。既存のCSVにID列が含まれている場合は、`CHECKLIST_COLUMNS`でID列を除外してください。
++
++ ### 4.4 レビュー設定ファイルの作成（任意）
++
++ レビューの動作をカスタマイズする場合、JSON形式のレビュー設定ファイルを作成します。全てのフィールドは任意です。
++
++ **例: `review_settings.json`**
++
++ ```json
++ {
++   "mrCommentTitle": "AIKATA-PR レビュー結果",
++   "reviewCommentLayout": "table",
++   "additionalInstructions": "必ずdocsディレクトリ内の設計書を読み込み実装方針を理解した上でレビューを実行してください",
++   "concurrentReviewCount": null,
++   "commentFormat": "【評価理由・根拠】\n（具体的な評価理由や根拠を記載）\n\n【改善提案】\n（具体的な改善提案を記載）",
++   "ratings": [
++ 	{ "label": "A", "definition": "チェック項目の要件を完全に満たしている" },
++ 	{ "label": "B", "definition": "概ね満たしているが軽微な指摘がある" },
++ 	{ "label": "C", "definition": "要件を満たしていない" }
++   ],
++   "hiddenRatingLabels": ["A"],
++   "suggestEnabledRatingLabels": ["C"],
++   "qualityGate": {
++ 	"failureCriteria": [
++   	{ "ratingLabel": "C", "threshold": 5 }
++ 	]
++   }
++ }
++ ```
++
++ レビュー設定はJSON形式で記述します。全てのフィールドは任意で、指定しない場合はデフォルト値が適用されます。
++
++ | フィールド           	| 型   	| デフォルト値  | 説明                                                                               	|                                                                                                                                   	|
++ | ------------------------ | -------- | ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
++ | `mrCommentTitle`     	| string   | `"AIKATA-PR レビュー結果"` | MRコメント先頭の見出しタイトル。空文字は不可                          	|                                                                                                                                   	|
++ | `reviewCommentLayout` | string | `"table"` | レビュー結果コメントの出力レイアウト。`"table"`（3列テーブル）または`"sections"`（2列サマリ表＋項目ごとの詳細）| |
++ | `additionalInstructions` | string   | `""`      	| AIレビュー実行時のシステムプロンプトに組み込まれる追加指示                         	|                                                                                                                                   	|
++ | `concurrentReviewCount`  | number \ | null      	| `null`                                                                             	| 一度にレビューするチェック項目数（正の整数）。`null`または未指定の場合は分割しない（全項目を一度にレビュー）。1未満の値は`null`に変換 |
++ | `commentFormat`      	| string   | `"{comment}"` | レビューコメントのフォーマット                                                     	|                                                                                                                                   	|
++ | `ratings`            	| array	| 下記参照  	| 評定基準のリスト                                                                   	|                                                                                                                                   	|
++ | `hiddenRatingLabels` 	| string[] | `[]`      	| コメントに表示しない評定のラベルリスト |                                                                                                                                   	|
++ | `suggestEnabledRatingLabels` | string[] | `["C"]`   | GitLab MRのsuggest（修正提案）を生成する対象評定ラベル。空配列で無効化。`ratings`に定義済みのラベルのみ指定可能 |                                                                                                        	|
++ | `qualityGate` | object | なし | 品質ゲート設定。詳細は[3.5 品質ゲートの設定](#45-品質ゲートの設定任意)を参照 |
++
++ **`reviewCommentLayout`の挙動:**
++
++ レビュー結果コメントの出力レイアウトを2種類から選べます。
++
++ | 値 | 出力 | 向いているケース |
++ |---|---|---|
++ | `"table"`（デフォルト） | 「チェック項目・評定・コメント」の3列テーブル | コメントが短く、一覧性を重視したい場合 |
++ | `"sections"` | 「チェック項目・評定」の2列サマリ表＋その下に項目ごとの詳細 | コメントが長い、または表や箇条書きで詳細を書かせたい場合 |
++
++ `"table"`ではコメントが1つのテーブルセルに収まるため、横幅が狭く長い指摘が読みづらくなります。また表の中に表を入れることはできません。
++ `"sections"`ではコメント本文をテーブルの外にMarkdownとしてそのまま出力するため、表のネスト・見出し・箇条書きが利用できます。
++
++ **`"sections"`の出力イメージ:**
++
++ ```markdown
++ | チェック項目 | 評定 |
++ | --- | --- |
++ | SQLインジェクション対策 | A |
++ | 責務分離 | C |
++
++ ### SQLインジェクション対策
++ **評定**: A
++
++ （コメント本文をMarkdownとしてそのまま表示）
++
++ ### 責務分離
++ **評定**: C
++
++ （コメント本文をMarkdownとしてそのまま表示）
++ ```
++
++ **`concurrentReviewCount`の取り扱い:**
++ - チェックリストを分割してレビューするとAI APIを叩く回数が多くなるので、まずは分割しない（`null`）から試してみて、すべてのチェックが完了しない、レビューの精度が悪い等の不具合があれば分割を検討してください。
++ **`ratings`のデフォルト値:**
++
++ | ラベル | 定義 |
++ |--------|------|
++ | A | チェック項目の要件を完全に満たしている |
++ | B | 概ね満たしているが軽微な指摘がある |
++ | C | 要件を満たしていない |
++ | - | チェック項目の要件がdiffの変更内容に該当しない、または評価不能 |
++
++ **`ratings`の制約:**
++ - 各要素に`label`（空文字不可）と`definition`（空文字不可）が必要
++ - 最低1つの評定基準が必要
++
++ **`hiddenRatingLabels`の制約:**
++ - 指定するラベルは`ratings`に定義されているラベルと一致する必要がある
++
++ **`suggestEnabledRatingLabels`の制約:**
++ - 指定するラベルは`ratings`に定義されているラベルと一致する必要がある
++ - 空配列を指定するとsuggest生成は行われない
++
++ **`suggestEnabledRatingLabels`の挙動:**
++ - 対象評定が付いたチェック項目について、AIがGitLab MRの「suggestion」（修正提案）を生成します
++ - suggestはMRのdiffハンク内（変更行とその周辺コンテキスト）に限られます。diff範囲外の修正は提案されません
++ - diffハンク内で意味のある修正提案が作れない場合、AIはあえてsuggestを生成しません（無理に低品質な提案を作らない）
++ - このため、対象評定が付いた全項目に必ずsuggestが生成されるわけではありません
++ 
++![image.png](/attachment/69eabb0de4feef8808a7d127)
++
++ **カスタマイズ例:**
++
++ 評定A（問題なし）の結果をコメントに表示せず、指摘があるもののみ表示する場合:
++
++ ```json
++ {
++   "hiddenRatingLabels": ["A"]
++ }
++ ```
++
++ 独自の評定基準を定義する場合:
++
++ ```json
++ {
++   "ratings": [
++ 	{ "label": "OK", "definition": "問題なし" },
++ 	{ "label": "WARN", "definition": "改善の余地あり" },
++ 	{ "label": "NG", "definition": "修正が必要" }
++   ]
++ }
++ ```
++ ### 4.5 品質ゲートの設定（任意）
++ 品質ゲートを使用すると、レビュー結果に基づいてパイプラインを失敗させることができます。
++ コメントには品質ゲートにより失敗した旨が表示されます。
++ ![image.png](/attachment/69cf8ce3e4feef880872a9f8)
++ レビュー設定ファイル内の`qualityGate`フィールドで設定します。
++ **例: 評定Cが1件以上の場合にパイプラインを失敗させる**
++ ```json
++ {
++   "qualityGate": {
++ 	"failureCriteria": [
++   	{ "ratingLabel": "C", "threshold": 1 }
++ 	]
++   }
++ }
++ ```
++ **例: 複数の基準を設定する（OR条件）**
++ ```json
++ {
++   "qualityGate": {
++ 	"failureCriteria": [
++   	{ "ratingLabel": "C", "threshold": 1 },
++   	{ "ratingLabel": "B", "threshold": 5 }
++ 	]
++   }
++ }
++ ```
++ この例では、C評定が1件以上 **または** B評定が5件以上の場合にパイプラインが失敗します。
++ | フィールド | 型 | 説明 |
++ |-----------|-----|------|
++ | `qualityGate` | object | 品質ゲート設定（任意） |
++ | `qualityGate.failureCriteria` | array | 失敗基準のリスト |
++ | `qualityGate.failureCriteria[].ratingLabel` | string | 評定ラベル（`ratings`に定義されたラベルと一致する必要がある） |
++ | `qualityGate.failureCriteria[].threshold` | number | しきい値（1以上の整数。この数以上の該当評定があると失敗） |
++ **動作仕様:**
++ - 品質ゲートに抵触した場合はジョブは異常終了します。レビュー結果はそのままコメントとして投稿されます
++ - コメントに警告メッセージが表示され、どの基準に抵触したかがわかります
++ - `hiddenRatingLabels`で非表示にした評定も品質ゲートの評価対象に含まれます
++ - 未設定の場合、品質ゲートは適用されません（デフォルト）
++
++ ---
++
++ ## 5. レビュー結果の見方
++
++ ### 5.1 コメント構成と評定ラベル
++
++ AIレビューが完了すると、MRのコメントに以下の形式でコメントが投稿されます。
++
++ - 各チェック項目の結果（チェック項目、評定ラベル、コメント）とレビュー時点の最新コミットが表示される
++   - デフォルト（`reviewCommentLayout: "table"`）ではMarkdown表形式で表示される
++   - `reviewCommentLayout: "sections"`では「チェック項目・評定」のサマリ表と、その下の項目ごとの詳細に分かれて表示される
++ - 表示される結果の件数が多い場合は折りたたみ（`details`）表示になる
++   - `"table"`では表全体、`"sections"`では詳細部分のみが折りたたまれる（サマリ表は常に表示される）
++ - エラーが発生したチェック項目は、評定に「エラー」、コメントにエラーメッセージが表示される
++ - `hiddenRatingLabels`で指定された評定の結果はコメントに表示されない（品質ゲートの評価対象には含まれる）
++ - チェック項目として表示される列は`CHECKLIST_DISPLAY_COLUMNS`で絞り込める（AIへの指示に使う列とは独立）
++
++ ### 5.2 リトライの挙動
++
++ | シナリオ | 挙動 |
++ |----------|------|
++ | パイプラインをリトライ（コミット変更なし） | 前回成功したレビュー結果はそのまま再利用。エラーだった項目や結果がない項目のみ再レビュー |
++ | 新しいコミットをプッシュ | 前回のレビュー結果を参考情報として保持しつつ、全チェック項目を再レビュー |
++ | 前回のレビューコメントを削除してからMR更新 | 前回のレビュー結果を参照せず、新規としてレビューを実行 |
++
++ ---
++
++ ## 6. 活用のヒント
++
++ aikata-prはMRの「コード差分」をAIがレビューするツールですが、チェックリストの設計次第で様々な場面に応用できます。
++
++ ### コードレビューの標準化
++
++ チーム共通のコーディング規約やレビュー観点をチェックリストに定義することで、レビューの品質を均一化できます。
++
++ ```csv
++ 観点,チェック項目
++ 命名規則,命名規則に従っているか（変数: camelCase、定数: UPPER_SNAKE_CASE）
++ 責務分離,関数の責務が単一か（1関数1責務）
++ エラーハンドリング,適切なエラーハンドリングがされているか
++ テスト,テストが追加・更新されているか
++ ```
++
++ ### ドキュメントの品質チェック
++
++ ドキュメント（マニュアル、仕様書など）をGit管理し、ドキュメント更新のMRに対してチェックを実行することで、ドキュメントの品質を自動的に担保できます。
++
++ ```csv
++ 観点,チェック項目
++ 誤字脱字,誤字脱字がないか
++ 具体性,説明が十分に具体的で読者が理解できるか
++ 整合性,記載内容に矛盾がないか
++ 構成,目次や見出しの構成が適切か
++ ```
++
++ ### 設計書とコードの整合性チェック
++
++ 設計書をGit管理し、コード修正のMRに対して設計書との整合性をチェックすることで、設計と実装の乖離を早期に検出できます。
++
++ ```csv
++ 観点,チェック項目
++ 設計整合,変更内容が設計書（docs/design/配下）の記載と整合しているか
++ IF変更,設計書に記載のないインターフェース変更がないか
++ 設計書更新,設計書の更新が必要な変更の場合設計書も合わせて更新されているか
++ ```
++ 
++## 7. FAQ
++ 
++※ITCS GitLabの場合は、本文の導入手順と同様に以下を指定してください。
++ 
++```yaml
++ include:
++   - project: bkstm0/aikata-pr
++ 	file: .ci-template/pipelines/template.yml
++ ```
++ ### Q1
++ 複数のチェックリストを運用する方法は
++ ### A1
++ 複数のチェックリストを使いたい場合は、レビュー用ジョブを複数定義します。
++ 
++テンプレートには、既定のレビュー用ジョブ `aikata-pr-review` が含まれています。
++ 1つ目のチェックリストでは、この `aikata-pr-review` の変数を上書きします。
++ 
++2つ目以降のチェックリストでは、`aikata-pr-review` を `extends` して別名のジョブを作成し、
++ ジョブごとに `CHECKLIST_PATH` と `REVIEW_SETTINGS_PATH` を指定してください。
++ 
++```yaml
++ include:
++   - project: systems/bkstm0/aikata-pr
++ 	file: .ci-template/pipelines/template.yml
++ 
++# テンプレートには、既定のレビュー用ジョブ「aikata-pr-review」が含まれています。
++ # ここでは同じ名前のジョブを定義し、1つ目のチェックリスト用に変数だけを上書きします。
++ aikata-pr-review:
++   variables:
++ 	# このジョブで使用するチェックリストCSVのパスを指定します。
++ 	CHECKLIST_PATH: 'path/to/checklist-1.csv'
++ 
++	# このジョブで使用するレビュー設定JSONのパスを指定します。
++ 	REVIEW_SETTINGS_PATH: 'path/to/review-settings-1.json'
++ 
++# 2つ目以降のチェックリストを実行したい場合は、別名のジョブを追加します。
++ # 「extends」を使うことで、aikata-pr-reviewの設定を引き継ぎつつ、
++ # CHECKLIST_PATHなど必要な変数だけを変更できます。
++ aikata-pr-review-2:
++   extends:
++ 	- aikata-pr-review
++   variables:
++ 	# 2つ目のジョブで使用するチェックリストCSVのパスを指定します。
++ 	CHECKLIST_PATH: 'path/to/checklist-2.csv'
++ 
++	# 2つ目のジョブで使用するレビュー設定JSONのパスを指定します。
++ 	REVIEW_SETTINGS_PATH: 'path/to/review-settings-2.json'
++ ```
++ 
++---
+diff --git a/src/application/review/commentPosting/CommentPostingCommand.ts b/src/application/review/commentPosting/CommentPostingCommand.ts
+index fd77f88..e434fca 100644
+--- a/src/application/review/commentPosting/CommentPostingCommand.ts
++++ b/src/application/review/commentPosting/CommentPostingCommand.ts
+@@ -3,6 +3,7 @@ import { Rating } from '../../../domain/review/rating/index.js';
+ import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
+ import type { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
+ import type { SuggestResolveEntry } from '../reviewExecution/ReviewExecutionDto.js';
++import type { ReviewCommentLayout } from '../../../domain/review/reviewSettings/index.js';
+ 
+ /**
+  * CommentPostingServiceの入力DTO
+@@ -29,4 +30,8 @@ export interface CommentPostingCommand {
+   startSha: string;
+   /** MRコメントの見出しタイトル */
+   mrCommentTitle: string;
++  /** レビュー結果コメントの出力レイアウト */
++  reviewCommentLayout: ReviewCommentLayout;
++  /** チェック項目のAI用content -> 表示用content のマップ */
++  checkItemDisplayContents: ReadonlyMap<string, string>;
+ }
+diff --git a/src/application/review/commentPosting/CommentPostingService.ts b/src/application/review/commentPosting/CommentPostingService.ts
+index 2adec53..fc7bb32 100644
+--- a/src/application/review/commentPosting/CommentPostingService.ts
++++ b/src/application/review/commentPosting/CommentPostingService.ts
+@@ -19,15 +19,17 @@ export class CommentPostingService {
     */
-@@ -118,22 +119,26 @@ export class CloneManager implements CloneManagerPort {
-       });
-       getLogger().info({ sourceBranch, targetBranch }, 'Branches fetched successfully');
+   async execute(command: CommentPostingCommand): Promise<void> {
+     // コメントのMarkdownテキストを生成
+-    const body = CommentFormatter.formatComment(
+-      command.results,
+-      command.ratings,
+-      command.commitHash,
+-      command.commitMessage,
+-      command.hiddenRatingLabels,
+-      command.qualityGateResult,
+-      command.mrCommentTitle,
+-    );
++    const body = CommentFormatter.formatComment({
++      results: command.results,
++      ratings: command.ratings,
++      commitHash: command.commitHash,
++      commitMessage: command.commitMessage,
++      hiddenRatingLabels: command.hiddenRatingLabels,
++      qualityGateResult: command.qualityGateResult,
++      mrCommentTitle: command.mrCommentTitle,
++      layout: command.reviewCommentLayout,
++      checkItemDisplayContents: command.checkItemDisplayContents,
++    });
  
--      // git checkout <sourceBranch>
--      await execFileAsync('git', ['checkout', sourceBranch], {
--        ...GIT_EXEC_OPTIONS,
--        cwd: tmpDir,
--        timeout: this.cloneTimeoutMs,
--      });
--      getLogger().info({ sourceBranch }, 'Source branch checked out');
--
--      // commitSha が指定されている場合、特定のコミットをcheckout（detached HEAD）
-+      // commitSha 指定時は SHA を直接 checkout（detached HEAD）。
-+      // pipeline-report はMRパイプラインで sourceBranch が refs/merge-requests/<iid>/head の
-+      // 形式になりうるが、それはローカル ref として存在しないためブランチcheckoutは失敗する。
-+      // git fetch でコミットオブジェクトは取得済みなので、SHA で checkout すれば
-+      // ブランチ/タグ/MR ref のいずれでも成功する。
-+      // commitSha が null（review機能）の場合は従来どおりブランチ名を checkout する。
-       if (commitSha) {
-         await execFileAsync('git', ['checkout', commitSha], {
-           ...GIT_EXEC_OPTIONS,
-           cwd: tmpDir,
-           timeout: this.cloneTimeoutMs,
-         });
--        getLogger().info({ commitSha }, 'Specific commit checked out');
-+        getLogger().info({ commitSha }, 'Specific commit checked out (detached HEAD)');
-+      } else {
-+        await execFileAsync('git', ['checkout', sourceBranch], {
-+          ...GIT_EXEC_OPTIONS,
-+          cwd: tmpDir,
-+          timeout: this.cloneTimeoutMs,
-+        });
-+        getLogger().info({ sourceBranch }, 'Source branch checked out');
-       }
+     // 全結果が非表示評定に該当する場合はノート、それ以外はディスカッションとして投稿
+     if (ReviewResult.allAreHidden(command.results, command.hiddenRatingLabels)) {
+@@ -54,7 +56,10 @@ export class CommentPostingService {
+     // 新suggestディスカッションを投稿（個別失敗時は警告ログを出力して継続）
+     for (const resolved of command.suggestions) {
+       try {
+-        const suggestBody = SuggestCommentFormatter.format(resolved);
++        const suggestBody = SuggestCommentFormatter.format(
++          resolved,
++          command.checkItemDisplayContents,
++        );
+         await this.mrDiscussionGateway.postSuggestDiscussion(
+           command.projectId,
+           command.mrIid,
+diff --git a/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts b/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
+index 9afd79d..1d3e143 100644
+--- a/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
++++ b/src/application/review/commentPosting/__tests__/CommentPostingService.test.ts
+@@ -80,6 +80,8 @@ describe('CommentPostingService', () => {
+     headSha: 'head-sha-111',
+     startSha: 'start-sha-222',
+     mrCommentTitle: 'AIKATA-PR レビュー結果',
++    reviewCommentLayout: 'table',
++    checkItemDisplayContents: new Map(),
+     ...overrides,
+   });
  
-       // ディスク使用量チェック
-diff --git a/src/infrastructure/adapter/clone/__tests__/CloneManager.test.ts b/src/infrastructure/adapter/clone/__tests__/CloneManager.test.ts
-index a7b19a6..239cae8 100644
---- a/src/infrastructure/adapter/clone/__tests__/CloneManager.test.ts
-+++ b/src/infrastructure/adapter/clone/__tests__/CloneManager.test.ts
-@@ -207,13 +207,12 @@ describe('CloneManager', () => {
-       expect(checkoutArgs).toContain(defaultSourceBranch);
-     });
+@@ -94,15 +96,17 @@ describe('CommentPostingService', () => {
+     // postDiscussionが呼ばれたことを確認（非表示なしの場合）
+     expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledOnce();
+     // 投稿されたbodyがformatCommentの戻り値であることを確認
+-    const expectedBody = CommentFormatter.formatComment(
+-      command.results,
+-      command.ratings,
+-      command.commitHash,
+-      command.commitMessage,
+-      command.hiddenRatingLabels,
+-      command.qualityGateResult,
+-      command.mrCommentTitle,
+-    );
++    const expectedBody = CommentFormatter.formatComment({
++      results: command.results,
++      ratings: command.ratings,
++      commitHash: command.commitHash,
++      commitMessage: command.commitMessage,
++      hiddenRatingLabels: command.hiddenRatingLabels,
++      qualityGateResult: command.qualityGateResult,
++      mrCommentTitle: command.mrCommentTitle,
++      layout: 'table',
++      checkItemDisplayContents: new Map(),
++    });
+     expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledWith(
+       '123',
+       '42',
+@@ -187,15 +191,17 @@ describe('CommentPostingService', () => {
  
--    it('正常系: commitSha指定時にブランチcheckout後にSHAでcheckoutする', async () => {
-+    it('正常系: commitSha指定時はブランチcheckoutをスキップしSHAでcheckoutする', async () => {
-       mockGitLabProjectResponse();
--      // git clone → git fetch → git checkout(branch) → git checkout(sha) → du -sk
-+      // git clone → git fetch → git checkout(sha) → du -sk（ブランチcheckoutは行わない）
-       setupExecFileSequence([
-         { stdout: '' }, // git clone
-         { stdout: '' }, // git fetch
--        { stdout: '' }, // git checkout <sourceBranch>
-         { stdout: '' }, // git checkout <commitSha>
-         DU_OK, // du -sk
-       ]);
-@@ -229,13 +228,56 @@ describe('CloneManager', () => {
+     await service.execute(command);
+ 
+-    expect(formatSpy).toHaveBeenCalledWith(
++    expect(formatSpy).toHaveBeenCalledWith({
+       results,
+       ratings,
+-      'def456',
+-      'fix: bug fix',
+-      ['A'],
++      commitHash: 'def456',
++      commitMessage: 'fix: bug fix',
++      hiddenRatingLabels: ['A'],
+       qualityGateResult,
+-      'AIKATA-PR レビュー結果',
+-    );
++      mrCommentTitle: 'AIKATA-PR レビュー結果',
++      layout: 'table',
++      checkItemDisplayContents: command.checkItemDisplayContents,
++    });
+ 
+     formatSpy.mockRestore();
+   });
+@@ -206,15 +212,17 @@ describe('CommentPostingService', () => {
+ 
+     await service.execute(command);
+ 
+-    expect(formatSpy).toHaveBeenCalledWith(
+-      command.results,
+-      command.ratings,
+-      command.commitHash,
+-      command.commitMessage,
+-      command.hiddenRatingLabels,
+-      command.qualityGateResult,
+-      'API基盤チェック',
+-    );
++    expect(formatSpy).toHaveBeenCalledWith({
++      results: command.results,
++      ratings: command.ratings,
++      commitHash: command.commitHash,
++      commitMessage: command.commitMessage,
++      hiddenRatingLabels: command.hiddenRatingLabels,
++      qualityGateResult: command.qualityGateResult,
++      mrCommentTitle: 'API基盤チェック',
++      layout: 'table',
++      checkItemDisplayContents: command.checkItemDisplayContents,
++    });
+ 
+     formatSpy.mockRestore();
+   });
+@@ -386,7 +394,7 @@ describe('CommentPostingService', () => {
+ 
+       expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenCalledTimes(2);
+ 
+-      const expectedBody1 = SuggestCommentFormatter.format(suggestion1);
++      const expectedBody1 = SuggestCommentFormatter.format(suggestion1, new Map());
+       expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenNthCalledWith(
+         1,
+         '123',
+@@ -402,7 +410,7 @@ describe('CommentPostingService', () => {
+         },
        );
  
-       const mockedExecFile = vi.mocked(realExecFile);
--      // 4番目の呼び出しがgit checkout <commitSha>
--      const shaCheckoutCall = mockedExecFile.mock.calls[3];
-+      // 3番目の呼び出しがgit checkout <commitSha>（detached HEAD）
-+      const shaCheckoutCall = mockedExecFile.mock.calls[2];
-       expect(shaCheckoutCall[0]).toBe('git');
-       const shaCheckoutArgs = shaCheckoutCall[1] as string[];
-       expect(shaCheckoutArgs[0]).toBe('checkout');
-       expect(shaCheckoutArgs).toContain('abcdef1234567890');
- 
-+      // 中間のブランチcheckout（git checkout <sourceBranch>）は呼ばれない
-+      const checkoutCalls = mockedExecFile.mock.calls.filter(
-+        (call) => call[0] === 'git' && (call[1] as string[])[0] === 'checkout',
-+      );
-+      expect(checkoutCalls).toHaveLength(1);
-+      expect(checkoutCalls[0][1] as string[]).not.toContain(defaultSourceBranch);
+-      const expectedBody2 = SuggestCommentFormatter.format(suggestion2);
++      const expectedBody2 = SuggestCommentFormatter.format(suggestion2, new Map());
+       expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenNthCalledWith(
+         2,
+         '123',
+@@ -492,4 +500,42 @@ describe('CommentPostingService', () => {
+       expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenCalledOnce();
+     });
+   });
 +
-+      expect(result.projectDir).toMatch(clonePathPattern);
-+      await result.cleanup();
++  describe('レイアウト・表示用contentの伝播', () => {
++    it('reviewCommentLayoutがCommentFormatterに透過的に渡されること', async () => {
++      const command = createCommand({ reviewCommentLayout: 'sections' });
++      const formatSpy = vi.spyOn(CommentFormatter, 'formatComment');
++
++      await service.execute(command);
++
++      expect(formatSpy).toHaveBeenCalledWith(expect.objectContaining({ layout: 'sections' }));
++
++      formatSpy.mockRestore();
 +    });
 +
-+    it('正常系: sourceBranchがMR ref(refs/merge-requests/<iid>/head)でもcommitSha指定でcheckoutできる', async () => {
-+      // pipeline-report のMRパイプライン再現: ref が refs/merge-requests/307/head 形式。
-+      // このrefはローカルブランチとして存在しないため、ブランチcheckoutしてはならない。
-+      mockGitLabProjectResponse();
-+      setupExecFileSequence([
-+        { stdout: '' }, // git clone
-+        { stdout: '' }, // git fetch
-+        { stdout: '' }, // git checkout <commitSha>
-+        DU_OK, // du -sk
++    it('checkItemDisplayContentsがCommentFormatterに透過的に渡されること', async () => {
++      const displayContents = new Map([['コードの可読性', '可読性']]);
++      const command = createCommand({ checkItemDisplayContents: displayContents });
++      const formatSpy = vi.spyOn(CommentFormatter, 'formatComment');
++
++      await service.execute(command);
++
++      expect(formatSpy).toHaveBeenCalledWith(
++        expect.objectContaining({ checkItemDisplayContents: displayContents }),
++      );
++
++      formatSpy.mockRestore();
++    });
++
++    it('sectionsレイアウトを指定した場合は詳細セクション付きのコメントが投稿されること', async () => {
++      const command = createCommand({ reviewCommentLayout: 'sections' });
++
++      await service.execute(command);
++
++      const body = vi.mocked(mrDiscussionGateway.postReviewDiscussion).mock.calls[0]![2];
++      expect(body).toContain('| チェック項目 | 評定 |');
++      expect(body).toContain('### コードの可読性');
++      expect(body).toContain('**評定**: A');
++    });
++  });
+ });
+diff --git a/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts b/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
+index adca223..fa32e72 100644
+--- a/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
++++ b/src/application/review/reviewExecution/__tests__/ReviewExecutionService.test.ts
+@@ -17,6 +17,7 @@ import { CheckItem } from '../../../../domain/review/checkItem/index.js';
+ import { Checklist } from '../../../../domain/review/checklist/index.js';
+ import { Rating } from '../../../../domain/review/rating/index.js';
+ import { ReviewSettings } from '../../../../domain/review/reviewSettings/index.js';
++import type { ReviewCommentLayout } from '../../../../domain/review/reviewSettings/index.js';
+ import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+ import { QualityGate } from '../../../../domain/review/qualityGate/index.js';
+ import { CommentFormatter } from '../../../shared/comment/index.js';
+@@ -62,6 +63,7 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
+       suggestEnabledRatingLabels: ['C'],
+       qualityGate: QualityGate.none(),
+       mrCommentTitle: 'AIKATA-PR レビュー結果',
++      reviewCommentLayout: 'table',
+     }),
+     skillsPaths: [],
+     projectDir: '/test/project',
+@@ -113,6 +115,7 @@ function createAikataComment(
+   ratings: Rating[],
+   createdAt: string,
+   hiddenRatingLabels: string[] = [],
++  layout: ReviewCommentLayout = 'table',
+ ): MrComment {
+   const results = items.map((item) => {
+     if (item.isError) {
+@@ -122,15 +125,17 @@ function createAikataComment(
+     if (!rating) throw new Error(`Rating not found: ${item.ratingLabel}`);
+     return ReviewResult.success(new CheckItem(item.content), rating, item.comment);
+   });
+-  const body = CommentFormatter.formatComment(
+-    results,
+-    ratings,
+-    commitHash,
+-    'test commit',
+-    hiddenRatingLabels,
+-    { passed: true, violations: [] },
+-    'AIKATA-PR レビュー結果',
+-  );
++  const body = CommentFormatter.formatComment({
++    results: results,
++    ratings: ratings,
++    commitHash: commitHash,
++    commitMessage: 'test commit',
++    hiddenRatingLabels: hiddenRatingLabels,
++    qualityGateResult: { passed: true, violations: [] },
++    mrCommentTitle: 'AIKATA-PR レビュー結果',
++    layout: layout,
++    checkItemDisplayContents: new Map(),
++  });
+   return { id: 1, body, createdAt };
+ }
+ 
+@@ -873,6 +878,44 @@ describe('ReviewExecutionService', () => {
+       expect(result.commitMessage).toBe('feat: test commit message');
+     });
+ 
++    it('sectionsレイアウトの前回コメントでも生Markdownのコメント本文が保持される', async () => {
++      const command = createCommand();
++      const mrContext = createMrContext({ commitHash: 'same-hash' });
++      // 見出しやネスト表を含む生Markdownのコメント本文
++      const richComment = '### 指摘\n\n| ファイル | 内容 |\n| --- | --- |\n| a.ts | 命名 |';
++
++      const priorComment = createAikataComment(
++        [
++          {
++            content: 'コードの可読性',
++            ratingLabel: 'A',
++            ratingDefinition: '完全に満たしている',
++            comment: richComment,
++          },
++          {
++            content: 'テストカバレッジ',
++            ratingLabel: 'B',
++            ratingDefinition: '概ね満たしている',
++            comment: 'もう少し',
++          },
++        ],
++        'same-hash',
++        ratings,
++        '2026-01-01T00:00:00Z',
++        [],
++        'sections',
++      );
++
++      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
++      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
++
++      const result = await service.execute(command);
++
++      expect(workflowRunner.run).not.toHaveBeenCalled();
++      expect(result.results[0].comment).toBe(richComment);
++      expect(result.results[1].comment).toBe('もう少し');
++    });
++
+     it('一部エラー・一部成功の場合、エラー項目のみworkflowで再レビューされマージされる', async () => {
+       const command = createCommand();
+       const mrContext = createMrContext({ commitHash: 'same-hash' });
+@@ -1672,6 +1715,7 @@ describe('ReviewExecutionService', () => {
+           suggestEnabledRatingLabels: ['B', 'C'],
+           qualityGate: QualityGate.none(),
+           mrCommentTitle: 'AIKATA-PR レビュー結果',
++          reviewCommentLayout: 'table',
+         }),
+       });
+       const mrContext = createMrContext({ diff: 'full diff content' });
+@@ -1704,6 +1748,7 @@ describe('ReviewExecutionService', () => {
+           suggestEnabledRatingLabels: [],
+           qualityGate: QualityGate.none(),
+           mrCommentTitle: 'AIKATA-PR レビュー結果',
++          reviewCommentLayout: 'table',
+         }),
+       });
+       const mrContext = createMrContext();
+@@ -1972,4 +2017,121 @@ describe('ReviewExecutionService', () => {
+       expect(runCall.suggestResultFilePath).toContain('aikata-suggest-');
+     });
+   });
++
++  describe('複数列チェックリストでの前回レビュー結果の再利用', () => {
++    const multiColumnContents = [
++      'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則が統一されているか\n---',
++      'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n責務が分離されているか\n---',
++    ];
++
++    it('表示用に変換される構造化チェック項目でも前回結果がPriorReviewContextに反映される', async () => {
++      const ratings = [
++        new Rating('A', '完全に満たしている'),
++        new Rating('B', '概ね満たしている'),
++        new Rating('C', '満たしていない'),
++      ];
++      const command = createCommand({
++        checklist: new Checklist(multiColumnContents.map((c) => new CheckItem(c))),
++      });
++      const mrContext = createMrContext();
++
++      const priorComment = createAikataComment(
++        [
++          {
++            content: multiColumnContents[0]!,
++            ratingLabel: 'B',
++            ratingDefinition: '概ね満たしている',
++            comment: '改善してください',
++          },
++          {
++            content: multiColumnContents[1]!,
++            ratingLabel: 'C',
++            ratingDefinition: '満たしていない',
++            comment: '分離が不十分です',
++          },
++        ],
++        'prior-commit-hash',
++        ratings,
++        '2026-01-01T00:00:00Z',
++      );
++
++      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
++      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
++      vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: improve code']);
++      vi.mocked(mrGateway.getDiffSince).mockResolvedValue('diff since prior');
++      vi.mocked(workflowRunner.run).mockResolvedValue(
++        createWorkflowResult({
++          results: multiColumnContents.map((content) => ({
++            checkItemContent: content,
++            ratingLabel: 'A',
++            ratingDefinition: '完全に満たしている',
++            comment: '問題ありません',
++            isError: false,
++          })),
++        }),
++      );
++
++      await service.execute(command);
++
++      const runCall = vi.mocked(workflowRunner.run).mock.calls[0]![0];
++      expect(runCall.priorReviewResults).toEqual([
++        {
++          checkItemContent: multiColumnContents[0]!,
++          ratingLabel: 'B',
++          ratingDefinition: '概ね満たしている',
++          comment: '改善してください',
++        },
++        {
++          checkItemContent: multiColumnContents[1]!,
++          ratingLabel: 'C',
++          ratingDefinition: '満たしていない',
++          comment: '分離が不十分です',
++        },
++      ]);
++    });
++
++    it('リトライ時（新規コミットなし）に前回成功結果がそのまま再利用される', async () => {
++      const ratings = [
++        new Rating('A', '完全に満たしている'),
++        new Rating('B', '概ね満たしている'),
++        new Rating('C', '満たしていない'),
++      ];
++      const command = createCommand({
++        checklist: new Checklist(multiColumnContents.map((c) => new CheckItem(c))),
++      });
++      const mrContext = createMrContext({ commitHash: 'same-commit-hash' });
++
++      const priorComment = createAikataComment(
++        [
++          {
++            content: multiColumnContents[0]!,
++            ratingLabel: 'A',
++            ratingDefinition: '完全に満たしている',
++            comment: '問題ありません',
++          },
++          {
++            content: multiColumnContents[1]!,
++            ratingLabel: 'B',
++            ratingDefinition: '概ね満たしている',
++            comment: '軽微な指摘',
++          },
++        ],
++        'same-commit-hash',
++        ratings,
++        '2026-01-01T00:00:00Z',
++      );
++
++      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
++      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
++      vi.mocked(mrGateway.getCommitsSince).mockResolvedValue([]);
++      vi.mocked(mrGateway.getDiffSince).mockResolvedValue('');
++
++      const result = await service.execute(command);
++
++      // 再レビュー対象が無いためワークフローは実行されない
++      expect(workflowRunner.run).not.toHaveBeenCalled();
++      expect(result.results.map((r) => r.checkItem.content)).toEqual(multiColumnContents);
++      expect(result.results.map((r) => r.rating.label)).toEqual(['A', 'B']);
++    });
++  });
+ });
+diff --git a/src/application/shared/comment/CommentFormatter.ts b/src/application/shared/comment/CommentFormatter.ts
+index 285f36f..f54a4f5 100644
+--- a/src/application/shared/comment/CommentFormatter.ts
++++ b/src/application/shared/comment/CommentFormatter.ts
+@@ -1,7 +1,11 @@
+ import { ReviewResult, ERROR_RATING_LABEL } from '../../../domain/review/reviewResult/index.js';
+ import { Rating } from '../../../domain/review/rating/index.js';
+ import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
+-import { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';
++import type { ReviewCommentLayout } from '../../../domain/review/reviewSettings/index.js';
++import {
++  formatCheckItemForDisplay,
++  formatCheckItemForHeading,
++} from './formatCheckItemForDisplay.js';
+ 
+ /** aikataレビューコメント識別用マーカー */
+ export const REVIEW_MARKER = '<!-- aikata-review -->';
+@@ -12,9 +16,39 @@ export const REVIEW_DATA_PREFIX = '<!-- aikata-review-data: ';
+ /** メタデータマーカーのサフィックス */
+ export const REVIEW_DATA_SUFFIX = ' -->';
+ 
++/**
++ * sectionsレイアウトにおけるコメント本文の開始マーカー
++ * コメント本文はメタデータに格納しないため、表示部分から本文を無損失に切り出すために用いる
++ */
++export const REVIEW_COMMENT_OPEN = '<!--aikata-c-->';
++
++/** sectionsレイアウトにおけるコメント本文の終了マーカー */
++export const REVIEW_COMMENT_CLOSE = '<!--/aikata-c-->';
++
+ /** 折りたたみ表示にする閾値（この値を超えたら折りたたみ） */
+ export const FOLD_THRESHOLD = 2;
+ 
++/**
++ * CommentFormatter.formatCommentの入力
++ */
++export interface FormatCommentInput {
++  results: ReviewResult[];
++  ratings: Rating[];
++  commitHash: string;
++  commitMessage: string;
++  hiddenRatingLabels: string[];
++  qualityGateResult: QualityGateResult;
++  /** MRコメントの見出しタイトル */
++  mrCommentTitle: string;
++  /** レビュー結果コメントの出力レイアウト */
++  layout: ReviewCommentLayout;
++  /**
++   * AI用content -> 表示用content のマップ
++   * 未登録のcontentはAI用contentをそのまま表示に用いる
++   */
++  checkItemDisplayContents: ReadonlyMap<string, string>;
++}
++
+ /**
+  * MRコメント投稿用のMarkdown整形ロジック
+  * マーカー埋め込み、表生成、折りたたみを担当する
+@@ -23,15 +57,9 @@ export class CommentFormatter {
+   /**
+    * レビュー結果からMRコメント用のMarkdownテキストを生成する
+    */
+-  static formatComment(
+-    results: ReviewResult[],
+-    ratings: Rating[],
+-    commitHash: string,
+-    commitMessage: string,
+-    hiddenRatingLabels: string[],
+-    qualityGateResult: QualityGateResult,
+-    mrCommentTitle: string,
+-  ): string {
++  static formatComment(input: FormatCommentInput): string {
++    const { results, hiddenRatingLabels } = input;
++
+     // 表示/非表示に分割（エラー結果は常に表示）
+     const visibleResults = results.filter(
+       (r) => r.isError || !hiddenRatingLabels.includes(r.rating.label),
+@@ -45,30 +73,30 @@ export class CommentFormatter {
+     // 識別用マーカー
+     lines.push(REVIEW_MARKER);
+ 
+-    // メタデータマーカー（評定基準、コミットハッシュ、非表示結果を埋め込む）
++    // メタデータマーカー（評定基準、コミットハッシュ、レビュー結果を埋め込む）
++    // 表示部分は表示専用であり、再レビュー時のチェック項目・評定の復元はこのメタデータから行う
++    // 可視結果のコメント本文は表示部分に存在するため、文字数の二重化を避けてメタデータには含めない
++    // （非表示結果は表示部分を持たないため、コメント本文もメタデータに格納する）
+     const metadata: Record<string, unknown> = {
+-      ratings: ratings.map((r) => ({ label: r.label, definition: r.definition })),
+-      commitHash,
++      ratings: input.ratings.map((r) => ({ label: r.label, definition: r.definition })),
++      commitHash: input.commitHash,
++      visibleResults: visibleResults.map((r) => CommentFormatter.toMetadataResult(r, false)),
+     };
+     if (hiddenResults.length > 0) {
+-      metadata.hiddenResults = hiddenResults.map((r) => ({
+-        checkItemContent: r.checkItem.content,
+-        ratingLabel: r.rating.label,
+-        comment: r.comment,
+-      }));
++      metadata.hiddenResults = hiddenResults.map((r) => CommentFormatter.toMetadataResult(r, true));
+     }
+     lines.push(`${REVIEW_DATA_PREFIX}${JSON.stringify(metadata)}${REVIEW_DATA_SUFFIX}`);
+ 
+     // ヘッダー
+     lines.push('');
+-    lines.push(`## ${mrCommentTitle}`);
+-    lines.push(`レビュー時最新コミット: ${commitMessage}`);
++    lines.push(`## ${input.mrCommentTitle}`);
++    lines.push(`レビュー時最新コミット: ${input.commitMessage}`);
+ 
+     // 品質ゲート警告（テーブルの上に表示）
+-    if (!qualityGateResult.passed) {
++    if (!input.qualityGateResult.passed) {
+       lines.push('');
+       lines.push('> **⚠ Quality Gate Failed**');
+-      for (const v of qualityGateResult.violations) {
++      for (const v of input.qualityGateResult.violations) {
+         lines.push(`> - Rating "${v.ratingLabel}" : ${v.actualCount} (threshold: ${v.threshold})`);
+       }
+     }
+@@ -77,43 +105,143 @@ export class CommentFormatter {
+       // 全ての結果が非表示評定に該当する場合
+       lines.push('');
+       lines.push('全てのチェック項目が非表示の評定に該当しました。');
++    } else if (input.layout === 'sections') {
++      lines.push(...CommentFormatter.buildSectionsLayout(visibleResults, input));
+     } else {
+-      // Markdownテーブルを生成
+-      const table = CommentFormatter.buildTable(visibleResults);
+-
+-      // 折りたたみ判定
+-      if (visibleResults.length > FOLD_THRESHOLD) {
+-        lines.push('');
+-        lines.push('<details>');
+-        lines.push(`<summary>レビュー結果（${visibleResults.length}件）</summary>`);
+-        lines.push('');
+-        lines.push(table);
+-        lines.push('');
+-        lines.push('</details>');
+-      } else {
+-        lines.push('');
+-        lines.push(table);
+-      }
++      lines.push(...CommentFormatter.buildTableLayout(visibleResults, input));
+     }
+ 
+     return lines.join('\n');
+   }
+ 
++  /**
++   * tableレイアウト（チェック項目・評定・コメントの3列テーブル）を生成する
++   */
++  private static buildTableLayout(
++    visibleResults: ReviewResult[],
++    input: FormatCommentInput,
++  ): string[] {
++    const table = CommentFormatter.buildTable(visibleResults, input, true);
++    return CommentFormatter.withFold(table.split('\n'), visibleResults.length, 'レビュー結果');
++  }
++
++  /**
++   * sectionsレイアウト（2列サマリテーブル + テーブル外の詳細）を生成する
++   * サマリテーブルは常に表示し、詳細部分のみ折りたたみ対象とする
++   */
++  private static buildSectionsLayout(
++    visibleResults: ReviewResult[],
++    input: FormatCommentInput,
++  ): string[] {
++    const summary = CommentFormatter.buildTable(visibleResults, input, false);
++
++    const details: string[] = [];
++    for (const result of visibleResults) {
++      const displayContent = CommentFormatter.resolveDisplayContent(result, input);
++      details.push(`### ${formatCheckItemForHeading(displayContent)}`);
++      details.push(`**評定**: ${CommentFormatter.resolveRatingLabel(result)}`);
++      details.push('');
++      // コメント本文はエスケープせず生Markdownとして出力する
++      // （ネストしたテーブル・見出し・箇条書きを利用可能にするため）
++      // 本文中に見出しが含まれうるため、復元用に不可視マーカーで範囲を明示する
++      details.push(REVIEW_COMMENT_OPEN);
++      details.push(result.comment);
++      details.push(REVIEW_COMMENT_CLOSE);
++      details.push('');
++    }
++    // 末尾の余分な空行を除去
++    if (details[details.length - 1] === '') {
++      details.pop();
++    }
++
++    return [
++      '',
++      summary,
++      ...CommentFormatter.withFold(details, visibleResults.length, 'レビュー詳細'),
++    ];
++  }
++
++  /**
++   * 件数が閾値を超える場合に折りたたみ（details/summary）で包む
++   */
++  private static withFold(body: string[], count: number, summaryLabel: string): string[] {
++    if (count > FOLD_THRESHOLD) {
++      return [
++        '',
++        '<details>',
++        `<summary>${summaryLabel}（${count}件）</summary>`,
++        '',
++        ...body,
++        '',
++        '</details>',
++      ];
++    }
++    return ['', ...body];
++  }
++
+   /**
+    * レビュー結果からMarkdownテーブルを生成する
++   * includeCommentがtrueの場合はコメント列を含む3列、falseの場合は2列のサマリになる
+    */
+-  private static buildTable(results: ReviewResult[]): string {
+-    const header = '| チェック項目 | 評定 | コメント |';
+-    const separator = '| --- | --- | --- |';
++  private static buildTable(
++    results: ReviewResult[],
++    input: FormatCommentInput,
++    includeComment: boolean,
++  ): string {
++    const header = includeComment
++      ? '| チェック項目 | 評定 | コメント |'
++      : '| チェック項目 | 評定 |';
++    const separator = includeComment ? '| --- | --- | --- |' : '| --- | --- |';
+     const rows = results.map((result) => {
+-      const ratingLabel = result.isError ? ERROR_RATING_LABEL : result.rating.label;
+-      const displayContent = formatCheckItemForDisplay(result.checkItem.content);
+-      return `| ${CommentFormatter.escapeCell(displayContent)} | ${ratingLabel} | ${CommentFormatter.escapeCell(result.comment)} |`;
++      const ratingLabel = CommentFormatter.resolveRatingLabel(result);
++      const displayContent = formatCheckItemForDisplay(
++        CommentFormatter.resolveDisplayContent(result, input),
++      );
++      const cells = [CommentFormatter.escapeCell(displayContent), ratingLabel];
++      if (includeComment) {
++        cells.push(CommentFormatter.escapeCell(result.comment));
++      }
++      return `| ${cells.join(' | ')} |`;
+     });
+ 
+     return [header, separator, ...rows].join('\n');
+   }
+ 
++  /**
++   * レビュー結果の表示用チェック項目テキストを解決する
++   * 表示用contentが未登録の場合はAI用contentをそのまま用いる
++   */
++  private static resolveDisplayContent(result: ReviewResult, input: FormatCommentInput): string {
++    return input.checkItemDisplayContents.get(result.checkItem.content) ?? result.checkItem.content;
++  }
++
++  /**
++   * レビュー結果の表示用評定ラベルを解決する
++   */
++  private static resolveRatingLabel(result: ReviewResult): string {
++    return result.isError ? ERROR_RATING_LABEL : result.rating.label;
++  }
++
++  /**
++   * レビュー結果をメタデータJSON用の構造に変換する
++   * checkItemContentは突合キーであるため、表示用ではなくAI用の生contentを格納する
++   * includeCommentがtrueの場合のみコメント本文を含める（表示部分から復元できない非表示結果向け）
++   */
++  private static toMetadataResult(
++    result: ReviewResult,
++    includeComment: boolean,
++  ): {
++    checkItemContent: string;
++    ratingLabel: string;
++    comment?: string;
++  } {
++    const metadataResult = {
++      checkItemContent: result.checkItem.content,
++      ratingLabel: CommentFormatter.resolveRatingLabel(result),
++    };
++    return includeComment ? { ...metadataResult, comment: result.comment } : metadataResult;
++  }
++
+   /**
+    * テーブルセル内のパイプ文字と改行をGFM準拠でエスケープする
+    */
+diff --git a/src/application/shared/comment/CommentParser.ts b/src/application/shared/comment/CommentParser.ts
+index dbbbe10..ec7bf00 100644
+--- a/src/application/shared/comment/CommentParser.ts
++++ b/src/application/shared/comment/CommentParser.ts
+@@ -5,13 +5,43 @@ import {
+   OUT_OF_SCOPE_RATING,
+   OUT_OF_SCOPE_RATING_LABEL,
+ } from '../../../domain/review/rating/index.js';
+-import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './CommentFormatter.js';
++import {
++  REVIEW_MARKER,
++  REVIEW_DATA_PREFIX,
++  REVIEW_DATA_SUFFIX,
++  REVIEW_COMMENT_OPEN,
++  REVIEW_COMMENT_CLOSE,
++} from './CommentFormatter.js';
++
++/** メタデータに格納されるレビュー結果 */
++interface MetadataResult {
++  checkItemContent: string;
++  ratingLabel: string;
++  /**
++   * コメント本文
++   * 可視結果は表示部分から復元するため格納されない（表示部分を持たない非表示結果のみ格納される）
++   * 旧フォーマットのコメントでは可視結果にも格納されているため、その場合はそちらを優先する
++   */
++  comment?: string;
++}
++
++/** テーブル行から抽出したセル */
++interface TableRowCells {
++  content: string;
++  ratingLabel: string;
++  comment: string;
++}
+ 
+ /** メタデータのJSON構造 */
+ interface ReviewMetadata {
+   ratings: { label: string; definition: string }[];
+   commitHash: string;
+-  hiddenResults?: { checkItemContent: string; ratingLabel: string; comment: string }[];
++  /**
++   * 可視レビュー結果
++   * 旧フォーマットのコメントには存在しないため、その場合は表をパースして復元する
++   */
++  visibleResults?: MetadataResult[];
++  hiddenResults?: MetadataResult[];
+ }
+ 
+ /**
+@@ -41,13 +71,24 @@ export class CommentParser {
+     const lines = body.split('\n');
+     const metadata = CommentParser.extractMetadata(lines);
+     const ratings = metadata.ratings.map((r) => new Rating(r.label, r.definition));
+-    const results = CommentParser.parseTableRows(lines, ratings);
+ 
+-    // メタデータから非表示結果を復元
+-    const hiddenResults = (metadata.hiddenResults ?? []).map((hr) => {
+-      const rating = CommentParser.findRating(hr.ratingLabel, ratings);
+-      return ReviewResult.success(new CheckItem(hr.checkItemContent), rating, hr.comment);
+-    });
++    // 可視結果はメタデータのチェック項目・評定と、表示部分のコメント本文を突き合わせて復元する
++    // メタデータに可視結果が含まれない場合は旧フォーマットのコメントなので表をパースする
++    let results: ReviewResult[];
++    if (metadata.visibleResults !== undefined) {
++      const visibleComments = CommentParser.extractVisibleComments(body, lines);
++      results = metadata.visibleResults.map((vr, index) =>
++        // 旧フォーマットではメタデータにコメント本文が含まれるため、その場合はそちらを優先する
++        CommentParser.toReviewResult(vr, vr.comment ?? visibleComments[index] ?? '', ratings),
++      );
++    } else {
++      results = CommentParser.parseTableRows(lines, ratings);
++    }
++
++    // メタデータから非表示結果を復元（表示部分を持たないためコメント本文もメタデータに含まれる）
++    const hiddenResults = (metadata.hiddenResults ?? []).map((hr) =>
++      CommentParser.toReviewResult(hr, hr.comment ?? '', ratings),
++    );
+ 
+     return {
+       results,
+@@ -74,11 +115,81 @@ export class CommentParser {
+     throw new Error('Review metadata not found in comment body');
+   }
+ 
++  /**
++   * メタデータのレビュー結果とコメント本文をReviewResultに復元する
++   */
++  private static toReviewResult(
++    result: MetadataResult,
++    comment: string,
++    ratings: Rating[],
++  ): ReviewResult {
++    const checkItem = new CheckItem(result.checkItemContent);
++    if (result.ratingLabel === ERROR_RATING_LABEL) {
++      return ReviewResult.error(checkItem, comment);
++    }
++    const rating = CommentParser.findRating(result.ratingLabel, ratings);
++    return ReviewResult.success(checkItem, rating, comment);
++  }
++
++  /**
++   * 表示部分から可視結果のコメント本文を表示順に抽出する
++   *
++   * sectionsレイアウトは本文が生Markdown（見出しを含みうる）のため、不可視マーカーで囲まれた範囲を抽出する。
++   * マーカーが無い場合はtableレイアウトとみなし、3列テーブルのコメント列から抽出する。
++   * 抽出結果の並び順はメタデータのvisibleResultsと一致するため、インデックスで突合できる。
++   */
++  private static extractVisibleComments(body: string, lines: string[]): string[] {
++    const sectionComments = CommentParser.extractMarkedComments(body);
++    if (sectionComments.length > 0) {
++      return sectionComments;
++    }
++    return CommentParser.parseTableRowCells(lines).map((cells) => cells.comment);
++  }
++
++  /**
++   * 不可視マーカーで囲まれたコメント本文を出現順に抽出する（sectionsレイアウト）
++   */
++  private static extractMarkedComments(body: string): string[] {
++    const comments: string[] = [];
++    let searchFrom = 0;
++
++    for (;;) {
++      const openIndex = body.indexOf(REVIEW_COMMENT_OPEN, searchFrom);
++      if (openIndex === -1) {
++        break;
++      }
++      const bodyStart = openIndex + REVIEW_COMMENT_OPEN.length + 1; // マーカー行の改行を除く
++      const closeIndex = body.indexOf(REVIEW_COMMENT_CLOSE, bodyStart);
++      if (closeIndex === -1) {
++        break;
++      }
++      comments.push(body.slice(bodyStart, closeIndex - 1)); // 終了マーカー行の直前の改行を除く
++      searchFrom = closeIndex + REVIEW_COMMENT_CLOSE.length;
++    }
++
++    return comments;
++  }
++
+   /**
+    * Markdownテーブルの各行をパースしてReviewResult配列を生成する
++   * 旧フォーマット（メタデータに可視結果を含まない）のコメント向けの後方互換パス
+    */
+   private static parseTableRows(lines: string[], ratings: Rating[]): ReviewResult[] {
+-    const results: ReviewResult[] = [];
++    return CommentParser.parseTableRowCells(lines).map((cells) => {
++      const checkItem = new CheckItem(cells.content);
++      if (cells.ratingLabel === ERROR_RATING_LABEL) {
++        return ReviewResult.error(checkItem, cells.comment);
++      }
++      const rating = CommentParser.findRating(cells.ratingLabel, ratings);
++      return ReviewResult.success(checkItem, rating, cells.comment);
++    });
++  }
++
++  /**
++   * 3列テーブル（チェック項目・評定・コメント）のデータ行をパースしてセル値を返す
++   */
++  private static parseTableRowCells(lines: string[]): TableRowCells[] {
++    const rows: TableRowCells[] = [];
+ 
+     const separatorPattern = /^\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|$/;
+ 
+@@ -112,23 +223,14 @@ export class CommentParser {
+       }
+ 
+       // データ行のパース（エスケープを復元）
+-      const content = CommentParser.unescapeCell(cells[0]);
+-      const ratingLabel = CommentParser.unescapeCell(cells[1]);
+-      const comment = CommentParser.unescapeCell(cells[2]);
+-
+-      const checkItem = new CheckItem(content);
+-
+-      if (ratingLabel === ERROR_RATING_LABEL) {
+-        // エラー行
+-        results.push(ReviewResult.error(checkItem, comment));
+-      } else {
+-        // 正常行: メタデータからRating定義を参照
+-        const rating = CommentParser.findRating(ratingLabel, ratings);
+-        results.push(ReviewResult.success(checkItem, rating, comment));
+-      }
++      rows.push({
++        content: CommentParser.unescapeCell(cells[0]),
++        ratingLabel: CommentParser.unescapeCell(cells[1]),
++        comment: CommentParser.unescapeCell(cells[2]),
++      });
+     }
+ 
+-    return results;
++    return rows;
+   }
+ 
+   /**
+diff --git a/src/application/shared/comment/SuggestCommentFormatter.ts b/src/application/shared/comment/SuggestCommentFormatter.ts
+index bd5016c..b98786f 100644
+--- a/src/application/shared/comment/SuggestCommentFormatter.ts
++++ b/src/application/shared/comment/SuggestCommentFormatter.ts
+@@ -16,14 +16,24 @@ export const SUGGEST_DATA_SUFFIX = ' -->';
+ export class SuggestCommentFormatter {
+   /**
+    * ResolvedSuggestionをGitLab diff discussion用のMarkdown文字列にフォーマットする
++   *
++   * checkItemDisplayContentsはAI用content -> 表示用contentのマップ。
++   * 未登録のcontentはAI用contentをそのまま表示に用いる。
+    */
+-  static format(resolved: ResolvedSuggestion): string {
++  static format(
++    resolved: ResolvedSuggestion,
++    checkItemDisplayContents: ReadonlyMap<string, string>,
++  ): string {
+     const marker = SUGGEST_MARKER;
+     const metadata = `${SUGGEST_DATA_PREFIX}${JSON.stringify({
+       checkItemContent: resolved.suggestion.checkItemContent,
+     })}${SUGGEST_DATA_SUFFIX}`;
+ 
+-    const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);
++    // メタデータのcheckItemContentは突合キーのためAI用contentのまま、表示のみ表示用contentを使う
++    const displayContent = formatCheckItemForDisplay(
++      checkItemDisplayContents.get(resolved.suggestion.checkItemContent) ??
++        resolved.suggestion.checkItemContent,
++    );
+     const escapedDisplayContent = displayContent.replace(/\n/g, '<br>');
+     const header = `**チェック項目:**<br>${escapedDisplayContent}`;
+     const comment = resolved.suggestion.comment;
+diff --git a/src/application/shared/comment/__tests__/CommentFormatter.test.ts b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+index 0f74fdf..b0eee21 100644
+--- a/src/application/shared/comment/__tests__/CommentFormatter.test.ts
++++ b/src/application/shared/comment/__tests__/CommentFormatter.test.ts
+@@ -4,6 +4,8 @@ import {
+   REVIEW_MARKER,
+   REVIEW_DATA_PREFIX,
+   REVIEW_DATA_SUFFIX,
++  REVIEW_COMMENT_OPEN,
++  REVIEW_COMMENT_CLOSE,
+   FOLD_THRESHOLD,
+ } from '../CommentFormatter.js';
+ import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+@@ -49,15 +51,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       // テーブルヘッダの確認
+       expect(output).toContain('| チェック項目 | 評定 | コメント |');
+@@ -76,15 +80,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('## AIKATA-PR レビュー結果');
+     });
+@@ -98,15 +104,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'API基盤チェック',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'API基盤チェック',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('## API基盤チェック');
+       expect(output).not.toContain('## AIKATA-PR レビュー結果');
+@@ -121,15 +129,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'feat: implement login',
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'feat: implement login',
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('レビュー時最新コミット: feat: implement login');
+     });
+@@ -143,15 +153,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain(REVIEW_MARKER);
+     });
+@@ -165,15 +177,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       // メタデータマーカーの存在確認
+       expect(output).toContain(REVIEW_DATA_PREFIX);
+@@ -200,15 +214,17 @@ describe('CommentFormatter', () => {
+         ReviewResult.error(new CheckItem('エラーのチェック項目'), 'Timeout occurred'),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('| エラーのチェック項目 | エラー | Timeout occurred |');
+     });
+@@ -216,15 +232,17 @@ describe('CommentFormatter', () => {
+     it('15項目超の場合は折りたたみ形式になる', () => {
+       const results = createResults(FOLD_THRESHOLD + 1);
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('<details>');
+       expect(output).toContain('<summary>');
+@@ -235,15 +253,17 @@ describe('CommentFormatter', () => {
+     it('15項目以下の場合は折りたたみにならない', () => {
+       const results = createResults(FOLD_THRESHOLD);
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).not.toContain('<details>');
+       expect(output).not.toContain('<summary>');
+@@ -259,15 +279,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('| 条件A \\| 条件B の確認 | A | 問題ありません |');
+     });
+@@ -281,15 +303,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('| 可読性 | A | if (a \\| b) のパターンに注意 |');
+     });
+@@ -299,15 +323,17 @@ describe('CommentFormatter', () => {
+         ReviewResult.success(new CheckItem('A|B'), new Rating('A', '完全に満たしている'), 'X|Y|Z'),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
+     });
+@@ -321,15 +347,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('| 可読性 | A | 1行目<br>2行目<br>3行目 |');
+       // 改行がそのまま残っていないことを確認（テーブル行内）
+@@ -346,15 +374,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
+     });
+@@ -370,15 +400,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain(
+         '| <カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>--- | C | 対策が不十分です |',
+@@ -401,15 +433,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('| チェック項目1 | A | コメント1 |');
+       expect(output).toContain('| チェック項目2 | B | コメント2 |');
+@@ -429,15 +463,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        ['A'],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
+       expect(output).toContain('| チェック項目2 | B | コメント2 |');
+@@ -457,15 +493,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        ['A'],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       // メタデータのJSON部分を抽出してパース
+       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
+@@ -488,15 +526,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        ['A'],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('| エラー項目 | エラー | タイムアウト |');
+       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
+@@ -511,15 +551,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        ['A'],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
+       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
+@@ -534,15 +576,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
+       const dataEnd = output.indexOf(REVIEW_DATA_SUFFIX, dataStart);
+@@ -562,15 +606,17 @@ describe('CommentFormatter', () => {
+       });
+ 
+       // Aを非表示にすると、visible件数が減って折りたたみ閾値以下になる
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        ['A'],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       // A評定の結果が非表示になるため、visible件数はFOLD_THRESHOLD以下
+       expect(output).not.toContain('<details>');
+@@ -587,15 +633,17 @@ describe('CommentFormatter', () => {
+         ),
+       ];
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        PASSED_GATE,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).not.toContain('Quality Gate Failed');
+     });
+@@ -614,15 +662,17 @@ describe('CommentFormatter', () => {
+         violations: [{ ratingLabel: 'C', threshold: 1, actualCount: 1 }],
+       };
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        gateResult,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: gateResult,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('> **⚠ Quality Gate Failed**');
+       expect(output).toContain('> - Rating "C" : 1 (threshold: 1)');
+@@ -639,15 +689,17 @@ describe('CommentFormatter', () => {
+         ],
+       };
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        gateResult,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: gateResult,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       expect(output).toContain('> - Rating "C" : 2 (threshold: 1)');
+       expect(output).toContain('> - Rating "B" : 1 (threshold: 1)');
+@@ -661,15 +713,17 @@ describe('CommentFormatter', () => {
+         violations: [{ ratingLabel: 'C', threshold: 1, actualCount: 1 }],
+       };
+ 
+-      const output = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        commitMessage,
+-        [],
+-        gateResult,
+-        'AIKATA-PR レビュー結果',
+-      );
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: gateResult,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+ 
+       // 警告がdetails開始タグの前に表示される
+       const warningStart = output.indexOf('> **⚠ Quality Gate Failed**');
+@@ -691,18 +745,317 @@ describe('CommentFormatter', () => {
+         violations: [{ ratingLabel: 'A', threshold: 1, actualCount: 1 }],
+       };
+ 
+-      const output = CommentFormatter.formatComment(
++      const output = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: commitMessage,
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: gateResult,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
++
++      expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
++      expect(output).toContain('> **⚠ Quality Gate Failed**');
++    });
++  });
++
++  describe('メタデータへのレビュー結果格納', () => {
++    /** コメント本文からメタデータJSONを取り出す */
++    const extractMetadata = (output: string): Record<string, unknown> => {
++      const line = output
++        .split('\n')
++        .find((l) => l.startsWith(REVIEW_DATA_PREFIX) && l.endsWith(REVIEW_DATA_SUFFIX));
++      if (!line) throw new Error('metadata not found');
++      return JSON.parse(
++        line.slice(REVIEW_DATA_PREFIX.length, line.length - REVIEW_DATA_SUFFIX.length),
++      ) as Record<string, unknown>;
++    };
++
++    it('可視結果が常にメタデータに格納される', () => {
++      const output = CommentFormatter.formatComment({
++        results: createResults(2),
++        ratings,
++        commitHash,
++        commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
++
++      expect(extractMetadata(output).visibleResults).toEqual([
++        { checkItemContent: 'チェック項目1', ratingLabel: 'A' },
++        { checkItemContent: 'チェック項目2', ratingLabel: 'B' },
++      ]);
++    });
++
++    it('可視結果のコメント本文はメタデータに格納されない（表示部分と二重化しない）', () => {
++      const comment = 'このコメント本文は表示部分にのみ存在するべきである';
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('A', '完全に満たしている'),
++          comment,
++        ),
++      ];
++
++      const output = CommentFormatter.formatComment({
+         results,
+         ratings,
+         commitHash,
+         commitMessage,
+-        ['A'],
+-        gateResult,
+-        'AIKATA-PR レビュー結果',
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
++
++      // コメント本文はコメント全体で1度しか出現しない
++      expect(output.split(comment)).toHaveLength(2);
++      const metadataLine = output
++        .split('\n')
++        .find((l) => l.startsWith(REVIEW_DATA_PREFIX)) as string;
++      expect(metadataLine).not.toContain(comment);
++    });
++
++    it('メタデータのcheckItemContentは表示用ではなくAI用の生contentが格納される', () => {
++      const aiContent = 'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則\n---';
++      const results = [
++        ReviewResult.success(new CheckItem(aiContent), new Rating('A', '完全に満たしている'), 'OK'),
++      ];
++
++      const output = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map([[aiContent, 'チェック項目:\n---\n命名規則\n---']]),
++      });
++
++      const visibleResults = extractMetadata(output).visibleResults as {
++        checkItemContent: string;
++      }[];
++      expect(visibleResults[0]!.checkItemContent).toBe(aiContent);
++    });
++
++    it('エラー結果はエラー評定ラベルでメタデータに格納される', () => {
++      const results = [ReviewResult.error(new CheckItem('チェック項目1'), 'API呼び出しエラー')];
++
++      const output = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
++
++      expect(extractMetadata(output).visibleResults).toEqual([
++        { checkItemContent: 'チェック項目1', ratingLabel: 'エラー' },
++      ]);
++    });
++
++    it('全結果が非表示の場合でも可視結果は空配列として格納される', () => {
++      const output = CommentFormatter.formatComment({
++        results: createResults(1),
++        ratings,
++        commitHash,
++        commitMessage,
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
++
++      const metadata = extractMetadata(output);
++      expect(metadata.visibleResults).toEqual([]);
++      expect(metadata.hiddenResults).toHaveLength(1);
++    });
++  });
++
++  describe('checkItemDisplayContents', () => {
++    const aiContent = 'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則\n---';
++    const displayContent = 'チェック項目:\n---\n命名規則\n---';
++
++    const format = (
++      layout: 'table' | 'sections',
++      displayContents: ReadonlyMap<string, string>,
++    ): string =>
++      CommentFormatter.formatComment({
++        results: [
++          ReviewResult.success(
++            new CheckItem(aiContent),
++            new Rating('A', '完全に満たしている'),
++            'OK',
++          ),
++        ],
++        ratings,
++        commitHash,
++        commitMessage,
++        hiddenRatingLabels: [],
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout,
++        checkItemDisplayContents: displayContents,
++      });
++
++    it('表示用contentが登録されている場合はテーブルの表示に使われる', () => {
++      const output = format('table', new Map([[aiContent, displayContent]]));
++
++      expect(output).toContain('| <チェック項目><br>命名規則<br>--- | A | OK |');
++      expect(output).not.toContain('<カテゴリ>');
++    });
++
++    it('表示用contentが未登録の場合はAI用contentがそのまま表示される', () => {
++      const output = format('table', new Map());
++
++      expect(output).toContain('<カテゴリ><br>設計<br>---<br><チェック項目><br>命名規則<br>---');
++    });
++
++    it('sectionsレイアウトの見出しにも表示用contentが使われる', () => {
++      const output = format('sections', new Map([[aiContent, displayContent]]));
++
++      expect(output).toContain('### 命名規則');
++      expect(output).not.toContain('### 設計 / 命名規則');
++    });
++  });
++
++  describe('sectionsレイアウト', () => {
++    const formatSections = (results: ReviewResult[], hiddenRatingLabels: string[] = []): string =>
++      CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage,
++        hiddenRatingLabels,
++        qualityGateResult: PASSED_GATE,
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'sections',
++        checkItemDisplayContents: new Map(),
++      });
++
++    it('チェック項目と評定の2列サマリテーブルを生成する', () => {
++      const output = formatSections(createResults(2));
++
++      expect(output).toContain('| チェック項目 | 評定 |');
++      expect(output).toContain('| --- | --- |');
++      expect(output).toContain('| チェック項目1 | A |');
++      expect(output).toContain('| チェック項目2 | B |');
++      // 3列テーブルのヘッダは出力されない
++      expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
++    });
++
++    it('サマリテーブルの下にチェック項目ごとの詳細セクションを展開する', () => {
++      const output = formatSections(createResults(2));
++
++      expect(output).toContain('### チェック項目1');
++      expect(output).toContain('**評定**: A');
++      expect(output).toContain('### チェック項目2');
++      expect(output).toContain('**評定**: B');
++      // サマリテーブルより後に詳細が出力される
++      expect(output.indexOf('### チェック項目1')).toBeGreaterThan(
++        output.indexOf('| チェック項目1 | A |'),
+       );
++    });
++
++    it('コメント本文はエスケープされず生Markdownとして出力される', () => {
++      const comment = '## 指摘事項\n\n| ファイル | 内容 |\n| --- | --- |\n| a.ts | 命名 |';
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('A', '完全に満たしている'),
++          comment,
++        ),
++      ];
++
++      const output = formatSections(results);
++
++      expect(output).toContain(comment);
++      // テーブルセル向けのエスケープが行われていないこと
++      expect(output).not.toContain('\\|');
++      expect(output).not.toContain('| ファイル | 内容 |<br>');
++    });
++
++    it('コメント本文が区切りマーカーで囲まれる', () => {
++      const comment = '## 指摘事項\n\n- a.ts の命名';
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('A', '完全に満たしている'),
++          comment,
++        ),
++      ];
++
++      const output = formatSections(results);
++
++      expect(output).toContain(`${REVIEW_COMMENT_OPEN}\n${comment}\n${REVIEW_COMMENT_CLOSE}`);
++    });
++
++    it('件数が折りたたみ閾値以下の場合は詳細を折りたたまない', () => {
++      const output = formatSections(createResults(FOLD_THRESHOLD));
++
++      expect(output).not.toContain('<details>');
++    });
++
++    it('件数が折りたたみ閾値を超える場合は詳細のみを折りたたみサマリテーブルは常に表示する', () => {
++      const output = formatSections(createResults(FOLD_THRESHOLD + 1));
++
++      expect(output).toContain('<details>');
++      expect(output).toContain(`<summary>レビュー詳細（${FOLD_THRESHOLD + 1}件）</summary>`);
++      expect(output).toContain('</details>');
++      // サマリテーブルは折りたたみの外側にある
++      expect(output.indexOf('| チェック項目 | 評定 |')).toBeLessThan(output.indexOf('<details>'));
++    });
++
++    it('エラー結果は評定にエラーラベルとエラーメッセージが表示される', () => {
++      const results = [ReviewResult.error(new CheckItem('チェック項目1'), 'API呼び出しエラー')];
++
++      const output = formatSections(results);
++
++      expect(output).toContain('| チェック項目1 | エラー |');
++      expect(output).toContain('**評定**: エラー');
++      expect(output).toContain('API呼び出しエラー');
++    });
++
++    it('非表示評定の結果はサマリにも詳細にも出力されない', () => {
++      const output = formatSections(createResults(2), ['A']);
++
++      expect(output).not.toContain('| チェック項目1 | A |');
++      expect(output).not.toContain('### チェック項目1');
++      expect(output).toContain('| チェック項目2 | B |');
++      expect(output).toContain('### チェック項目2');
++    });
++
++    it('全ての結果が非表示の場合はレイアウトによらず専用メッセージを出力する', () => {
++      const output = formatSections(createResults(1), ['A']);
+ 
+       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
+-      expect(output).toContain('> **⚠ Quality Gate Failed**');
++      expect(output).not.toContain('| チェック項目 | 評定 |');
++    });
++
++    it('複数行のセル値を持つチェック項目でも見出しは1行に収まる', () => {
++      const aiContent = 'カテゴリ:\n---\n設計\n---\n\n説明:\n---\n観点A\n観点B\n---';
++      const results = [
++        ReviewResult.success(new CheckItem(aiContent), new Rating('A', '完全に満たしている'), 'OK'),
++      ];
++
++      const output = formatSections(results);
++
++      const headingLines = output.split('\n').filter((line) => line.startsWith('### '));
++      expect(headingLines).toEqual(['### 設計 / 観点A / 観点B']);
+     });
+   });
+ });
+diff --git a/src/application/shared/comment/__tests__/CommentParser.test.ts b/src/application/shared/comment/__tests__/CommentParser.test.ts
+index eb118e3..0da0ebd 100644
+--- a/src/application/shared/comment/__tests__/CommentParser.test.ts
++++ b/src/application/shared/comment/__tests__/CommentParser.test.ts
+@@ -1,6 +1,6 @@
+ import { describe, it, expect } from 'vitest';
+ import { CommentParser } from '../CommentParser.js';
+-import { CommentFormatter, FOLD_THRESHOLD } from '../CommentFormatter.js';
++import { CommentFormatter, FOLD_THRESHOLD, REVIEW_COMMENT_CLOSE } from '../CommentFormatter.js';
+ import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
+ import { CheckItem } from '../../../../domain/review/checkItem/index.js';
+ import { Rating } from '../../../../domain/review/rating/index.js';
+@@ -28,15 +28,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -71,15 +73,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -101,15 +105,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -125,15 +131,17 @@ describe('CommentParser', () => {
+         return ReviewResult.success(checkItem, rating, `コメント${i + 1}`);
+       });
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       // 折りたたみ形式であることを確認
+       expect(comment).toContain('<details>');
+ 
+@@ -156,15 +164,17 @@ describe('CommentParser', () => {
+         ReviewResult.error(new CheckItem('テストカバレッジ'), 'Timeout occurred'),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -190,15 +200,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -217,15 +229,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -253,15 +267,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -275,15 +291,17 @@ describe('CommentParser', () => {
+     it('エラー行にパイプ文字を含む場合も正しくパースされる', () => {
+       const results = [ReviewResult.error(new CheckItem('A | B のチェック'), 'Error | timeout')];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -302,15 +320,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -327,15 +347,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -352,15 +374,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        [],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -384,15 +408,17 @@ describe('CommentParser', () => {
+       ];
+ 
+       // Aを非表示にしてフォーマット
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        ['A'],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -425,15 +451,17 @@ describe('CommentParser', () => {
+         ),
+       ];
+ 
+-      const comment = CommentFormatter.formatComment(
+-        results,
+-        ratings,
+-        commitHash,
+-        'test commit',
+-        ['A'],
+-        { passed: true, violations: [] },
+-        'AIKATA-PR レビュー結果',
+-      );
++      const comment = CommentFormatter.formatComment({
++        results: results,
++        ratings: ratings,
++        commitHash: commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
+       const parsed = CommentParser.parseComment(comment);
+ 
+       expect(parsed).not.toBeNull();
+@@ -485,4 +513,316 @@ describe('CommentParser', () => {
+       expect(parsed!.commitHash).toBe('old123');
+     });
+   });
++
++  describe('メタデータからの復元と旧フォーマット互換', () => {
++    const aiContent = 'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則\n---';
++
++    /** 旧フォーマット（メタデータに可視結果を含まない）のコメントを組み立てる */
++    const buildLegacyComment = (
++      rows: { displayContent: string; ratingLabel: string; comment: string }[],
++    ): string =>
++      [
++        '<!-- aikata-review -->',
++        `<!-- aikata-review-data: ${JSON.stringify({
++          ratings: ratings.map((r) => ({ label: r.label, definition: r.definition })),
++          commitHash,
++        })} -->`,
++        '',
++        '## AIKATA-PR レビュー結果',
++        'レビュー時最新コミット: test commit',
++        '',
++        '| チェック項目 | 評定 | コメント |',
++        '| --- | --- | --- |',
++        ...rows.map((r) => `| ${r.displayContent} | ${r.ratingLabel} | ${r.comment} |`),
++      ].join('\n');
++
++    it('メタデータの可視結果から復元する（表の表示内容には依存しない）', () => {
++      const results = [
++        ReviewResult.success(new CheckItem(aiContent), new Rating('A', '完全に満たしている'), 'OK'),
++      ];
++      const comment = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        // 表示は表示用contentで行われるが、復元されるのはAI用contentである
++        layout: 'sections',
++        checkItemDisplayContents: new Map([[aiContent, 'チェック項目:\n---\n命名規則\n---']]),
++      });
++
++      const parsed = CommentParser.parseComment(comment);
++
++      expect(parsed).not.toBeNull();
++      expect(parsed!.results).toHaveLength(1);
++      expect(parsed!.results[0]!.checkItem.content).toBe(aiContent);
++      expect(parsed!.results[0]!.rating.label).toBe('A');
++      expect(parsed!.results[0]!.comment).toBe('OK');
++    });
++
++    it('複数列チェックリストでも往復でAI用contentが保持される', () => {
++      const results = [
++        ReviewResult.success(
++          new CheckItem(aiContent),
++          new Rating('B', '概ね満たしている'),
++          'まあまあ',
++        ),
++      ];
++      const comment = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
++
++      const parsed = CommentParser.parseComment(comment);
++
++      expect(parsed!.results[0]!.checkItem.content).toBe(aiContent);
++    });
++
++    it('sectionsレイアウトのコメントもエラー結果を含めて復元できる', () => {
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('A', '完全に満たしている'),
++          '## 詳細\n\n| a | b |\n| --- | --- |\n| 1 | 2 |',
++        ),
++        ReviewResult.error(new CheckItem('チェック項目2'), 'API呼び出しエラー'),
++      ];
++      const comment = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'sections',
++        checkItemDisplayContents: new Map(),
++      });
++
++      const parsed = CommentParser.parseComment(comment);
++
++      expect(parsed!.results).toHaveLength(2);
++      expect(parsed!.results[0]!.comment).toBe('## 詳細\n\n| a | b |\n| --- | --- |\n| 1 | 2 |');
++      expect(parsed!.results[1]!.isError).toBe(true);
++      expect(parsed!.results[1]!.comment).toBe('API呼び出しエラー');
++    });
++
++    it('メタデータに可視結果を持たない旧フォーマットのコメントは表からパースする', () => {
++      const comment = buildLegacyComment([
++        { displayContent: 'コードの可読性', ratingLabel: 'A', comment: '良いコードです' },
++        { displayContent: 'テストカバレッジ', ratingLabel: 'B', comment: '改善の余地あり' },
 +      ]);
 +
-+      const mrRef = 'refs/merge-requests/307/head';
-+      const commitSha = 'fedcba0987654321';
-+      const manager = new CloneManager(300_000, 1024, 5, '/tmp/aikata-test-clones');
-+      const result = await manager.clone(
-+        defaultToken,
-+        defaultApiBaseUrl,
-+        defaultProjectId,
-+        mrRef,
-+        mrRef,
-+        commitSha,
-+      );
++      const parsed = CommentParser.parseComment(comment);
 +
-+      const mockedExecFile = vi.mocked(realExecFile);
-+      const checkoutCalls = mockedExecFile.mock.calls.filter(
-+        (call) => call[0] === 'git' && (call[1] as string[])[0] === 'checkout',
-+      );
-+      // checkout は SHA に対する1回のみ。MR ref への checkout は一切行われない
-+      expect(checkoutCalls).toHaveLength(1);
-+      expect(checkoutCalls[0][1] as string[]).toContain(commitSha);
-+      expect(checkoutCalls[0][1] as string[]).not.toContain(mrRef);
++      expect(parsed!.results).toHaveLength(2);
++      expect(parsed!.results[0]!.checkItem.content).toBe('コードの可読性');
++      expect(parsed!.results[0]!.rating.label).toBe('A');
++      expect(parsed!.results[1]!.checkItem.content).toBe('テストカバレッジ');
++      expect(parsed!.results[1]!.comment).toBe('改善の余地あり');
++    });
 +
-       expect(result.projectDir).toMatch(clonePathPattern);
-       await result.cleanup();
++    it('旧フォーマットのエラー行も表からパースできる', () => {
++      const comment = buildLegacyComment([
++        { displayContent: 'コードの可読性', ratingLabel: 'エラー', comment: 'API呼び出しエラー' },
++      ]);
++
++      const parsed = CommentParser.parseComment(comment);
++
++      expect(parsed!.results[0]!.isError).toBe(true);
++      expect(parsed!.results[0]!.comment).toBe('API呼び出しエラー');
++    });
++  });
++
++  describe('コメント本文の復元（メタデータに本文を持たないフォーマット）', () => {
++    it('sectionsレイアウトで見出しを含むコメント本文も完全一致で復元できる', () => {
++      const comment1 =
++        '### 指摘1\n\n- a.ts の命名\n\n### 指摘2\n\n| ファイル | 内容 |\n| --- | --- |\n| b.ts | 型 |';
++      const comment2 = '### 良い点\n\n問題ありません';
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('A', '完全に満たしている'),
++          comment1,
++        ),
++        ReviewResult.success(
++          new CheckItem('チェック項目2'),
++          new Rating('B', '概ね満たしている'),
++          comment2,
++        ),
++      ];
++
++      const body = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'sections',
++        checkItemDisplayContents: new Map(),
++      });
++
++      const parsed = CommentParser.parseComment(body);
++
++      expect(parsed!.results[0]!.comment).toBe(comment1);
++      expect(parsed!.results[1]!.comment).toBe(comment2);
++    });
++
++    it('tableレイアウトでパイプ・改行を含むコメント本文を復元できる', () => {
++      const comment = '注意: a|b の扱い\n2行目';
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('A', '完全に満たしている'),
++          comment,
++        ),
++      ];
++
++      const body = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'table',
++        checkItemDisplayContents: new Map(),
++      });
++
++      const parsed = CommentParser.parseComment(body);
++
++      expect(parsed!.results[0]!.comment).toBe(comment);
++    });
++
++    it('非表示結果のコメント本文はメタデータから復元される', () => {
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('A', '完全に満たしている'),
++          '非表示コメント',
++        ),
++        ReviewResult.success(
++          new CheckItem('チェック項目2'),
++          new Rating('B', '概ね満たしている'),
++          '表示コメント',
++        ),
++      ];
++
++      const body = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: ['A'],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'sections',
++        checkItemDisplayContents: new Map(),
++      });
++
++      const parsed = CommentParser.parseComment(body);
++
++      expect(parsed!.results[0]!.comment).toBe('表示コメント');
++      expect(parsed!.hiddenResults[0]!.checkItem.content).toBe('チェック項目1');
++      expect(parsed!.hiddenResults[0]!.comment).toBe('非表示コメント');
++    });
++
++    it('メタデータにコメント本文を持つフォーマットは表示部分より優先して復元する', () => {
++      // PBI2時点のフォーマット（可視結果にcommentを含む）
++      const body = [
++        '<!-- aikata-review -->',
++        `<!-- aikata-review-data: ${JSON.stringify({
++          ratings: ratings.map((r) => ({ label: r.label, definition: r.definition })),
++          commitHash,
++          visibleResults: [
++            {
++              checkItemContent: 'チェック項目1',
++              ratingLabel: 'A',
++              comment: 'メタデータのコメント',
++            },
++          ],
++        })} -->`,
++        '',
++        '## AIKATA-PR レビュー結果',
++        'レビュー時最新コミット: test commit',
++        '',
++        '| チェック項目 | 評定 | コメント |',
++        '| --- | --- | --- |',
++        '| 表示用チェック項目 | A | 表示用のコメント |',
++      ].join('\n');
++
++      const parsed = CommentParser.parseComment(body);
++
++      expect(parsed!.results[0]!.checkItem.content).toBe('チェック項目1');
++      expect(parsed!.results[0]!.comment).toBe('メタデータのコメント');
++    });
++
++    it('表示部分のコメントが失われている場合も例外を投げず空文字で復元する', () => {
++      // 表示部分が手編集などで削除されたコメントを想定
++      const body = [
++        '<!-- aikata-review -->',
++        `<!-- aikata-review-data: ${JSON.stringify({
++          ratings: ratings.map((r) => ({ label: r.label, definition: r.definition })),
++          commitHash,
++          visibleResults: [{ checkItemContent: 'チェック項目1', ratingLabel: 'A' }],
++        })} -->`,
++        '',
++        '## AIKATA-PR レビュー結果',
++      ].join('\n');
++
++      const parsed = CommentParser.parseComment(body);
++
++      expect(parsed!.results).toHaveLength(1);
++      expect(parsed!.results[0]!.checkItem.content).toBe('チェック項目1');
++      expect(parsed!.results[0]!.comment).toBe('');
++    });
++
++    it('コメント本文の区切りマーカーが閉じていない場合も例外を投げない', () => {
++      const results = [
++        ReviewResult.success(
++          new CheckItem('チェック項目1'),
++          new Rating('A', '完全に満たしている'),
++          '詳細コメント',
++        ),
++      ];
++      const body = CommentFormatter.formatComment({
++        results,
++        ratings,
++        commitHash,
++        commitMessage: 'test commit',
++        hiddenRatingLabels: [],
++        qualityGateResult: { passed: true, violations: [] },
++        mrCommentTitle: 'AIKATA-PR レビュー結果',
++        layout: 'sections',
++        checkItemDisplayContents: new Map(),
++      });
++      // 終了マーカーが失われた（手編集で切り詰められた）コメントを想定
++      const truncated = body.slice(0, body.indexOf(REVIEW_COMMENT_CLOSE));
++
++      const parsed = CommentParser.parseComment(truncated);
++
++      expect(parsed!.results).toHaveLength(1);
++      expect(parsed!.results[0]!.comment).toBe('');
++    });
++
++    it('マーカーはあるがメタデータを持たないコメントはエラーになる', () => {
++      const body = ['<!-- aikata-review -->', '', '## AIKATA-PR レビュー結果'].join('\n');
++
++      expect(() => CommentParser.parseComment(body)).toThrow(
++        'Review metadata not found in comment body',
++      );
++    });
++  });
+ });
+diff --git a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
+index be0785c..7ac2b71 100644
+--- a/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
++++ b/src/application/shared/comment/__tests__/SuggestCommentFormatter.test.ts
+@@ -48,7 +48,7 @@ describe('SuggestCommentFormatter', () => {
+   describe('format', () => {
+     it('出力にsuggestマーカーが含まれる', () => {
+       const resolved = createResolvedSuggestion();
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       expect(output).toContain(SUGGEST_MARKER);
      });
+ 
+@@ -60,7 +60,7 @@ describe('SuggestCommentFormatter', () => {
+         suggestedCode: 'return result',
+         comment: 'メタデータ検証用コメント',
+       });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+ 
+       // メタデータのプレフィックス・サフィックスが含まれる
+       expect(output).toContain(SUGGEST_DATA_PREFIX);
+@@ -82,31 +82,31 @@ describe('SuggestCommentFormatter', () => {
+ 
+     it('出力にチェック項目ヘッダーが含まれる', () => {
+       const resolved = createResolvedSuggestion({ checkItemContent: 'コードレビュー項目' });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       expect(output).toContain('**チェック項目:**<br>コードレビュー項目');
+     });
+ 
+     it('出力にコメントテキストが含まれる', () => {
+       const resolved = createResolvedSuggestion({ comment: '修正を推奨します' });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       expect(output).toContain('修正を推奨します');
+     });
+ 
+     it('正しいsuggestion構文（```suggestion:-X+Y）が含まれる', () => {
+       const resolved = createResolvedSuggestion({ linesAbove: 2, linesBelow: 1 });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       expect(output).toContain('```suggestion:-2+1');
+     });
+ 
+     it('単一行suggest（linesAbove=0, linesBelow=0）の場合 ```suggestion:-0+0 になる', () => {
+       const resolved = createResolvedSuggestion({ linesAbove: 0, linesBelow: 0 });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       expect(output).toContain('```suggestion:-0+0');
+     });
+ 
+     it('複数行suggest（linesAbove=5, linesBelow=3）の場合 ```suggestion:-5+3 になる', () => {
+       const resolved = createResolvedSuggestion({ linesAbove: 5, linesBelow: 3 });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       expect(output).toContain('```suggestion:-5+3');
+     });
+ 
+@@ -115,7 +115,7 @@ describe('SuggestCommentFormatter', () => {
+         checkItemContent:
+           'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
+       });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       expect(output).toContain(
+         '**チェック項目:**<br><カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>---',
+       );
+@@ -129,7 +129,7 @@ describe('SuggestCommentFormatter', () => {
+         suggestedCode: 'const x = 1;',
+         comment: 'ラウンドトリップ用コメント',
+       });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       const parsed = SuggestCommentParser.parse(output);
+ 
+       expect(parsed).not.toBeNull();
+@@ -141,7 +141,7 @@ describe('SuggestCommentFormatter', () => {
+         linesAbove: 3,
+         linesBelow: 2,
+       });
+-      const output = SuggestCommentFormatter.format(resolved);
++      const output = SuggestCommentFormatter.format(resolved, new Map());
+       const range = SuggestCommentParser.parseSuggestionRange(output);
+ 
+       expect(range).not.toBeNull();
+@@ -149,4 +149,52 @@ describe('SuggestCommentFormatter', () => {
+       expect(range!.linesBelow).toBe(2);
+     });
+   });
++
++  describe('checkItemDisplayContents', () => {
++    const aiContent = 'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則\n---';
++
++    /** 表示確認用のResolvedSuggestionを生成する */
++    const createResolved = (): ResolvedSuggestion =>
++      new ResolvedSuggestion({
++        suggestion: new Suggestion({
++          checkItemContent: aiContent,
++          filePath: 'src/a.ts',
++          originalCode: 'const a = 1;',
++          suggestedCode: 'const alpha = 1;',
++          comment: '命名を修正してください',
++        }),
++        newLine: 10,
++        linesAbove: 0,
++        linesBelow: 0,
++        oldPath: 'src/a.ts',
++        newPath: 'src/a.ts',
++      });
++
++    it('表示用contentが登録されている場合はヘッダ表示に使われる', () => {
++      const output = SuggestCommentFormatter.format(
++        createResolved(),
++        new Map([[aiContent, 'チェック項目:\n---\n命名規則\n---']]),
++      );
++
++      expect(output).toContain('**チェック項目:**<br><チェック項目><br>命名規則<br>---');
++      expect(output).not.toContain('<カテゴリ>');
++    });
++
++    it('メタデータのcheckItemContentは表示用ではなくAI用contentのままになる', () => {
++      const output = SuggestCommentFormatter.format(
++        createResolved(),
++        new Map([[aiContent, 'チェック項目:\n---\n命名規則\n---']]),
++      );
++
++      expect(output).toContain(
++        `${SUGGEST_DATA_PREFIX}${JSON.stringify({ checkItemContent: aiContent })}${SUGGEST_DATA_SUFFIX}`,
++      );
++    });
++
++    it('表示用contentが未登録の場合はAI用contentがそのまま表示される', () => {
++      const output = SuggestCommentFormatter.format(createResolved(), new Map());
++
++      expect(output).toContain('<カテゴリ><br>設計<br>---');
++    });
++  });
+ });
+diff --git a/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts b/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
+index d951eb9..daac6e2 100644
+--- a/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
++++ b/src/application/shared/comment/__tests__/SuggestCommentParser.test.ts
+@@ -36,7 +36,7 @@ const createFormattedBody = (
+     newPath: 'src/test.ts',
+   });
+ 
+-  return SuggestCommentFormatter.format(resolved);
++  return SuggestCommentFormatter.format(resolved, new Map());
+ };
+ 
+ describe('SuggestCommentParser', () => {
+diff --git a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+index 1ef8c58..d32e616 100644
+--- a/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
++++ b/src/application/shared/comment/__tests__/formatCheckItemForDisplay.test.ts
+@@ -1,5 +1,8 @@
+ import { describe, it, expect } from 'vitest';
+-import { formatCheckItemForDisplay } from '../formatCheckItemForDisplay.js';
++import {
++  formatCheckItemForDisplay,
++  formatCheckItemForHeading,
++} from '../formatCheckItemForDisplay.js';
+ 
+ describe('formatCheckItemForDisplay', () => {
+   describe('構造化フォーマットの変換', () => {
+@@ -85,4 +88,77 @@ describe('formatCheckItemForDisplay', () => {
+       expect(result).toBe('<ヘッダ1>\n値1\n---\n<ヘッダ2>\n\n---');
+     });
+   });
++
++  describe('formatCheckItemForHeading', () => {
++    it('複数列の構造化フォーマットは値のみを区切り文字で連結した1行になる', () => {
++      const content =
++        'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則が統一されているか\n---';
++
++      const result = formatCheckItemForHeading(content);
++
++      expect(result).toBe('設計 / 命名規則が統一されているか');
++    });
++
++    it('単一列の構造化フォーマットは値のみを返す', () => {
++      const content = 'チェック項目:\n---\n命名規則が統一されているか\n---';
++
++      const result = formatCheckItemForHeading(content);
++
++      expect(result).toBe('命名規則が統一されているか');
++    });
++
++    it('構造化フォーマットでない単一行はそのまま返す', () => {
++      const result = formatCheckItemForHeading('コードの可読性');
++
++      expect(result).toBe('コードの可読性');
++    });
++
++    it('構造化フォーマットでない複数行は区切り文字で1行に連結する', () => {
++      const result = formatCheckItemForHeading('コードの可読性\nテストの網羅性');
++
++      expect(result).toBe('コードの可読性 / テストの網羅性');
++    });
++
++    it('値が空の列は連結対象から除外される', () => {
++      const content = 'カテゴリ:\n---\n\n---\n\nチェック項目:\n---\n命名規則\n---';
++
++      const result = formatCheckItemForHeading(content);
++
++      expect(result).toBe('命名規則');
++    });
++
++    it('値の前後の空白は除去される', () => {
++      const content = 'チェック項目:\n---\n  命名規則  \n---';
++
++      const result = formatCheckItemForHeading(content);
++
++      expect(result).toBe('命名規則');
++    });
++
++    it('複数行の値を持つ列は改行が区切り文字に置換され1行になる', () => {
++      const content = 'チェック項目:\n---\n複数行の\n説明文です\n---';
++
++      const result = formatCheckItemForHeading(content);
++
++      expect(result).toBe('複数行の / 説明文です');
++      expect(result).not.toContain('\n');
++    });
++
++    it('複数列かつ複数行の値を持つ場合も全体が1行になる', () => {
++      const content = 'カテゴリ:\n---\n設計\n---\n\n説明:\n---\n観点A\n観点B\n---';
++
++      const result = formatCheckItemForHeading(content);
++
++      expect(result).toBe('設計 / 観点A / 観点B');
++      expect(result).not.toContain('\n');
++    });
++
++    it('複数行の値のうち空行は連結対象から除外される', () => {
++      const content = 'チェック項目:\n---\n観点A\n\n観点B\n---';
++
++      const result = formatCheckItemForHeading(content);
++
++      expect(result).toBe('観点A / 観点B');
++    });
++  });
+ });
+diff --git a/src/application/shared/comment/formatCheckItemForDisplay.ts b/src/application/shared/comment/formatCheckItemForDisplay.ts
+index 075b3d6..dd3c2e5 100644
+--- a/src/application/shared/comment/formatCheckItemForDisplay.ts
++++ b/src/application/shared/comment/formatCheckItemForDisplay.ts
+@@ -1,23 +1,74 @@
++/** 構造化フォーマット（header:\n---\nvalue\n---）の1列分 */
++interface CheckItemColumn {
++  header: string;
++  value: string;
++}
++
+ /**
+- * チェック項目のcontentをdiscussion表示用フォーマットに変換する
+- *
+- * AI連携用フォーマット（header:\n---\nvalue\n---）を
+- * discussion表示用フォーマット（<header>\nvalue）に変換する。
+- * 構造化フォーマットでない場合はそのまま返す。
++ * AI連携用フォーマット（header:\n---\nvalue\n---）から列情報を抽出する
+  *
+  * 値の中に\n\nが含まれていても、次列の構造パターン（headerName:\n---\n）が
+  * 後続しない限り誤マッチしないlookaheadを使用する。
++ * 構造化フォーマットでない場合は空配列を返す。
+  */
+-export function formatCheckItemForDisplay(content: string): string {
++function extractColumns(content: string): CheckItemColumn[] {
+   const pattern = /([^\n]+):\n---\n([\s\S]*?)\n---(?=\n\n[^\n]+:\n---\n|$)/g;
+-  const columns: string[] = [];
++  const columns: CheckItemColumn[] = [];
+   let match;
+ 
+   while ((match = pattern.exec(content)) !== null) {
+-    columns.push(`<${match[1]}>\n${match[2]}\n---`);
++    columns.push({ header: match[1]!, value: match[2]! });
+   }
+ 
++  return columns;
++}
++
++/**
++ * チェック項目のcontentをdiscussion表示用フォーマットに変換する
++ *
++ * AI連携用フォーマット（header:\n---\nvalue\n---）を
++ * discussion表示用フォーマット（<header>\nvalue）に変換する。
++ * 構造化フォーマットでない場合はそのまま返す。
++ */
++export function formatCheckItemForDisplay(content: string): string {
++  const columns = extractColumns(content);
++
+   // 構造化フォーマットが検出されなかった場合はそのまま返す
+   if (columns.length === 0) return content;
+-  return columns.join('\n');
++  return columns.map((c) => `<${c.header}>\n${c.value}\n---`).join('\n');
++}
++
++/** 見出し用に列の値を連結する際の区切り文字 */
++const HEADING_SEPARATOR = ' / ';
++
++/**
++ * 複数行テキストを区切り文字で連結して1行にする
++ * 各行の前後の空白は除去し、空行は連結対象から除外する
++ */
++function toSingleLine(text: string): string {
++  return text
++    .split('\n')
++    .map((line) => line.trim())
++    .filter((line) => line !== '')
++    .join(HEADING_SEPARATOR);
++}
++
++/**
++ * チェック項目のcontentをMarkdown見出し用の1行テキストに変換する
++ *
++ * Markdownの見出しは複数行にできないため、各列の値のみを区切り文字で連結して1行にする。
++ * セル値自体が複数行の場合も改行を区切り文字に置換して1行にする。
++ * 構造化フォーマットでない場合は改行を区切り文字に置換して1行にする。
++ */
++export function formatCheckItemForHeading(content: string): string {
++  const columns = extractColumns(content);
++
++  if (columns.length === 0) {
++    return toSingleLine(content);
++  }
++
++  return columns
++    .map((c) => toSingleLine(c.value))
++    .filter((value) => value !== '')
++    .join(HEADING_SEPARATOR);
+ }
+diff --git a/src/application/shared/comment/index.ts b/src/application/shared/comment/index.ts
+index 3d9d7d0..42f5a70 100644
+--- a/src/application/shared/comment/index.ts
++++ b/src/application/shared/comment/index.ts
+@@ -15,4 +15,8 @@ export {
+ } from './SuggestCommentFormatter.js';
+ export { SuggestCommentParser } from './SuggestCommentParser.js';
+ export type { ParsedSuggestComment, SuggestionRange } from './SuggestCommentParser.js';
+-export { formatCheckItemForDisplay } from './formatCheckItemForDisplay.js';
++export type { FormatCommentInput } from './CommentFormatter.js';
++export {
++  formatCheckItemForDisplay,
++  formatCheckItemForHeading,
++} from './formatCheckItemForDisplay.js';
+diff --git a/src/application/shared/parser/ChecklistParser.ts b/src/application/shared/parser/ChecklistParser.ts
+index 9fc84ee..5669970 100644
+--- a/src/application/shared/parser/ChecklistParser.ts
++++ b/src/application/shared/parser/ChecklistParser.ts
+@@ -9,12 +9,40 @@ import type { ChecklistParseOptions } from './ChecklistParseOptions.js';
+  */
+ export class ChecklistParser {
+   /**
+-   * CSV文字���からChecklistを生成する
++   * CSV文字列からChecklistを生成する
+    *
+    * CSVの先頭行をヘッダとして扱い、各データ行を1つのチェック項目に変換する。
+    * デフォルトでは全列をヘッダ付きフォーマットで出力する。
+    */
+   static parse(csv: string, options: ChecklistParseOptions): Checklist {
++    const items = ChecklistParser.buildContents(csv, options).map(
++      (content) => new CheckItem(content),
++    );
++    return new Checklist(items);
++  }
++
++  /**
++   * AI指示用content -> レビュー結果コメント表示用content のマップを生成する
++   *
++   * 同一CSVの同一データ行をそれぞれのオプションで走査するため、両者のインデックスは一致する。
++   * 表示用contentはCheckItemを経由しないため空セルでも例外にならない（表示専用のため）。
++   * AI指示用contentが重複する行がある場合は後の行の表示用contentが優先される。
++   */
++  static parseDisplayContentMap(
++    csv: string,
++    options: ChecklistParseOptions,
++    displayOptions: ChecklistParseOptions,
++  ): Map<string, string> {
++    const contents = ChecklistParser.buildContents(csv, options);
++    const displayContents = ChecklistParser.buildContents(csv, displayOptions);
++
++    return new Map(contents.map((content, i) => [content, displayContents[i] ?? content]));
++  }
++
++  /**
++   * CSV文字列を解析し、データ行ごとのチェック項目テキストを生成する
++   */
++  private static buildContents(csv: string, options: ChecklistParseOptions): string[] {
+     if (csv.trim() === '') {
+       throw new Error('CSV content must not be empty');
+     }
+@@ -57,20 +85,16 @@ export class ChecklistParser {
+     // noHeaderが有効かどうか判定（抽出列が1列の場合のみ）
+     const useNoHeader = options.noHeader && selectedHeaders.length === 1;
+ 
+-    // 各データ行をチェック項目にフォーマット
+-    const items = dataRows.map((row) => {
+-      const content = useNoHeader
++    // 各データ行をチェック項目のテキストにフォーマット
++    return dataRows.map((row) =>
++      useNoHeader
+         ? (row[columnIndices[0]!] ?? '')
+         : selectedHeaders
+             .map((header, i) => {
+               const value = row[columnIndices[i]!] ?? '';
+               return `${header}:\n---\n${value}\n---`;
+             })
+-            .join('\n\n');
+-
+-      return new CheckItem(content);
+-    });
+-
+-    return new Checklist(items);
++            .join('\n\n'),
++    );
+   }
+ }
+diff --git a/src/application/shared/parser/ReviewSettingsParser.ts b/src/application/shared/parser/ReviewSettingsParser.ts
+index d0518d1..fdd64c6 100644
+--- a/src/application/shared/parser/ReviewSettingsParser.ts
++++ b/src/application/shared/parser/ReviewSettingsParser.ts
+@@ -1,5 +1,8 @@
+ import { z } from 'zod';
+-import { ReviewSettings } from '../../../domain/review/reviewSettings/index.js';
++import {
++  ReviewSettings,
++  REVIEW_COMMENT_LAYOUTS,
++} from '../../../domain/review/reviewSettings/index.js';
+ import { Rating } from '../../../domain/review/rating/index.js';
+ import { QualityGate } from '../../../domain/review/qualityGate/index.js';
+ 
+@@ -32,6 +35,7 @@ const reviewSettingsSchema = z.object({
+     })
+     .optional(),
+   mrCommentTitle: z.string().min(1).optional(),
++  reviewCommentLayout: z.enum(REVIEW_COMMENT_LAYOUTS).optional(),
+ });
+ 
+ /**
+@@ -83,6 +87,7 @@ export class ReviewSettingsParser {
+         data.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
+       qualityGate,
+       mrCommentTitle: data.mrCommentTitle ?? defaults.mrCommentTitle,
++      reviewCommentLayout: data.reviewCommentLayout ?? defaults.reviewCommentLayout,
+     });
+   }
+ }
+diff --git a/src/application/shared/parser/__tests__/ChecklistParser.test.ts b/src/application/shared/parser/__tests__/ChecklistParser.test.ts
+index 194c0cf..f9aa291 100644
+--- a/src/application/shared/parser/__tests__/ChecklistParser.test.ts
++++ b/src/application/shared/parser/__tests__/ChecklistParser.test.ts
+@@ -158,4 +158,84 @@ describe('ChecklistParser', () => {
+       expect(() => ChecklistParser.parse(csv, options)).toThrow();
+     });
+   });
++
++  describe('parseDisplayContentMap', () => {
++    const csv =
++      'No,カテゴリ,チェック項目,説明\n' +
++      '1,セキュリティ,SQLi対策,バインディング確認\n' +
++      '2,性能,N+1問題,クエリ最適化確認';
++
++    /** AI指示用: No列を除く3列 */
++    const aiOptions = { columns: [2, 3, 4], noHeader: false };
++
++    it('AI用contentをキー、表示用contentを値とするマップを返す', () => {
++      const checklist = ChecklistParser.parse(csv, aiOptions);
++      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, {
++        columns: [3],
++        noHeader: true,
++      });
++
++      // キーはparse()が返すitemsのcontentと完全に一致する
++      expect([...map.keys()]).toEqual(checklist.items.map((i) => i.content));
++      expect(map.get(checklist.items[0]!.content)).toBe('SQLi対策');
++      expect(map.get(checklist.items[1]!.content)).toBe('N+1問題');
++    });
++
++    it('表示列がAI指示用と同じ場合は値がAI用contentと一致する', () => {
++      const checklist = ChecklistParser.parse(csv, aiOptions);
++      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, aiOptions);
++
++      for (const item of checklist.items) {
++        expect(map.get(item.content)).toBe(item.content);
++      }
++    });
++
++    it('表示列を複数指定した場合はヘッダ付き構造化フォーマットになる', () => {
++      const checklist = ChecklistParser.parse(csv, aiOptions);
++      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, {
++        columns: [2, 3],
++        noHeader: false,
++      });
++
++      expect(map.get(checklist.items[0]!.content)).toBe(
++        'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLi対策\n---',
++      );
++    });
++
++    it('表示列のセルが空でも例外にならず空文字がマップされる（表示専用のため）', () => {
++      const csvWithEmpty = 'チェック項目,備考\nコード可読性,';
++      const checklist = ChecklistParser.parse(csvWithEmpty, { columns: [1], noHeader: true });
++      const map = ChecklistParser.parseDisplayContentMap(
++        csvWithEmpty,
++        { columns: [1], noHeader: true },
++        { columns: [2], noHeader: true },
++      );
++
++      expect(map.get(checklist.items[0]!.content)).toBe('');
++    });
++
++    it('AI用contentが重複する行は後の行の表示用contentが優先される', () => {
++      const duplicatedCsv = 'カテゴリ,チェック項目\n設計,同一項目\n実装,同一項目';
++      const map = ChecklistParser.parseDisplayContentMap(
++        duplicatedCsv,
++        { columns: [2], noHeader: true },
++        { columns: [1], noHeader: true },
++      );
++
++      expect(map.size).toBe(1);
++      expect(map.get('同一項目')).toBe('実装');
++    });
++
++    it('AI指示用の不正な列番号を指定した場合はエラーになる', () => {
++      expect(() =>
++        ChecklistParser.parseDisplayContentMap(csv, { columns: [99], noHeader: false }, aiOptions),
++      ).toThrow('Column number 99 exceeds the number of columns (4)');
++    });
++
++    it('表示用の不正な列番号を指定した場合はエラーになる', () => {
++      expect(() =>
++        ChecklistParser.parseDisplayContentMap(csv, aiOptions, { columns: [99], noHeader: false }),
++      ).toThrow('Column number 99 exceeds the number of columns (4)');
++    });
++  });
+ });
+diff --git a/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts b/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
+index fd8823c..c374758 100644
+--- a/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
++++ b/src/application/shared/parser/__tests__/ReviewSettingsParser.test.ts
+@@ -191,4 +191,23 @@ describe('ReviewSettingsParser', () => {
+       expect(() => ReviewSettingsParser.parse(json)).toThrow();
+     });
+   });
++
++  describe('reviewCommentLayout', () => {
++    it("'sections' を指定した値がReviewSettingsに反映される", () => {
++      const json = JSON.stringify({ reviewCommentLayout: 'sections' });
++      const settings = ReviewSettingsParser.parse(json);
++      expect(settings.reviewCommentLayout).toBe('sections');
++    });
++
++    it('未指定の場合はデフォルト値（table）が適用される', () => {
++      const settings = ReviewSettingsParser.parse('{}');
++      expect(settings.reviewCommentLayout).toBe(ReviewSettings.default().reviewCommentLayout);
++      expect(settings.reviewCommentLayout).toBe('table');
++    });
++
++    it('未知の値が指定された場合はバリデーションエラーになる', () => {
++      const json = JSON.stringify({ reviewCommentLayout: 'unknown' });
++      expect(() => ReviewSettingsParser.parse(json)).toThrow('Invalid review settings');
++    });
++  });
+ });
+diff --git a/src/cli/review/__tests__/commandBuilder.test.ts b/src/cli/review/__tests__/commandBuilder.test.ts
+index 09b6e29..03f14ca 100644
+--- a/src/cli/review/__tests__/commandBuilder.test.ts
++++ b/src/cli/review/__tests__/commandBuilder.test.ts
+@@ -66,6 +66,7 @@ function createReviewSettings(
+     suggestEnabledRatingLabels: overrides?.suggestEnabledRatingLabels ?? ['C'],
+     qualityGate: overrides?.qualityGate ?? new QualityGate([{ ratingLabel: 'C', threshold: 2 }]),
+     mrCommentTitle: overrides?.mrCommentTitle ?? 'AIKATA-PR レビュー結果',
++    reviewCommentLayout: 'table',
+   });
+ }
+ 
+diff --git a/src/cli/review/__tests__/parseReviewArgs.test.ts b/src/cli/review/__tests__/parseReviewArgs.test.ts
+index d3d84df..918ce8e 100644
+--- a/src/cli/review/__tests__/parseReviewArgs.test.ts
++++ b/src/cli/review/__tests__/parseReviewArgs.test.ts
+@@ -1,5 +1,10 @@
+ import { describe, it, expect } from 'vitest';
+-import { parseCliOptions, buildChecklistParseOptions } from '../parseReviewArgs.js';
++import {
++  parseCliOptions,
++  buildChecklistParseOptions,
++  buildChecklistDisplayParseOptions,
++} from '../parseReviewArgs.js';
++import type { CliOptions } from '../parseReviewArgs.js';
+ 
+ describe('parseCliOptions', () => {
+   it('--user-idオプションをパースできる', () => {
+@@ -434,3 +439,76 @@ describe('buildChecklistParseOptions', () => {
+     expect(result.columns).toBeNull();
+   });
+ });
++
++describe('--checklist-display-columns', () => {
++  it('CLIオプションをパースできる', () => {
++    const result = parseCliOptions(['--checklist-display-columns', '2,3']);
++    expect(result.checklistDisplayColumns).toBe('2,3');
++  });
++
++  it('未指定の場合はCHECKLIST_DISPLAY_COLUMNS環境変数にフォールバックする', () => {
++    const result = parseCliOptions([], { CHECKLIST_DISPLAY_COLUMNS: '1,2' });
++    expect(result.checklistDisplayColumns).toBe('1,2');
++  });
++
++  it('CLIオプションが環境変数より優先される', () => {
++    const result = parseCliOptions(['--checklist-display-columns', '4'], {
++      CHECKLIST_DISPLAY_COLUMNS: '1,2',
++    });
++    expect(result.checklistDisplayColumns).toBe('4');
++  });
++
++  it('CLI・環境変数ともに未指定の場合はundefinedになる', () => {
++    const result = parseCliOptions([]);
++    expect(result.checklistDisplayColumns).toBeUndefined();
++  });
++});
++
++describe('buildChecklistDisplayParseOptions', () => {
++  /** テスト用の最小CliOptions */
++  const baseOptions = (overrides: Partial<CliOptions> = {}): CliOptions => ({
++    checklistNoHeader: false,
++    logLevel: 'info',
++    commentLanguage: 'Japanese',
++    prettyPrint: true,
++    gitlabApiUrl: 'https://gitlab.com/api/v4',
++    ...overrides,
++  });
++
++  it('表示列が指定された場合はその列が使われる', () => {
++    const result = buildChecklistDisplayParseOptions(
++      baseOptions({ checklistColumns: '1,2,3', checklistDisplayColumns: '2,3' }),
++    );
++    expect(result.columns).toEqual([2, 3]);
++  });
++
++  it('表示列が未指定の場合はAI指示用の列にフォールバックする', () => {
++    const result = buildChecklistDisplayParseOptions(baseOptions({ checklistColumns: '1,3' }));
++    expect(result.columns).toEqual([1, 3]);
++  });
++
++  it('表示列もAI指示用の列も未指定の場合はnull（全列）になる', () => {
++    const result = buildChecklistDisplayParseOptions(baseOptions());
++    expect(result.columns).toBeNull();
++  });
++
++  it('空白のみの表示列はAI指示用の列にフォールバックする', () => {
++    const result = buildChecklistDisplayParseOptions(
++      baseOptions({ checklistColumns: '2', checklistDisplayColumns: '  ' }),
++    );
++    expect(result.columns).toEqual([2]);
++  });
++
++  it('noHeaderはAI指示用と共通の値が使われる', () => {
++    const result = buildChecklistDisplayParseOptions(
++      baseOptions({ checklistNoHeader: true, checklistDisplayColumns: '2' }),
++    );
++    expect(result.noHeader).toBe(true);
++  });
++
++  it('不正な列番号を指定した場合はエラーになる', () => {
++    expect(() =>
++      buildChecklistDisplayParseOptions(baseOptions({ checklistDisplayColumns: '0' })),
++    ).toThrow('Invalid column number');
++  });
++});
+diff --git a/src/cli/review/index.ts b/src/cli/review/index.ts
+index 17a9dab..034a134 100644
+--- a/src/cli/review/index.ts
++++ b/src/cli/review/index.ts
+@@ -1,5 +1,9 @@
+ import type { CliFeatureModule } from '../dispatch.js';
+-import { parseCliOptions, buildChecklistParseOptions } from './parseReviewArgs.js';
++import {
++  parseCliOptions,
++  buildChecklistParseOptions,
++  buildChecklistDisplayParseOptions,
++} from './parseReviewArgs.js';
+ import { initializeLogger, getLogger, flushLogger, runWithLogContext } from '../../lib/logger.js';
+ import {
+   validateRequiredParams,
+@@ -62,6 +66,13 @@ export async function run(args: string[]): Promise<void> {
+     const checklistParseOptions = buildChecklistParseOptions(options);
+     const checklist = ChecklistParser.parse(checklistCsv, checklistParseOptions);
+ 
++    // レビュー結果コメント表示用のチェック項目テキストを生成する
++    const checkItemDisplayContents = ChecklistParser.parseDisplayContentMap(
++      checklistCsv,
++      checklistParseOptions,
++      buildChecklistDisplayParseOptions(options),
++    );
++
+     const reviewSettings = options.reviewSettings
+       ? ReviewSettingsParser.parse(fs.readFileSync(options.reviewSettings, 'utf-8'))
+       : ReviewSettings.default();
+@@ -186,6 +197,8 @@ export async function run(args: string[]): Promise<void> {
+             headSha: apiResult.headSha,
+             startSha: apiResult.startSha,
+             mrCommentTitle: reviewSettings.mrCommentTitle,
++            reviewCommentLayout: reviewSettings.reviewCommentLayout,
++            checkItemDisplayContents,
+           });
+         }
+ 
+@@ -287,6 +300,8 @@ export async function run(args: string[]): Promise<void> {
+           headSha: reviewResult.headSha,
+           startSha: reviewResult.startSha,
+           mrCommentTitle: reviewSettings.mrCommentTitle,
++          reviewCommentLayout: reviewSettings.reviewCommentLayout,
++          checkItemDisplayContents,
+         });
+       }
+ 
+diff --git a/src/cli/review/parseReviewArgs.ts b/src/cli/review/parseReviewArgs.ts
+index 0985929..62b74e2 100644
+--- a/src/cli/review/parseReviewArgs.ts
++++ b/src/cli/review/parseReviewArgs.ts
+@@ -19,6 +19,8 @@ export interface CliOptions {
+   checklist?: string;
+   checklistColumns?: string;
+   checklistNoHeader: boolean;
++  /** レビュー結果コメントに表示する列番号（カンマ区切り、1始まり）。未指定時はchecklistColumnsと同じ */
++  checklistDisplayColumns?: string;
+   reviewSettings?: string;
+   skills?: string;
+   logLevel: string;
+@@ -68,6 +70,9 @@ export function parseCliOptions(
+       case '--checklist-no-header':
+         parsed['checklistNoHeader'] = true;
+         break;
++      case '--checklist-display-columns':
++        parsed['checklistDisplayColumns'] = args[++i]!;
++        break;
+       case '--review-settings':
+         parsed['reviewSettings'] = args[++i]!;
+         break;
+@@ -114,6 +119,8 @@ export function parseCliOptions(
+         : env['CHECKLIST_NO_HEADER'] !== undefined
+           ? env['CHECKLIST_NO_HEADER'] === 'true'
+           : false,
++    checklistDisplayColumns:
++      (parsed['checklistDisplayColumns'] as string) ?? env['CHECKLIST_DISPLAY_COLUMNS'],
+     reviewSettings: (parsed['reviewSettings'] as string) ?? env['REVIEW_SETTINGS_PATH'],
+     skills: (parsed['skills'] as string) ?? env['SKILLS_PATH'],
+     logLevel: (parsed['logLevel'] as string) ?? env['AIKATA_LOG_LEVEL'] ?? 'info',
+@@ -136,23 +143,42 @@ export function parseCliOptions(
+ }
+ 
+ /**
+- * CLIオプションからChecklistParseOptionsを構築する
++ * カンマ区切りの列番号指定を数値配列に変換する
++ * 空文字・未指定の場合はnull（全列）を返す
++ */
++function parseColumnNumbers(value: string | undefined): number[] | null {
++  if (!value?.trim()) {
++    return null;
++  }
++
++  return value.split(',').map((s) => {
++    const n = Number(s.trim());
++    if (!Number.isInteger(n) || n < 1) {
++      throw new Error(`Invalid column number: ${s.trim()}`);
++    }
++    return n;
++  });
++}
++
++/**
++ * CLIオプションからAI指示用のChecklistParseOptionsを構築する
+  */
+ export function buildChecklistParseOptions(options: CliOptions): ChecklistParseOptions {
+-  let columns: number[] | null = null;
++  return {
++    columns: parseColumnNumbers(options.checklistColumns),
++    noHeader: options.checklistNoHeader,
++  };
++}
+ 
+-  if (options.checklistColumns?.trim()) {
+-    columns = options.checklistColumns.split(',').map((s) => {
+-      const n = Number(s.trim());
+-      if (!Number.isInteger(n) || n < 1) {
+-        throw new Error(`Invalid column number: ${s.trim()}`);
+-      }
+-      return n;
+-    });
+-  }
++/**
++ * CLIオプションからレビュー結果コメント表示用のChecklistParseOptionsを構築する
++ * 表示用の列が未指定の場合はAI指示用と同じ列を使用する（従来と同一表示）
++ */
++export function buildChecklistDisplayParseOptions(options: CliOptions): ChecklistParseOptions {
++  const displayColumns = parseColumnNumbers(options.checklistDisplayColumns);
+ 
+   return {
+-    columns,
++    columns: displayColumns ?? parseColumnNumbers(options.checklistColumns),
+     noHeader: options.checklistNoHeader,
+   };
+ }
+diff --git a/src/domain/review/reviewSettings/ReviewSettings.ts b/src/domain/review/reviewSettings/ReviewSettings.ts
+index b125cc2..52e9890 100644
+--- a/src/domain/review/reviewSettings/ReviewSettings.ts
++++ b/src/domain/review/reviewSettings/ReviewSettings.ts
+@@ -21,6 +21,19 @@ const DEFAULT_RATINGS = [
+ /** デフォルトのMRコメントタイトル */
+ export const DEFAULT_MR_COMMENT_TITLE = 'AIKATA-PR レビュー結果';
+ 
++/** 選択可能なレビューコメントレイアウトの一覧 */
++export const REVIEW_COMMENT_LAYOUTS = ['table', 'sections'] as const;
++
++/**
++ * レビュー結果コメントの出力レイアウト
++ * - table: チェック項目・評定・コメントの3列テーブル（従来形式）
++ * - sections: チェック項目・評定の2列サマリテーブル + テーブル外に詳細をMarkdownで展開
++ */
++export type ReviewCommentLayout = (typeof REVIEW_COMMENT_LAYOUTS)[number];
++
++/** デフォルトのレビューコメントレイアウト */
++export const DEFAULT_REVIEW_COMMENT_LAYOUT: ReviewCommentLayout = 'table';
++
+ /** ReviewSettingsのコンストラクタパラメータ */
+ interface ReviewSettingsParams {
+   additionalInstructions: string;
+@@ -31,6 +44,7 @@ interface ReviewSettingsParams {
+   suggestEnabledRatingLabels: string[];
+   qualityGate: QualityGate;
+   mrCommentTitle: string;
++  reviewCommentLayout: ReviewCommentLayout;
+ }
+ 
+ /**
+@@ -46,6 +60,7 @@ export class ReviewSettings {
+   readonly suggestEnabledRatingLabels: string[];
+   readonly qualityGate: QualityGate;
+   readonly mrCommentTitle: string;
++  readonly reviewCommentLayout: ReviewCommentLayout;
+ 
+   constructor(params: ReviewSettingsParams) {
+     if (params.concurrentReviewCount !== null && params.concurrentReviewCount < 1) {
+@@ -57,6 +72,11 @@ export class ReviewSettings {
+     if (params.mrCommentTitle.length === 0) {
+       throw new Error('mrCommentTitle must not be empty');
+     }
++    if (!REVIEW_COMMENT_LAYOUTS.includes(params.reviewCommentLayout)) {
++      throw new Error(
++        `reviewCommentLayout must be one of: ${REVIEW_COMMENT_LAYOUTS.join(', ')}. Got: ${params.reviewCommentLayout}`,
++      );
++    }
+     const ratingLabels = new Set(params.ratings.map((r) => r.label));
+     // out-of-scope の予約フォールバックラベルは ratings に未登録でも常に許容する
+     const isAcceptedLabel = (label: string): boolean =>
+@@ -86,6 +106,7 @@ export class ReviewSettings {
+     this.suggestEnabledRatingLabels = params.suggestEnabledRatingLabels;
+     this.qualityGate = params.qualityGate;
+     this.mrCommentTitle = params.mrCommentTitle;
++    this.reviewCommentLayout = params.reviewCommentLayout;
+   }
+ 
+   /** suggestが有効かどうか判定する */
+@@ -104,6 +125,7 @@ export class ReviewSettings {
+       suggestEnabledRatingLabels: ['C'],
+       qualityGate: QualityGate.none(),
+       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++      reviewCommentLayout: DEFAULT_REVIEW_COMMENT_LAYOUT,
+     });
+   }
+ }
+diff --git a/src/domain/review/reviewSettings/__tests__/ReviewSettings.test.ts b/src/domain/review/reviewSettings/__tests__/ReviewSettings.test.ts
+index bdd7072..4e9abd0 100644
+--- a/src/domain/review/reviewSettings/__tests__/ReviewSettings.test.ts
++++ b/src/domain/review/reviewSettings/__tests__/ReviewSettings.test.ts
+@@ -16,6 +16,7 @@ describe('ReviewSettings', () => {
+       suggestEnabledRatingLabels: ['B'],
+       qualityGate,
+       mrCommentTitle: 'API基盤チェック',
++      reviewCommentLayout: 'table',
+     });
+     expect(settings.additionalInstructions).toBe('追加指示');
+     expect(settings.concurrentReviewCount).toBe(3);
+@@ -37,6 +38,7 @@ describe('ReviewSettings', () => {
+       suggestEnabledRatingLabels: [],
+       qualityGate: QualityGate.none(),
+       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++      reviewCommentLayout: 'table',
+     });
+     expect(settings.concurrentReviewCount).toBeNull();
+   });
+@@ -66,6 +68,7 @@ describe('ReviewSettings', () => {
+           suggestEnabledRatingLabels: [],
+           qualityGate: QualityGate.none(),
+           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++          reviewCommentLayout: 'table',
+         }),
+     ).toThrow();
+     expect(
+@@ -79,6 +82,7 @@ describe('ReviewSettings', () => {
+           suggestEnabledRatingLabels: [],
+           qualityGate: QualityGate.none(),
+           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++          reviewCommentLayout: 'table',
+         }),
+     ).toThrow();
+   });
+@@ -95,6 +99,7 @@ describe('ReviewSettings', () => {
+           suggestEnabledRatingLabels: [],
+           qualityGate: QualityGate.none(),
+           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++          reviewCommentLayout: 'table',
+         }),
+     ).toThrow();
+   });
+@@ -109,6 +114,7 @@ describe('ReviewSettings', () => {
+       suggestEnabledRatingLabels: [],
+       qualityGate: QualityGate.none(),
+       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++      reviewCommentLayout: 'table',
+     });
+     expect(settings.hiddenRatingLabels).toEqual([]);
+   });
+@@ -123,6 +129,7 @@ describe('ReviewSettings', () => {
+       suggestEnabledRatingLabels: [],
+       qualityGate: QualityGate.none(),
+       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++      reviewCommentLayout: 'table',
+     });
+     expect(settings.hiddenRatingLabels).toEqual(['A', 'B']);
+   });
+@@ -139,6 +146,7 @@ describe('ReviewSettings', () => {
+           suggestEnabledRatingLabels: [],
+           qualityGate: QualityGate.none(),
+           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++          reviewCommentLayout: 'table',
+         }),
+     ).toThrow();
+   });
+@@ -154,6 +162,7 @@ describe('ReviewSettings', () => {
+       suggestEnabledRatingLabels: [],
+       qualityGate,
+       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++      reviewCommentLayout: 'table',
+     });
+     expect(settings.qualityGate.failureCriteria).toHaveLength(1);
+   });
+@@ -170,6 +179,7 @@ describe('ReviewSettings', () => {
+           suggestEnabledRatingLabels: [],
+           qualityGate: new QualityGate([{ ratingLabel: 'X', threshold: 1 }]),
+           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++          reviewCommentLayout: 'table',
+         }),
+     ).toThrow();
+   });
+@@ -190,6 +200,7 @@ describe('ReviewSettings', () => {
+         suggestEnabledRatingLabels: ['B', 'C'],
+         qualityGate: QualityGate.none(),
+         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++        reviewCommentLayout: 'table',
+       });
+       expect(settings.suggestEnabledRatingLabels).toEqual(['B', 'C']);
+     });
+@@ -204,6 +215,7 @@ describe('ReviewSettings', () => {
+         suggestEnabledRatingLabels: [],
+         qualityGate: QualityGate.none(),
+         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++        reviewCommentLayout: 'table',
+       });
+       expect(settings.suggestEnabledRatingLabels).toEqual([]);
+     });
+@@ -220,6 +232,7 @@ describe('ReviewSettings', () => {
+             suggestEnabledRatingLabels: ['X'],
+             qualityGate: QualityGate.none(),
+             mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++            reviewCommentLayout: 'table',
+           }),
+       ).toThrow('suggestEnabledRatingLabels contains unknown label: X');
+     });
+@@ -241,6 +254,7 @@ describe('ReviewSettings', () => {
+         suggestEnabledRatingLabels: [],
+         qualityGate: QualityGate.none(),
+         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++        reviewCommentLayout: 'table',
+       });
+       expect(settings.isSuggestEnabled()).toBe(false);
+     });
+@@ -257,6 +271,7 @@ describe('ReviewSettings', () => {
+         suggestEnabledRatingLabels: [],
+         qualityGate: QualityGate.none(),
+         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++        reviewCommentLayout: 'table',
+       });
+       expect(settings.hiddenRatingLabels).toEqual(['-']);
+     });
+@@ -271,6 +286,7 @@ describe('ReviewSettings', () => {
+         suggestEnabledRatingLabels: ['-'],
+         qualityGate: QualityGate.none(),
+         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++        reviewCommentLayout: 'table',
+       });
+       expect(settings.suggestEnabledRatingLabels).toEqual(['-']);
+     });
+@@ -286,6 +302,7 @@ describe('ReviewSettings', () => {
+         suggestEnabledRatingLabels: [],
+         qualityGate,
+         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++        reviewCommentLayout: 'table',
+       });
+       expect(settings.qualityGate.failureCriteria[0].ratingLabel).toBe('-');
+     });
+@@ -302,6 +319,7 @@ describe('ReviewSettings', () => {
+         suggestEnabledRatingLabels: [],
+         qualityGate: QualityGate.none(),
+         mrCommentTitle: 'フロントエンドチェック',
++        reviewCommentLayout: 'table',
+       });
+       expect(settings.mrCommentTitle).toBe('フロントエンドチェック');
+     });
+@@ -318,8 +336,50 @@ describe('ReviewSettings', () => {
+             suggestEnabledRatingLabels: [],
+             qualityGate: QualityGate.none(),
+             mrCommentTitle: '',
++            reviewCommentLayout: 'table',
+           }),
+       ).toThrow('mrCommentTitle must not be empty');
+     });
+   });
++
++  describe('reviewCommentLayout', () => {
++    const buildParams = (reviewCommentLayout: string) => ({
++      additionalInstructions: '',
++      concurrentReviewCount: null,
++      commentFormat: '{comment}',
++      ratings: [new Rating('A', 'def')],
++      hiddenRatingLabels: [],
++      suggestEnabledRatingLabels: [],
++      qualityGate: QualityGate.none(),
++      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
++      reviewCommentLayout,
++    });
++
++    it("'table' を指定できる", () => {
++      const settings = new ReviewSettings(
++        buildParams('table') as ConstructorParameters<typeof ReviewSettings>[0],
++      );
++      expect(settings.reviewCommentLayout).toBe('table');
++    });
++
++    it("'sections' を指定できる", () => {
++      const settings = new ReviewSettings(
++        buildParams('sections') as ConstructorParameters<typeof ReviewSettings>[0],
++      );
++      expect(settings.reviewCommentLayout).toBe('sections');
++    });
++
++    it('未知のレイアウトを指定した場合はエラーになる', () => {
++      expect(
++        () =>
++          new ReviewSettings(
++            buildParams('unknown') as ConstructorParameters<typeof ReviewSettings>[0],
++          ),
++      ).toThrow('reviewCommentLayout must be one of: table, sections');
++    });
++
++    it('デフォルト設定では table になる', () => {
++      expect(ReviewSettings.default().reviewCommentLayout).toBe('table');
++    });
++  });
+ });
+diff --git a/src/domain/review/reviewSettings/index.ts b/src/domain/review/reviewSettings/index.ts
+index 0e94bd1..1568efa 100644
+--- a/src/domain/review/reviewSettings/index.ts
++++ b/src/domain/review/reviewSettings/index.ts
+@@ -1 +1,7 @@
+-export { ReviewSettings, DEFAULT_MR_COMMENT_TITLE } from './ReviewSettings.js';
++export {
++  ReviewSettings,
++  DEFAULT_MR_COMMENT_TITLE,
++  DEFAULT_REVIEW_COMMENT_LAYOUT,
++  REVIEW_COMMENT_LAYOUTS,
++} from './ReviewSettings.js';
++export type { ReviewCommentLayout } from './ReviewSettings.js';
+diff --git a/src/presentation/api/review/__tests__/reviewHandler.test.ts b/src/presentation/api/review/__tests__/reviewHandler.test.ts
+index 6d9a9f4..0855ac2 100644
+--- a/src/presentation/api/review/__tests__/reviewHandler.test.ts
++++ b/src/presentation/api/review/__tests__/reviewHandler.test.ts
+@@ -240,4 +240,10 @@ describe('buildReviewSettings', () => {
+     const settings = buildReviewSettings({});
+     expect(settings.mrCommentTitle).toBe('AIKATA-PR レビュー結果');
+   });
++
++  it('reviewCommentLayoutは常にデフォルト値になること（コメント整形はCLI側で行うため）', () => {
++    // APIサーバはコメント整形を行わないため、リクエストに含まれなくてもデフォルトで構築できる
++    expect(buildReviewSettings({}).reviewCommentLayout).toBe('table');
++    expect(buildReviewSettings(undefined).reviewCommentLayout).toBe('table');
++  });
+ });
+diff --git a/src/presentation/api/review/reviewHandler.ts b/src/presentation/api/review/reviewHandler.ts
+index 091450a..4eaa1a3 100644
+--- a/src/presentation/api/review/reviewHandler.ts
++++ b/src/presentation/api/review/reviewHandler.ts
+@@ -415,5 +415,7 @@ export function buildReviewSettings(settings: ReviewRequest['reviewSettings']):
+       settings.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
+     qualityGate,
+     mrCommentTitle: settings.mrCommentTitle ?? defaults.mrCommentTitle,
++    // コメント整形はCLI側で行うため、APIサーバでは常にデフォルトを用いる
++    reviewCommentLayout: defaults.reviewCommentLayout,
+   });
+ }
