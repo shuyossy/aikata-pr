@@ -71,6 +71,7 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
     - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス
     - `--checklist-columns` / `CHECKLIST_COLUMNS`: チェックリストCSVの抽出列番号（カンマ区切り、1始まり）
     - `--checklist-no-header` / `CHECKLIST_NO_HEADER`: 抽出列が1列の場合にヘッダを除外するか（デフォルト: `false`）
+    - `--checklist-display-columns` / `CHECKLIST_DISPLAY_COLUMNS`: レビュー結果コメントに表示する列番号（カンマ区切り、1始まり）。未指定時は `--checklist-columns` と同じ列を使用
     - `--review-settings` / `REVIEW_SETTINGS_PATH`: レビュー設定ファイルパス
   - pipeline-report サブコマンド固有CLIオプション
     - `--pipeline-id` / `GITLAB_PIPELINE_ID` / `CI_PIPELINE_ID`: 分析対象のパイプラインID

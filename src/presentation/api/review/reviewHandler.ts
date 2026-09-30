@@ -415,5 +415,7 @@ export function buildReviewSettings(settings: ReviewRequest['reviewSettings']): 
       settings.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
     qualityGate,
     mrCommentTitle: settings.mrCommentTitle ?? defaults.mrCommentTitle,
+    // コメント整形はCLI側で行うため、APIサーバでは常にデフォルトを用いる
+    reviewCommentLayout: defaults.reviewCommentLayout,
   });
 }

@@ -19,15 +19,17 @@ export class CommentPostingService {
    */
   async execute(command: CommentPostingCommand): Promise<void> {
     // コメントのMarkdownテキストを生成
-    const body = CommentFormatter.formatComment(
-      command.results,
-      command.ratings,
-      command.commitHash,
-      command.commitMessage,
-      command.hiddenRatingLabels,
-      command.qualityGateResult,
-      command.mrCommentTitle,
-    );
+    const body = CommentFormatter.formatComment({
+      results: command.results,
+      ratings: command.ratings,
+      commitHash: command.commitHash,
+      commitMessage: command.commitMessage,
+      hiddenRatingLabels: command.hiddenRatingLabels,
+      qualityGateResult: command.qualityGateResult,
+      mrCommentTitle: command.mrCommentTitle,
+      layout: command.reviewCommentLayout,
+      checkItemDisplayContents: command.checkItemDisplayContents,
+    });
 
     // 全結果が非表示評定に該当する場合はノート、それ以外はディスカッションとして投稿
     if (ReviewResult.allAreHidden(command.results, command.hiddenRatingLabels)) {
@@ -54,7 +56,10 @@ export class CommentPostingService {
     // 新suggestディスカッションを投稿（個別失敗時は警告ログを出力して継続）
     for (const resolved of command.suggestions) {
       try {
-        const suggestBody = SuggestCommentFormatter.format(resolved);
+        const suggestBody = SuggestCommentFormatter.format(
+          resolved,
+          command.checkItemDisplayContents,
+        );
         await this.mrDiscussionGateway.postSuggestDiscussion(
           command.projectId,
           command.mrIid,

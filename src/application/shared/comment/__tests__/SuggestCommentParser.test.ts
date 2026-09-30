@@ -36,7 +36,7 @@ const createFormattedBody = (
     newPath: 'src/test.ts',
   });
 
-  return SuggestCommentFormatter.format(resolved);
+  return SuggestCommentFormatter.format(resolved, new Map());
 };
 
 describe('SuggestCommentParser', () => {

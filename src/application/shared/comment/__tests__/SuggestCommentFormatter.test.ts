@@ -48,7 +48,7 @@ describe('SuggestCommentFormatter', () => {
   describe('format', () => {
     it('出力にsuggestマーカーが含まれる', () => {
       const resolved = createResolvedSuggestion();
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       expect(output).toContain(SUGGEST_MARKER);
     });
 
@@ -60,7 +60,7 @@ describe('SuggestCommentFormatter', () => {
         suggestedCode: 'return result',
         comment: 'メタデータ検証用コメント',
       });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
 
       // メタデータのプレフィックス・サフィックスが含まれる
       expect(output).toContain(SUGGEST_DATA_PREFIX);
@@ -82,31 +82,31 @@ describe('SuggestCommentFormatter', () => {
 
     it('出力にチェック項目ヘッダーが含まれる', () => {
       const resolved = createResolvedSuggestion({ checkItemContent: 'コードレビュー項目' });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       expect(output).toContain('**チェック項目:**<br>コードレビュー項目');
     });
 
     it('出力にコメントテキストが含まれる', () => {
       const resolved = createResolvedSuggestion({ comment: '修正を推奨します' });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       expect(output).toContain('修正を推奨します');
     });
 
     it('正しいsuggestion構文（```suggestion:-X+Y）が含まれる', () => {
       const resolved = createResolvedSuggestion({ linesAbove: 2, linesBelow: 1 });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       expect(output).toContain('```suggestion:-2+1');
     });
 
     it('単一行suggest（linesAbove=0, linesBelow=0）の場合 ```suggestion:-0+0 になる', () => {
       const resolved = createResolvedSuggestion({ linesAbove: 0, linesBelow: 0 });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       expect(output).toContain('```suggestion:-0+0');
     });
 
     it('複数行suggest（linesAbove=5, linesBelow=3）の場合 ```suggestion:-5+3 になる', () => {
       const resolved = createResolvedSuggestion({ linesAbove: 5, linesBelow: 3 });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       expect(output).toContain('```suggestion:-5+3');
     });
 
@@ -115,7 +115,7 @@ describe('SuggestCommentFormatter', () => {
         checkItemContent:
           'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLインジェクション対策\n---',
       });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       expect(output).toContain(
         '**チェック項目:**<br><カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>---',
       );
@@ -129,7 +129,7 @@ describe('SuggestCommentFormatter', () => {
         suggestedCode: 'const x = 1;',
         comment: 'ラウンドトリップ用コメント',
       });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       const parsed = SuggestCommentParser.parse(output);
 
       expect(parsed).not.toBeNull();
@@ -141,12 +141,60 @@ describe('SuggestCommentFormatter', () => {
         linesAbove: 3,
         linesBelow: 2,
       });
-      const output = SuggestCommentFormatter.format(resolved);
+      const output = SuggestCommentFormatter.format(resolved, new Map());
       const range = SuggestCommentParser.parseSuggestionRange(output);
 
       expect(range).not.toBeNull();
       expect(range!.linesAbove).toBe(3);
       expect(range!.linesBelow).toBe(2);
+    });
+  });
+
+  describe('checkItemDisplayContents', () => {
+    const aiContent = 'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則\n---';
+
+    /** 表示確認用のResolvedSuggestionを生成する */
+    const createResolved = (): ResolvedSuggestion =>
+      new ResolvedSuggestion({
+        suggestion: new Suggestion({
+          checkItemContent: aiContent,
+          filePath: 'src/a.ts',
+          originalCode: 'const a = 1;',
+          suggestedCode: 'const alpha = 1;',
+          comment: '命名を修正してください',
+        }),
+        newLine: 10,
+        linesAbove: 0,
+        linesBelow: 0,
+        oldPath: 'src/a.ts',
+        newPath: 'src/a.ts',
+      });
+
+    it('表示用contentが登録されている場合はヘッダ表示に使われる', () => {
+      const output = SuggestCommentFormatter.format(
+        createResolved(),
+        new Map([[aiContent, 'チェック項目:\n---\n命名規則\n---']]),
+      );
+
+      expect(output).toContain('**チェック項目:**<br><チェック項目><br>命名規則<br>---');
+      expect(output).not.toContain('<カテゴリ>');
+    });
+
+    it('メタデータのcheckItemContentは表示用ではなくAI用contentのままになる', () => {
+      const output = SuggestCommentFormatter.format(
+        createResolved(),
+        new Map([[aiContent, 'チェック項目:\n---\n命名規則\n---']]),
+      );
+
+      expect(output).toContain(
+        `${SUGGEST_DATA_PREFIX}${JSON.stringify({ checkItemContent: aiContent })}${SUGGEST_DATA_SUFFIX}`,
+      );
+    });
+
+    it('表示用contentが未登録の場合はAI用contentがそのまま表示される', () => {
+      const output = SuggestCommentFormatter.format(createResolved(), new Map());
+
+      expect(output).toContain('<カテゴリ><br>設計<br>---');
     });
   });
 });

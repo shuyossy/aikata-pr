@@ -9,12 +9,33 @@ import type { ChecklistParseOptions } from './ChecklistParseOptions.js';
  */
 export class ChecklistParser {
   /**
-   * CSV文字���からChecklistを生成する
+   * CSV文字列からChecklistを生成する
    *
    * CSVの先頭行をヘッダとして扱い、各データ行を1つのチェック項目に変換する。
    * デフォルトでは全列をヘッダ付きフォーマットで出力する。
    */
   static parse(csv: string, options: ChecklistParseOptions): Checklist {
+    const items = ChecklistParser.buildContents(csv, options).map(
+      (content) => new CheckItem(content),
+    );
+    return new Checklist(items);
+  }
+
+  /**
+   * CSV文字列からレビュー結果コメント表示用のテキスト配列を生成する
+   *
+   * parse()と同じフォーマットロジックでデータ行ごとのテキストを返すが、
+   * CheckItemを経由しないため空セルでも例外にならない（表示専用のため）。
+   * 返却される配列の順序はparse()が返すChecklistのitemsと一致する。
+   */
+  static parseDisplayContents(csv: string, options: ChecklistParseOptions): string[] {
+    return ChecklistParser.buildContents(csv, options);
+  }
+
+  /**
+   * CSV文字列を解析し、データ行ごとのチェック項目テキストを生成する
+   */
+  private static buildContents(csv: string, options: ChecklistParseOptions): string[] {
     if (csv.trim() === '') {
       throw new Error('CSV content must not be empty');
     }
@@ -57,20 +78,16 @@ export class ChecklistParser {
     // noHeaderが有効かどうか判定（抽出列が1列の場合のみ）
     const useNoHeader = options.noHeader && selectedHeaders.length === 1;
 
-    // 各データ行をチェック項目にフォーマット
-    const items = dataRows.map((row) => {
-      const content = useNoHeader
+    // 各データ行をチェック項目のテキストにフォーマット
+    return dataRows.map((row) =>
+      useNoHeader
         ? (row[columnIndices[0]!] ?? '')
         : selectedHeaders
             .map((header, i) => {
               const value = row[columnIndices[i]!] ?? '';
               return `${header}:\n---\n${value}\n---`;
             })
-            .join('\n\n');
-
-      return new CheckItem(content);
-    });
-
-    return new Checklist(items);
+            .join('\n\n'),
+    );
   }
 }

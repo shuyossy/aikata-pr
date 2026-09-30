@@ -1,5 +1,9 @@
 import type { CliFeatureModule } from '../dispatch.js';
-import { parseCliOptions, buildChecklistParseOptions } from './parseReviewArgs.js';
+import {
+  parseCliOptions,
+  buildChecklistParseOptions,
+  buildChecklistDisplayParseOptions,
+} from './parseReviewArgs.js';
 import { initializeLogger, getLogger, flushLogger, runWithLogContext } from '../../lib/logger.js';
 import {
   validateRequiredParams,
@@ -61,6 +65,16 @@ export async function run(args: string[]): Promise<void> {
     const checklistCsv = fs.readFileSync(validated.checklistPath, 'utf-8');
     const checklistParseOptions = buildChecklistParseOptions(options);
     const checklist = ChecklistParser.parse(checklistCsv, checklistParseOptions);
+
+    // レビュー結果コメント表示用のチェック項目テキストを生成する
+    // 同一CSVの同一データ行を走査するためChecklistのitemsと順序が一致する
+    const displayContents = ChecklistParser.parseDisplayContents(
+      checklistCsv,
+      buildChecklistDisplayParseOptions(options),
+    );
+    const checkItemDisplayContents = new Map(
+      checklist.items.map((item, i) => [item.content, displayContents[i] ?? item.content]),
+    );
 
     const reviewSettings = options.reviewSettings
       ? ReviewSettingsParser.parse(fs.readFileSync(options.reviewSettings, 'utf-8'))
@@ -186,6 +200,8 @@ export async function run(args: string[]): Promise<void> {
             headSha: apiResult.headSha,
             startSha: apiResult.startSha,
             mrCommentTitle: reviewSettings.mrCommentTitle,
+            reviewCommentLayout: reviewSettings.reviewCommentLayout,
+            checkItemDisplayContents,
           });
         }
 
@@ -287,6 +303,8 @@ export async function run(args: string[]): Promise<void> {
           headSha: reviewResult.headSha,
           startSha: reviewResult.startSha,
           mrCommentTitle: reviewSettings.mrCommentTitle,
+          reviewCommentLayout: reviewSettings.reviewCommentLayout,
+          checkItemDisplayContents,
         });
       }
 

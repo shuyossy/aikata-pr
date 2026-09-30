@@ -80,6 +80,8 @@ describe('CommentPostingService', () => {
     headSha: 'head-sha-111',
     startSha: 'start-sha-222',
     mrCommentTitle: 'AIKATA-PR レビュー結果',
+    reviewCommentLayout: 'table',
+    checkItemDisplayContents: new Map(),
     ...overrides,
   });
 
@@ -94,15 +96,17 @@ describe('CommentPostingService', () => {
     // postDiscussionが呼ばれたことを確認（非表示なしの場合）
     expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledOnce();
     // 投稿されたbodyがformatCommentの戻り値であることを確認
-    const expectedBody = CommentFormatter.formatComment(
-      command.results,
-      command.ratings,
-      command.commitHash,
-      command.commitMessage,
-      command.hiddenRatingLabels,
-      command.qualityGateResult,
-      command.mrCommentTitle,
-    );
+    const expectedBody = CommentFormatter.formatComment({
+      results: command.results,
+      ratings: command.ratings,
+      commitHash: command.commitHash,
+      commitMessage: command.commitMessage,
+      hiddenRatingLabels: command.hiddenRatingLabels,
+      qualityGateResult: command.qualityGateResult,
+      mrCommentTitle: command.mrCommentTitle,
+      layout: 'table',
+      checkItemDisplayContents: new Map(),
+    });
     expect(mrDiscussionGateway.postReviewDiscussion).toHaveBeenCalledWith(
       '123',
       '42',
@@ -187,15 +191,17 @@ describe('CommentPostingService', () => {
 
     await service.execute(command);
 
-    expect(formatSpy).toHaveBeenCalledWith(
+    expect(formatSpy).toHaveBeenCalledWith({
       results,
       ratings,
-      'def456',
-      'fix: bug fix',
-      ['A'],
+      commitHash: 'def456',
+      commitMessage: 'fix: bug fix',
+      hiddenRatingLabels: ['A'],
       qualityGateResult,
-      'AIKATA-PR レビュー結果',
-    );
+      mrCommentTitle: 'AIKATA-PR レビュー結果',
+      layout: 'table',
+      checkItemDisplayContents: command.checkItemDisplayContents,
+    });
 
     formatSpy.mockRestore();
   });
@@ -206,15 +212,17 @@ describe('CommentPostingService', () => {
 
     await service.execute(command);
 
-    expect(formatSpy).toHaveBeenCalledWith(
-      command.results,
-      command.ratings,
-      command.commitHash,
-      command.commitMessage,
-      command.hiddenRatingLabels,
-      command.qualityGateResult,
-      'API基盤チェック',
-    );
+    expect(formatSpy).toHaveBeenCalledWith({
+      results: command.results,
+      ratings: command.ratings,
+      commitHash: command.commitHash,
+      commitMessage: command.commitMessage,
+      hiddenRatingLabels: command.hiddenRatingLabels,
+      qualityGateResult: command.qualityGateResult,
+      mrCommentTitle: 'API基盤チェック',
+      layout: 'table',
+      checkItemDisplayContents: command.checkItemDisplayContents,
+    });
 
     formatSpy.mockRestore();
   });
@@ -386,7 +394,7 @@ describe('CommentPostingService', () => {
 
       expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenCalledTimes(2);
 
-      const expectedBody1 = SuggestCommentFormatter.format(suggestion1);
+      const expectedBody1 = SuggestCommentFormatter.format(suggestion1, new Map());
       expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenNthCalledWith(
         1,
         '123',
@@ -402,7 +410,7 @@ describe('CommentPostingService', () => {
         },
       );
 
-      const expectedBody2 = SuggestCommentFormatter.format(suggestion2);
+      const expectedBody2 = SuggestCommentFormatter.format(suggestion2, new Map());
       expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenNthCalledWith(
         2,
         '123',
@@ -490,6 +498,44 @@ describe('CommentPostingService', () => {
       expect(mrDiscussionGateway.resolveDiscussion).toHaveBeenCalledWith('123', '42', 'old-disc-1');
       // 新suggestの投稿が行われていること
       expect(mrDiscussionGateway.postSuggestDiscussion).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('レイアウト・表示用contentの伝播', () => {
+    it('reviewCommentLayoutがCommentFormatterに透過的に渡されること', async () => {
+      const command = createCommand({ reviewCommentLayout: 'sections' });
+      const formatSpy = vi.spyOn(CommentFormatter, 'formatComment');
+
+      await service.execute(command);
+
+      expect(formatSpy).toHaveBeenCalledWith(expect.objectContaining({ layout: 'sections' }));
+
+      formatSpy.mockRestore();
+    });
+
+    it('checkItemDisplayContentsがCommentFormatterに透過的に渡されること', async () => {
+      const displayContents = new Map([['コードの可読性', '可読性']]);
+      const command = createCommand({ checkItemDisplayContents: displayContents });
+      const formatSpy = vi.spyOn(CommentFormatter, 'formatComment');
+
+      await service.execute(command);
+
+      expect(formatSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ checkItemDisplayContents: displayContents }),
+      );
+
+      formatSpy.mockRestore();
+    });
+
+    it('sectionsレイアウトを指定した場合は詳細セクション付きのコメントが投稿されること', async () => {
+      const command = createCommand({ reviewCommentLayout: 'sections' });
+
+      await service.execute(command);
+
+      const body = vi.mocked(mrDiscussionGateway.postReviewDiscussion).mock.calls[0]![2];
+      expect(body).toContain('| チェック項目 | 評定 |');
+      expect(body).toContain('### コードの可読性');
+      expect(body).toContain('**評定**: A');
     });
   });
 });

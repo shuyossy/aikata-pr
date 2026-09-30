@@ -49,15 +49,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       // テーブルヘッダの確認
       expect(output).toContain('| チェック項目 | 評定 | コメント |');
@@ -76,15 +78,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('## AIKATA-PR レビュー結果');
     });
@@ -98,15 +102,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'API基盤チェック',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'API基盤チェック',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('## API基盤チェック');
       expect(output).not.toContain('## AIKATA-PR レビュー結果');
@@ -121,15 +127,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        'feat: implement login',
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: 'feat: implement login',
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('レビュー時最新コミット: feat: implement login');
     });
@@ -143,15 +151,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain(REVIEW_MARKER);
     });
@@ -165,15 +175,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       // メタデータマーカーの存在確認
       expect(output).toContain(REVIEW_DATA_PREFIX);
@@ -200,15 +212,17 @@ describe('CommentFormatter', () => {
         ReviewResult.error(new CheckItem('エラーのチェック項目'), 'Timeout occurred'),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('| エラーのチェック項目 | エラー | Timeout occurred |');
     });
@@ -216,15 +230,17 @@ describe('CommentFormatter', () => {
     it('15項目超の場合は折りたたみ形式になる', () => {
       const results = createResults(FOLD_THRESHOLD + 1);
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('<details>');
       expect(output).toContain('<summary>');
@@ -235,15 +251,17 @@ describe('CommentFormatter', () => {
     it('15項目以下の場合は折りたたみにならない', () => {
       const results = createResults(FOLD_THRESHOLD);
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).not.toContain('<details>');
       expect(output).not.toContain('<summary>');
@@ -259,15 +277,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('| 条件A \\| 条件B の確認 | A | 問題ありません |');
     });
@@ -281,15 +301,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('| 可読性 | A | if (a \\| b) のパターンに注意 |');
     });
@@ -299,15 +321,17 @@ describe('CommentFormatter', () => {
         ReviewResult.success(new CheckItem('A|B'), new Rating('A', '完全に満たしている'), 'X|Y|Z'),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('| A\\|B | A | X\\|Y\\|Z |');
     });
@@ -321,15 +345,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('| 可読性 | A | 1行目<br>2行目<br>3行目 |');
       // 改行がそのまま残っていないことを確認（テーブル行内）
@@ -346,15 +372,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('| 項目A<br>項目B | A | コメント |');
     });
@@ -370,15 +398,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain(
         '| <カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>--- | C | 対策が不十分です |',
@@ -401,15 +431,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('| チェック項目1 | A | コメント1 |');
       expect(output).toContain('| チェック項目2 | B | コメント2 |');
@@ -429,15 +461,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        ['A'],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: ['A'],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
       expect(output).toContain('| チェック項目2 | B | コメント2 |');
@@ -457,15 +491,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        ['A'],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: ['A'],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       // メタデータのJSON部分を抽出してパース
       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
@@ -488,15 +524,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        ['A'],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: ['A'],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('| エラー項目 | エラー | タイムアウト |');
       expect(output).not.toContain('| チェック項目1 | A | コメント1 |');
@@ -511,15 +549,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        ['A'],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: ['A'],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
@@ -534,15 +574,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       const dataStart = output.indexOf(REVIEW_DATA_PREFIX) + REVIEW_DATA_PREFIX.length;
       const dataEnd = output.indexOf(REVIEW_DATA_SUFFIX, dataStart);
@@ -562,15 +604,17 @@ describe('CommentFormatter', () => {
       });
 
       // Aを非表示にすると、visible件数が減って折りたたみ閾値以下になる
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        ['A'],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: ['A'],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       // A評定の結果が非表示になるため、visible件数はFOLD_THRESHOLD以下
       expect(output).not.toContain('<details>');
@@ -587,15 +631,17 @@ describe('CommentFormatter', () => {
         ),
       ];
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        PASSED_GATE,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).not.toContain('Quality Gate Failed');
     });
@@ -614,15 +660,17 @@ describe('CommentFormatter', () => {
         violations: [{ ratingLabel: 'C', threshold: 1, actualCount: 1 }],
       };
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        gateResult,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: gateResult,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('> **⚠ Quality Gate Failed**');
       expect(output).toContain('> - Rating "C" : 1 (threshold: 1)');
@@ -639,15 +687,17 @@ describe('CommentFormatter', () => {
         ],
       };
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        gateResult,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: gateResult,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       expect(output).toContain('> - Rating "C" : 2 (threshold: 1)');
       expect(output).toContain('> - Rating "B" : 1 (threshold: 1)');
@@ -661,15 +711,17 @@ describe('CommentFormatter', () => {
         violations: [{ ratingLabel: 'C', threshold: 1, actualCount: 1 }],
       };
 
-      const output = CommentFormatter.formatComment(
-        results,
-        ratings,
-        commitHash,
-        commitMessage,
-        [],
-        gateResult,
-        'AIKATA-PR レビュー結果',
-      );
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: gateResult,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
 
       // 警告がdetails開始タグの前に表示される
       const warningStart = output.indexOf('> **⚠ Quality Gate Failed**');
@@ -691,18 +743,260 @@ describe('CommentFormatter', () => {
         violations: [{ ratingLabel: 'A', threshold: 1, actualCount: 1 }],
       };
 
-      const output = CommentFormatter.formatComment(
+      const output = CommentFormatter.formatComment({
+        results: results,
+        ratings: ratings,
+        commitHash: commitHash,
+        commitMessage: commitMessage,
+        hiddenRatingLabels: ['A'],
+        qualityGateResult: gateResult,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
+
+      expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
+      expect(output).toContain('> **⚠ Quality Gate Failed**');
+    });
+  });
+
+  describe('メタデータへのレビュー結果格納', () => {
+    /** コメント本文からメタデータJSONを取り出す */
+    const extractMetadata = (output: string): Record<string, unknown> => {
+      const line = output
+        .split('\n')
+        .find((l) => l.startsWith(REVIEW_DATA_PREFIX) && l.endsWith(REVIEW_DATA_SUFFIX));
+      if (!line) throw new Error('metadata not found');
+      return JSON.parse(
+        line.slice(REVIEW_DATA_PREFIX.length, line.length - REVIEW_DATA_SUFFIX.length),
+      ) as Record<string, unknown>;
+    };
+
+    it('可視結果が常にメタデータに格納される', () => {
+      const output = CommentFormatter.formatComment({
+        results: createResults(2),
+        ratings,
+        commitHash,
+        commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
+
+      expect(extractMetadata(output).visibleResults).toEqual([
+        { checkItemContent: 'チェック項目1', ratingLabel: 'A', comment: 'コメント1' },
+        { checkItemContent: 'チェック項目2', ratingLabel: 'B', comment: 'コメント2' },
+      ]);
+    });
+
+    it('メタデータのcheckItemContentは表示用ではなくAI用の生contentが格納される', () => {
+      const aiContent = 'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則\n---';
+      const results = [
+        ReviewResult.success(new CheckItem(aiContent), new Rating('A', '完全に満たしている'), 'OK'),
+      ];
+
+      const output = CommentFormatter.formatComment({
         results,
         ratings,
         commitHash,
         commitMessage,
-        ['A'],
-        gateResult,
-        'AIKATA-PR レビュー結果',
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map([[aiContent, 'チェック項目:\n---\n命名規則\n---']]),
+      });
+
+      const visibleResults = extractMetadata(output).visibleResults as {
+        checkItemContent: string;
+      }[];
+      expect(visibleResults[0]!.checkItemContent).toBe(aiContent);
+    });
+
+    it('エラー結果はエラー評定ラベルでメタデータに格納される', () => {
+      const results = [ReviewResult.error(new CheckItem('チェック項目1'), 'API呼び出しエラー')];
+
+      const output = CommentFormatter.formatComment({
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
+
+      expect(extractMetadata(output).visibleResults).toEqual([
+        { checkItemContent: 'チェック項目1', ratingLabel: 'エラー', comment: 'API呼び出しエラー' },
+      ]);
+    });
+
+    it('全結果が非表示の場合でも可視結果は空配列として格納される', () => {
+      const output = CommentFormatter.formatComment({
+        results: createResults(1),
+        ratings,
+        commitHash,
+        commitMessage,
+        hiddenRatingLabels: ['A'],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
+
+      const metadata = extractMetadata(output);
+      expect(metadata.visibleResults).toEqual([]);
+      expect(metadata.hiddenResults).toHaveLength(1);
+    });
+  });
+
+  describe('checkItemDisplayContents', () => {
+    const aiContent = 'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則\n---';
+    const displayContent = 'チェック項目:\n---\n命名規則\n---';
+
+    const format = (
+      layout: 'table' | 'sections',
+      displayContents: ReadonlyMap<string, string>,
+    ): string =>
+      CommentFormatter.formatComment({
+        results: [
+          ReviewResult.success(
+            new CheckItem(aiContent),
+            new Rating('A', '完全に満たしている'),
+            'OK',
+          ),
+        ],
+        ratings,
+        commitHash,
+        commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout,
+        checkItemDisplayContents: displayContents,
+      });
+
+    it('表示用contentが登録されている場合はテーブルの表示に使われる', () => {
+      const output = format('table', new Map([[aiContent, displayContent]]));
+
+      expect(output).toContain('| <チェック項目><br>命名規則<br>--- | A | OK |');
+      expect(output).not.toContain('<カテゴリ>');
+    });
+
+    it('表示用contentが未登録の場合はAI用contentがそのまま表示される', () => {
+      const output = format('table', new Map());
+
+      expect(output).toContain('<カテゴリ><br>設計<br>---<br><チェック項目><br>命名規則<br>---');
+    });
+
+    it('sectionsレイアウトの見出しにも表示用contentが使われる', () => {
+      const output = format('sections', new Map([[aiContent, displayContent]]));
+
+      expect(output).toContain('### 命名規則');
+      expect(output).not.toContain('### 設計 / 命名規則');
+    });
+  });
+
+  describe('sectionsレイアウト', () => {
+    const formatSections = (results: ReviewResult[], hiddenRatingLabels: string[] = []): string =>
+      CommentFormatter.formatComment({
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        hiddenRatingLabels,
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'sections',
+        checkItemDisplayContents: new Map(),
+      });
+
+    it('チェック項目と評定の2列サマリテーブルを生成する', () => {
+      const output = formatSections(createResults(2));
+
+      expect(output).toContain('| チェック項目 | 評定 |');
+      expect(output).toContain('| --- | --- |');
+      expect(output).toContain('| チェック項目1 | A |');
+      expect(output).toContain('| チェック項目2 | B |');
+      // 3列テーブルのヘッダは出力されない
+      expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
+    });
+
+    it('サマリテーブルの下にチェック項目ごとの詳細セクションを展開する', () => {
+      const output = formatSections(createResults(2));
+
+      expect(output).toContain('### チェック項目1');
+      expect(output).toContain('**評定**: A');
+      expect(output).toContain('### チェック項目2');
+      expect(output).toContain('**評定**: B');
+      // サマリテーブルより後に詳細が出力される
+      expect(output.indexOf('### チェック項目1')).toBeGreaterThan(
+        output.indexOf('| チェック項目1 | A |'),
       );
+    });
+
+    it('コメント本文はエスケープされず生Markdownとして出力される', () => {
+      const comment = '## 指摘事項\n\n| ファイル | 内容 |\n| --- | --- |\n| a.ts | 命名 |';
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          comment,
+        ),
+      ];
+
+      const output = formatSections(results);
+
+      expect(output).toContain(comment);
+      // テーブルセル向けのエスケープが行われていないこと
+      expect(output).not.toContain('\\|');
+      expect(output).not.toContain('| ファイル | 内容 |<br>');
+    });
+
+    it('件数が折りたたみ閾値以下の場合は詳細を折りたたまない', () => {
+      const output = formatSections(createResults(FOLD_THRESHOLD));
+
+      expect(output).not.toContain('<details>');
+    });
+
+    it('件数が折りたたみ閾値を超える場合は詳細のみを折りたたみサマリテーブルは常に表示する', () => {
+      const output = formatSections(createResults(FOLD_THRESHOLD + 1));
+
+      expect(output).toContain('<details>');
+      expect(output).toContain(`<summary>レビュー詳細（${FOLD_THRESHOLD + 1}件）</summary>`);
+      expect(output).toContain('</details>');
+      // サマリテーブルは折りたたみの外側にある
+      expect(output.indexOf('| チェック項目 | 評定 |')).toBeLessThan(output.indexOf('<details>'));
+    });
+
+    it('エラー結果は評定にエラーラベルとエラーメッセージが表示される', () => {
+      const results = [ReviewResult.error(new CheckItem('チェック項目1'), 'API呼び出しエラー')];
+
+      const output = formatSections(results);
+
+      expect(output).toContain('| チェック項目1 | エラー |');
+      expect(output).toContain('**評定**: エラー');
+      expect(output).toContain('API呼び出しエラー');
+    });
+
+    it('非表示評定の結果はサマリにも詳細にも出力されない', () => {
+      const output = formatSections(createResults(2), ['A']);
+
+      expect(output).not.toContain('| チェック項目1 | A |');
+      expect(output).not.toContain('### チェック項目1');
+      expect(output).toContain('| チェック項目2 | B |');
+      expect(output).toContain('### チェック項目2');
+    });
+
+    it('全ての結果が非表示の場合はレイアウトによらず専用メッセージを出力する', () => {
+      const output = formatSections(createResults(1), ['A']);
 
       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
-      expect(output).toContain('> **⚠ Quality Gate Failed**');
+      expect(output).not.toContain('| チェック項目 | 評定 |');
     });
   });
 });

@@ -21,6 +21,19 @@ const DEFAULT_RATINGS = [
 /** デフォルトのMRコメントタイトル */
 export const DEFAULT_MR_COMMENT_TITLE = 'AIKATA-PR レビュー結果';
 
+/** 選択可能なレビューコメントレイアウトの一覧 */
+export const REVIEW_COMMENT_LAYOUTS = ['table', 'sections'] as const;
+
+/**
+ * レビュー結果コメントの出力レイアウト
+ * - table: チェック項目・評定・コメントの3列テーブル（従来形式）
+ * - sections: チェック項目・評定の2列サマリテーブル + テーブル外に詳細をMarkdownで展開
+ */
+export type ReviewCommentLayout = (typeof REVIEW_COMMENT_LAYOUTS)[number];
+
+/** デフォルトのレビューコメントレイアウト */
+export const DEFAULT_REVIEW_COMMENT_LAYOUT: ReviewCommentLayout = 'table';
+
 /** ReviewSettingsのコンストラクタパラメータ */
 interface ReviewSettingsParams {
   additionalInstructions: string;
@@ -31,6 +44,7 @@ interface ReviewSettingsParams {
   suggestEnabledRatingLabels: string[];
   qualityGate: QualityGate;
   mrCommentTitle: string;
+  reviewCommentLayout: ReviewCommentLayout;
 }
 
 /**
@@ -46,6 +60,7 @@ export class ReviewSettings {
   readonly suggestEnabledRatingLabels: string[];
   readonly qualityGate: QualityGate;
   readonly mrCommentTitle: string;
+  readonly reviewCommentLayout: ReviewCommentLayout;
 
   constructor(params: ReviewSettingsParams) {
     if (params.concurrentReviewCount !== null && params.concurrentReviewCount < 1) {
@@ -56,6 +71,11 @@ export class ReviewSettings {
     }
     if (params.mrCommentTitle.length === 0) {
       throw new Error('mrCommentTitle must not be empty');
+    }
+    if (!REVIEW_COMMENT_LAYOUTS.includes(params.reviewCommentLayout)) {
+      throw new Error(
+        `reviewCommentLayout must be one of: ${REVIEW_COMMENT_LAYOUTS.join(', ')}. Got: ${params.reviewCommentLayout}`,
+      );
     }
     const ratingLabels = new Set(params.ratings.map((r) => r.label));
     // out-of-scope の予約フォールバックラベルは ratings に未登録でも常に許容する
@@ -86,6 +106,7 @@ export class ReviewSettings {
     this.suggestEnabledRatingLabels = params.suggestEnabledRatingLabels;
     this.qualityGate = params.qualityGate;
     this.mrCommentTitle = params.mrCommentTitle;
+    this.reviewCommentLayout = params.reviewCommentLayout;
   }
 
   /** suggestが有効かどうか判定する */
@@ -104,6 +125,7 @@ export class ReviewSettings {
       suggestEnabledRatingLabels: ['C'],
       qualityGate: QualityGate.none(),
       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      reviewCommentLayout: DEFAULT_REVIEW_COMMENT_LAYOUT,
     });
   }
 }

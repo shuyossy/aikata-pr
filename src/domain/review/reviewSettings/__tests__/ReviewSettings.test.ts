@@ -16,6 +16,7 @@ describe('ReviewSettings', () => {
       suggestEnabledRatingLabels: ['B'],
       qualityGate,
       mrCommentTitle: 'API基盤チェック',
+      reviewCommentLayout: 'table',
     });
     expect(settings.additionalInstructions).toBe('追加指示');
     expect(settings.concurrentReviewCount).toBe(3);
@@ -37,6 +38,7 @@ describe('ReviewSettings', () => {
       suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      reviewCommentLayout: 'table',
     });
     expect(settings.concurrentReviewCount).toBeNull();
   });
@@ -66,6 +68,7 @@ describe('ReviewSettings', () => {
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+          reviewCommentLayout: 'table',
         }),
     ).toThrow();
     expect(
@@ -79,6 +82,7 @@ describe('ReviewSettings', () => {
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+          reviewCommentLayout: 'table',
         }),
     ).toThrow();
   });
@@ -95,6 +99,7 @@ describe('ReviewSettings', () => {
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+          reviewCommentLayout: 'table',
         }),
     ).toThrow();
   });
@@ -109,6 +114,7 @@ describe('ReviewSettings', () => {
       suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      reviewCommentLayout: 'table',
     });
     expect(settings.hiddenRatingLabels).toEqual([]);
   });
@@ -123,6 +129,7 @@ describe('ReviewSettings', () => {
       suggestEnabledRatingLabels: [],
       qualityGate: QualityGate.none(),
       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      reviewCommentLayout: 'table',
     });
     expect(settings.hiddenRatingLabels).toEqual(['A', 'B']);
   });
@@ -139,6 +146,7 @@ describe('ReviewSettings', () => {
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+          reviewCommentLayout: 'table',
         }),
     ).toThrow();
   });
@@ -154,6 +162,7 @@ describe('ReviewSettings', () => {
       suggestEnabledRatingLabels: [],
       qualityGate,
       mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      reviewCommentLayout: 'table',
     });
     expect(settings.qualityGate.failureCriteria).toHaveLength(1);
   });
@@ -170,6 +179,7 @@ describe('ReviewSettings', () => {
           suggestEnabledRatingLabels: [],
           qualityGate: new QualityGate([{ ratingLabel: 'X', threshold: 1 }]),
           mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+          reviewCommentLayout: 'table',
         }),
     ).toThrow();
   });
@@ -190,6 +200,7 @@ describe('ReviewSettings', () => {
         suggestEnabledRatingLabels: ['B', 'C'],
         qualityGate: QualityGate.none(),
         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+        reviewCommentLayout: 'table',
       });
       expect(settings.suggestEnabledRatingLabels).toEqual(['B', 'C']);
     });
@@ -204,6 +215,7 @@ describe('ReviewSettings', () => {
         suggestEnabledRatingLabels: [],
         qualityGate: QualityGate.none(),
         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+        reviewCommentLayout: 'table',
       });
       expect(settings.suggestEnabledRatingLabels).toEqual([]);
     });
@@ -220,6 +232,7 @@ describe('ReviewSettings', () => {
             suggestEnabledRatingLabels: ['X'],
             qualityGate: QualityGate.none(),
             mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+            reviewCommentLayout: 'table',
           }),
       ).toThrow('suggestEnabledRatingLabels contains unknown label: X');
     });
@@ -241,6 +254,7 @@ describe('ReviewSettings', () => {
         suggestEnabledRatingLabels: [],
         qualityGate: QualityGate.none(),
         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+        reviewCommentLayout: 'table',
       });
       expect(settings.isSuggestEnabled()).toBe(false);
     });
@@ -257,6 +271,7 @@ describe('ReviewSettings', () => {
         suggestEnabledRatingLabels: [],
         qualityGate: QualityGate.none(),
         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+        reviewCommentLayout: 'table',
       });
       expect(settings.hiddenRatingLabels).toEqual(['-']);
     });
@@ -271,6 +286,7 @@ describe('ReviewSettings', () => {
         suggestEnabledRatingLabels: ['-'],
         qualityGate: QualityGate.none(),
         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+        reviewCommentLayout: 'table',
       });
       expect(settings.suggestEnabledRatingLabels).toEqual(['-']);
     });
@@ -286,6 +302,7 @@ describe('ReviewSettings', () => {
         suggestEnabledRatingLabels: [],
         qualityGate,
         mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+        reviewCommentLayout: 'table',
       });
       expect(settings.qualityGate.failureCriteria[0].ratingLabel).toBe('-');
     });
@@ -302,6 +319,7 @@ describe('ReviewSettings', () => {
         suggestEnabledRatingLabels: [],
         qualityGate: QualityGate.none(),
         mrCommentTitle: 'フロントエンドチェック',
+        reviewCommentLayout: 'table',
       });
       expect(settings.mrCommentTitle).toBe('フロントエンドチェック');
     });
@@ -318,8 +336,50 @@ describe('ReviewSettings', () => {
             suggestEnabledRatingLabels: [],
             qualityGate: QualityGate.none(),
             mrCommentTitle: '',
+            reviewCommentLayout: 'table',
           }),
       ).toThrow('mrCommentTitle must not be empty');
+    });
+  });
+
+  describe('reviewCommentLayout', () => {
+    const buildParams = (reviewCommentLayout: string) => ({
+      additionalInstructions: '',
+      concurrentReviewCount: null,
+      commentFormat: '{comment}',
+      ratings: [new Rating('A', 'def')],
+      hiddenRatingLabels: [],
+      suggestEnabledRatingLabels: [],
+      qualityGate: QualityGate.none(),
+      mrCommentTitle: DEFAULT_MR_COMMENT_TITLE,
+      reviewCommentLayout,
+    });
+
+    it("'table' を指定できる", () => {
+      const settings = new ReviewSettings(
+        buildParams('table') as ConstructorParameters<typeof ReviewSettings>[0],
+      );
+      expect(settings.reviewCommentLayout).toBe('table');
+    });
+
+    it("'sections' を指定できる", () => {
+      const settings = new ReviewSettings(
+        buildParams('sections') as ConstructorParameters<typeof ReviewSettings>[0],
+      );
+      expect(settings.reviewCommentLayout).toBe('sections');
+    });
+
+    it('未知のレイアウトを指定した場合はエラーになる', () => {
+      expect(
+        () =>
+          new ReviewSettings(
+            buildParams('unknown') as ConstructorParameters<typeof ReviewSettings>[0],
+          ),
+      ).toThrow('reviewCommentLayout must be one of: table, sections');
+    });
+
+    it('デフォルト設定では table になる', () => {
+      expect(ReviewSettings.default().reviewCommentLayout).toBe('table');
     });
   });
 });

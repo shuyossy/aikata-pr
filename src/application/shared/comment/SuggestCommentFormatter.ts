@@ -16,14 +16,24 @@ export const SUGGEST_DATA_SUFFIX = ' -->';
 export class SuggestCommentFormatter {
   /**
    * ResolvedSuggestionをGitLab diff discussion用のMarkdown文字列にフォーマットする
+   *
+   * checkItemDisplayContentsはAI用content -> 表示用contentのマップ。
+   * 未登録のcontentはAI用contentをそのまま表示に用いる。
    */
-  static format(resolved: ResolvedSuggestion): string {
+  static format(
+    resolved: ResolvedSuggestion,
+    checkItemDisplayContents: ReadonlyMap<string, string>,
+  ): string {
     const marker = SUGGEST_MARKER;
     const metadata = `${SUGGEST_DATA_PREFIX}${JSON.stringify({
       checkItemContent: resolved.suggestion.checkItemContent,
     })}${SUGGEST_DATA_SUFFIX}`;
 
-    const displayContent = formatCheckItemForDisplay(resolved.suggestion.checkItemContent);
+    // メタデータのcheckItemContentは突合キーのためAI用contentのまま、表示のみ表示用contentを使う
+    const displayContent = formatCheckItemForDisplay(
+      checkItemDisplayContents.get(resolved.suggestion.checkItemContent) ??
+        resolved.suggestion.checkItemContent,
+    );
     const escapedDisplayContent = displayContent.replace(/\n/g, '<br>');
     const header = `**チェック項目:**<br>${escapedDisplayContent}`;
     const comment = resolved.suggestion.comment;

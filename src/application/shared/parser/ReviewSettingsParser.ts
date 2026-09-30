@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { ReviewSettings } from '../../../domain/review/reviewSettings/index.js';
+import {
+  ReviewSettings,
+  REVIEW_COMMENT_LAYOUTS,
+} from '../../../domain/review/reviewSettings/index.js';
 import { Rating } from '../../../domain/review/rating/index.js';
 import { QualityGate } from '../../../domain/review/qualityGate/index.js';
 
@@ -32,6 +35,7 @@ const reviewSettingsSchema = z.object({
     })
     .optional(),
   mrCommentTitle: z.string().min(1).optional(),
+  reviewCommentLayout: z.enum(REVIEW_COMMENT_LAYOUTS).optional(),
 });
 
 /**
@@ -83,6 +87,7 @@ export class ReviewSettingsParser {
         data.suggestEnabledRatingLabels ?? defaults.suggestEnabledRatingLabels,
       qualityGate,
       mrCommentTitle: data.mrCommentTitle ?? defaults.mrCommentTitle,
+      reviewCommentLayout: data.reviewCommentLayout ?? defaults.reviewCommentLayout,
     });
   }
 }

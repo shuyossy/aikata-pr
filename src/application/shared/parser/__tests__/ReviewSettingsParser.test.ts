@@ -191,4 +191,23 @@ describe('ReviewSettingsParser', () => {
       expect(() => ReviewSettingsParser.parse(json)).toThrow();
     });
   });
+
+  describe('reviewCommentLayout', () => {
+    it("'sections' を指定した値がReviewSettingsに反映される", () => {
+      const json = JSON.stringify({ reviewCommentLayout: 'sections' });
+      const settings = ReviewSettingsParser.parse(json);
+      expect(settings.reviewCommentLayout).toBe('sections');
+    });
+
+    it('未指定の場合はデフォルト値（table）が適用される', () => {
+      const settings = ReviewSettingsParser.parse('{}');
+      expect(settings.reviewCommentLayout).toBe(ReviewSettings.default().reviewCommentLayout);
+      expect(settings.reviewCommentLayout).toBe('table');
+    });
+
+    it('未知の値が指定された場合はバリデーションエラーになる', () => {
+      const json = JSON.stringify({ reviewCommentLayout: 'unknown' });
+      expect(() => ReviewSettingsParser.parse(json)).toThrow('Invalid review settings');
+    });
+  });
 });

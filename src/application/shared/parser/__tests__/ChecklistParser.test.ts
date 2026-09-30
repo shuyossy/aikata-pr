@@ -158,4 +158,55 @@ describe('ChecklistParser', () => {
       expect(() => ChecklistParser.parse(csv, options)).toThrow();
     });
   });
+
+  describe('parseDisplayContents', () => {
+    const csv =
+      'No,カテゴリ,チェック項目,説明\n' +
+      '1,セキュリティ,SQLi対策,バインディング確認\n' +
+      '2,性能,N+1問題,クエリ最適化確認';
+
+    it('parse()と同じ順序・同じフォーマットのテキスト配列を返す', () => {
+      const checklist = ChecklistParser.parse(csv, defaultOptions);
+      const contents = ChecklistParser.parseDisplayContents(csv, defaultOptions);
+
+      expect(contents).toEqual(checklist.items.map((i) => i.content));
+    });
+
+    it('AI用とは異なる列を指定して表示用テキストを生成できる', () => {
+      const contents = ChecklistParser.parseDisplayContents(csv, {
+        columns: [2, 3],
+        noHeader: false,
+      });
+
+      expect(contents).toEqual([
+        'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLi対策\n---',
+        'カテゴリ:\n---\n性能\n---\n\nチェック項目:\n---\nN+1問題\n---',
+      ]);
+    });
+
+    it('1列指定かつnoHeaderの場合は値のみを返す', () => {
+      const contents = ChecklistParser.parseDisplayContents(csv, {
+        columns: [3],
+        noHeader: true,
+      });
+
+      expect(contents).toEqual(['SQLi対策', 'N+1問題']);
+    });
+
+    it('空セルでも例外にならず空文字を返す（表示専用のため）', () => {
+      const csvWithEmpty = 'カテゴリ,チェック項目\n,コード可読性';
+      const contents = ChecklistParser.parseDisplayContents(csvWithEmpty, {
+        columns: [1],
+        noHeader: true,
+      });
+
+      expect(contents).toEqual(['']);
+    });
+
+    it('不正な列番号を指定した場合はエラーになる', () => {
+      expect(() =>
+        ChecklistParser.parseDisplayContents(csv, { columns: [99], noHeader: false }),
+      ).toThrow('Column number 99 exceeds the number of columns (4)');
+    });
+  });
 });

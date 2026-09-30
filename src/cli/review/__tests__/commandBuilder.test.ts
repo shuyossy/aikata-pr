@@ -66,6 +66,7 @@ function createReviewSettings(
     suggestEnabledRatingLabels: overrides?.suggestEnabledRatingLabels ?? ['C'],
     qualityGate: overrides?.qualityGate ?? new QualityGate([{ ratingLabel: 'C', threshold: 2 }]),
     mrCommentTitle: overrides?.mrCommentTitle ?? 'AIKATA-PR レビュー結果',
+    reviewCommentLayout: 'table',
   });
 }
 

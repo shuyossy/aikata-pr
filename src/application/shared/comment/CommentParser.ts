@@ -7,11 +7,23 @@ import {
 } from '../../../domain/review/rating/index.js';
 import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './CommentFormatter.js';
 
+/** メタデータに格納されるレビュー結果 */
+interface MetadataResult {
+  checkItemContent: string;
+  ratingLabel: string;
+  comment: string;
+}
+
 /** メタデータのJSON構造 */
 interface ReviewMetadata {
   ratings: { label: string; definition: string }[];
   commitHash: string;
-  hiddenResults?: { checkItemContent: string; ratingLabel: string; comment: string }[];
+  /**
+   * 可視レビュー結果
+   * 旧フォーマットのコメントには存在しないため、その場合は表をパースして復元する
+   */
+  visibleResults?: MetadataResult[];
+  hiddenResults?: MetadataResult[];
 }
 
 /**
@@ -41,13 +53,18 @@ export class CommentParser {
     const lines = body.split('\n');
     const metadata = CommentParser.extractMetadata(lines);
     const ratings = metadata.ratings.map((r) => new Rating(r.label, r.definition));
-    const results = CommentParser.parseTableRows(lines, ratings);
+
+    // 可視結果はメタデータから復元する
+    // メタデータに含まれない場合は旧フォーマットのコメントなので表をパースする
+    const results =
+      metadata.visibleResults !== undefined
+        ? metadata.visibleResults.map((vr) => CommentParser.toReviewResult(vr, ratings))
+        : CommentParser.parseTableRows(lines, ratings);
 
     // メタデータから非表示結果を復元
-    const hiddenResults = (metadata.hiddenResults ?? []).map((hr) => {
-      const rating = CommentParser.findRating(hr.ratingLabel, ratings);
-      return ReviewResult.success(new CheckItem(hr.checkItemContent), rating, hr.comment);
-    });
+    const hiddenResults = (metadata.hiddenResults ?? []).map((hr) =>
+      CommentParser.toReviewResult(hr, ratings),
+    );
 
     return {
       results,
@@ -75,7 +92,20 @@ export class CommentParser {
   }
 
   /**
+   * メタデータのレビュー結果をReviewResultに復元する
+   */
+  private static toReviewResult(result: MetadataResult, ratings: Rating[]): ReviewResult {
+    const checkItem = new CheckItem(result.checkItemContent);
+    if (result.ratingLabel === ERROR_RATING_LABEL) {
+      return ReviewResult.error(checkItem, result.comment);
+    }
+    const rating = CommentParser.findRating(result.ratingLabel, ratings);
+    return ReviewResult.success(checkItem, rating, result.comment);
+  }
+
+  /**
    * Markdownテーブルの各行をパースしてReviewResult配列を生成する
+   * 旧フォーマット（メタデータに可視結果を含まない）のコメント向けの後方互換パス
    */
   private static parseTableRows(lines: string[], ratings: Rating[]): ReviewResult[] {
     const results: ReviewResult[] = [];

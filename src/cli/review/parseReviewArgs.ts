@@ -19,6 +19,8 @@ export interface CliOptions {
   checklist?: string;
   checklistColumns?: string;
   checklistNoHeader: boolean;
+  /** レビュー結果コメントに表示する列番号（カンマ区切り、1始まり）。未指定時はchecklistColumnsと同じ */
+  checklistDisplayColumns?: string;
   reviewSettings?: string;
   skills?: string;
   logLevel: string;
@@ -68,6 +70,9 @@ export function parseCliOptions(
       case '--checklist-no-header':
         parsed['checklistNoHeader'] = true;
         break;
+      case '--checklist-display-columns':
+        parsed['checklistDisplayColumns'] = args[++i]!;
+        break;
       case '--review-settings':
         parsed['reviewSettings'] = args[++i]!;
         break;
@@ -114,6 +119,8 @@ export function parseCliOptions(
         : env['CHECKLIST_NO_HEADER'] !== undefined
           ? env['CHECKLIST_NO_HEADER'] === 'true'
           : false,
+    checklistDisplayColumns:
+      (parsed['checklistDisplayColumns'] as string) ?? env['CHECKLIST_DISPLAY_COLUMNS'],
     reviewSettings: (parsed['reviewSettings'] as string) ?? env['REVIEW_SETTINGS_PATH'],
     skills: (parsed['skills'] as string) ?? env['SKILLS_PATH'],
     logLevel: (parsed['logLevel'] as string) ?? env['AIKATA_LOG_LEVEL'] ?? 'info',
@@ -136,23 +143,42 @@ export function parseCliOptions(
 }
 
 /**
- * CLIオプションからChecklistParseOptionsを構築する
+ * カンマ区切りの列番号指定を数値配列に変換する
+ * 空文字・未指定の場合はnull（全列）を返す
  */
-export function buildChecklistParseOptions(options: CliOptions): ChecklistParseOptions {
-  let columns: number[] | null = null;
-
-  if (options.checklistColumns?.trim()) {
-    columns = options.checklistColumns.split(',').map((s) => {
-      const n = Number(s.trim());
-      if (!Number.isInteger(n) || n < 1) {
-        throw new Error(`Invalid column number: ${s.trim()}`);
-      }
-      return n;
-    });
+function parseColumnNumbers(value: string | undefined): number[] | null {
+  if (!value?.trim()) {
+    return null;
   }
 
+  return value.split(',').map((s) => {
+    const n = Number(s.trim());
+    if (!Number.isInteger(n) || n < 1) {
+      throw new Error(`Invalid column number: ${s.trim()}`);
+    }
+    return n;
+  });
+}
+
+/**
+ * CLIオプションからAI指示用のChecklistParseOptionsを構築する
+ */
+export function buildChecklistParseOptions(options: CliOptions): ChecklistParseOptions {
   return {
-    columns,
+    columns: parseColumnNumbers(options.checklistColumns),
+    noHeader: options.checklistNoHeader,
+  };
+}
+
+/**
+ * CLIオプションからレビュー結果コメント表示用のChecklistParseOptionsを構築する
+ * 表示用の列が未指定の場合はAI指示用と同じ列を使用する（従来と同一表示）
+ */
+export function buildChecklistDisplayParseOptions(options: CliOptions): ChecklistParseOptions {
+  const displayColumns = parseColumnNumbers(options.checklistDisplayColumns);
+
+  return {
+    columns: displayColumns ?? parseColumnNumbers(options.checklistColumns),
     noHeader: options.checklistNoHeader,
   };
 }

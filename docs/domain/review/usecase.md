@@ -59,7 +59,7 @@
   - 識別子: CommentPostingService
   - 前提条件
     - レビュー結果が存在すること
-  - 入力: CommentPostingCommand（projectId, mrIid, results, ratings, commitHash, commitMessage, hiddenRatingLabels, qualityGateResult）
+  - 入力: CommentPostingCommand（projectId, mrIid, results, ratings, commitHash, commitMessage, hiddenRatingLabels, qualityGateResult, mrCommentTitle, reviewCommentLayout, checkItemDisplayContents）
   - 出力: void
   - メインフロー
     1. レビュー結果をMarkdownコメントとして整形（品質ゲート結果を含む）

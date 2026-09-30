@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { formatCheckItemForDisplay } from '../formatCheckItemForDisplay.js';
+import {
+  formatCheckItemForDisplay,
+  formatCheckItemForHeading,
+} from '../formatCheckItemForDisplay.js';
 
 describe('formatCheckItemForDisplay', () => {
   describe('構造化フォーマットの変換', () => {
@@ -83,6 +86,53 @@ describe('formatCheckItemForDisplay', () => {
       const result = formatCheckItemForDisplay(content);
 
       expect(result).toBe('<ヘッダ1>\n値1\n---\n<ヘッダ2>\n\n---');
+    });
+  });
+
+  describe('formatCheckItemForHeading', () => {
+    it('複数列の構造化フォーマットは値のみを区切り文字で連結した1行になる', () => {
+      const content =
+        'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則が統一されているか\n---';
+
+      const result = formatCheckItemForHeading(content);
+
+      expect(result).toBe('設計 / 命名規則が統一されているか');
+    });
+
+    it('単一列の構造化フォーマットは値のみを返す', () => {
+      const content = 'チェック項目:\n---\n命名規則が統一されているか\n---';
+
+      const result = formatCheckItemForHeading(content);
+
+      expect(result).toBe('命名規則が統一されているか');
+    });
+
+    it('構造化フォーマットでない単一行はそのまま返す', () => {
+      const result = formatCheckItemForHeading('コードの可読性');
+
+      expect(result).toBe('コードの可読性');
+    });
+
+    it('構造化フォーマットでない複数行は区切り文字で1行に連結する', () => {
+      const result = formatCheckItemForHeading('コードの可読性\nテストの網羅性');
+
+      expect(result).toBe('コードの可読性 / テストの網羅性');
+    });
+
+    it('値が空の列は連結対象から除外される', () => {
+      const content = 'カテゴリ:\n---\n\n---\n\nチェック項目:\n---\n命名規則\n---';
+
+      const result = formatCheckItemForHeading(content);
+
+      expect(result).toBe('命名規則');
+    });
+
+    it('値の中の改行は保持されず前後の空白が除去される', () => {
+      const content = 'チェック項目:\n---\n  命名規則  \n---';
+
+      const result = formatCheckItemForHeading(content);
+
+      expect(result).toBe('命名規則');
     });
   });
 });

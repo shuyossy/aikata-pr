@@ -3,6 +3,7 @@ import { Rating } from '../../../domain/review/rating/index.js';
 import type { QualityGateResult } from '../../../domain/review/qualityGate/index.js';
 import type { ResolvedSuggestion } from '../../../domain/review/suggestion/index.js';
 import type { SuggestResolveEntry } from '../reviewExecution/ReviewExecutionDto.js';
+import type { ReviewCommentLayout } from '../../../domain/review/reviewSettings/index.js';
 
 /**
  * CommentPostingServiceの入力DTO
@@ -29,4 +30,8 @@ export interface CommentPostingCommand {
   startSha: string;
   /** MRコメントの見出しタイトル */
   mrCommentTitle: string;
+  /** レビュー結果コメントの出力レイアウト */
+  reviewCommentLayout: ReviewCommentLayout;
+  /** チェック項目のAI用content -> 表示用content のマップ */
+  checkItemDisplayContents: ReadonlyMap<string, string>;
 }

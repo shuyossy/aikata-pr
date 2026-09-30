@@ -79,6 +79,7 @@
     - hiddenRatingLabelsの各ラベルがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
     - qualityGateのfailureCriteriaの各ratingLabelがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
     - suggestEnabledRatingLabelsの各ラベルがratingsに存在すること（予約ラベル`-`は例外的に常時許容）
+    - reviewCommentLayoutが'table'または'sections'のいずれかであること
   - 属性
     - additionalInstructions (string)
     - concurrentReviewCount (number | null)
@@ -88,9 +89,14 @@
     - qualityGate (QualityGate)
     - suggestEnabledRatingLabels (string[]): suggestを有効にする評定ラベル（デフォルト: ['C']、空配列で無効）
     - mrCommentTitle (string): MRコメント見出しのタイトル文言（デフォルト: 'AIKATA-PR レビュー結果'）
+    - reviewCommentLayout (ReviewCommentLayout): レビュー結果コメントの出力レイアウト（デフォルト: 'table'）
   - 振る舞い
     - default(静的ファクトリ): デフォルト設定を生成
     - isSuggestEnabled(): suggestEnabledRatingLabelsが空でないか判定
+  - 関連型
+    - ReviewCommentLayout: 'table' | 'sections'
+      - 'table': チェック項目・評定・コメントの3列テーブル（従来形式）
+      - 'sections': チェック項目・評定の2列サマリテーブル＋テーブル外に詳細をMarkdownで展開
 
 - チェックリスト
   - 識別子: Checklist

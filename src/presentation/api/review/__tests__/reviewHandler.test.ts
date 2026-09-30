@@ -240,4 +240,10 @@ describe('buildReviewSettings', () => {
     const settings = buildReviewSettings({});
     expect(settings.mrCommentTitle).toBe('AIKATA-PR レビュー結果');
   });
+
+  it('reviewCommentLayoutは常にデフォルト値になること（コメント整形はCLI側で行うため）', () => {
+    // APIサーバはコメント整形を行わないため、リクエストに含まれなくてもデフォルトで構築できる
+    expect(buildReviewSettings({}).reviewCommentLayout).toBe('table');
+    expect(buildReviewSettings(undefined).reviewCommentLayout).toBe('table');
+  });
 });

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseCliOptions, buildChecklistParseOptions } from '../parseReviewArgs.js';
+import {
+  parseCliOptions,
+  buildChecklistParseOptions,
+  buildChecklistDisplayParseOptions,
+} from '../parseReviewArgs.js';
+import type { CliOptions } from '../parseReviewArgs.js';
 
 describe('parseCliOptions', () => {
   it('--user-idオプションをパースできる', () => {
@@ -432,5 +437,78 @@ describe('buildChecklistParseOptions', () => {
       gitlabApiUrl: 'https://gitlab.com/api/v4',
     });
     expect(result.columns).toBeNull();
+  });
+});
+
+describe('--checklist-display-columns', () => {
+  it('CLIオプションをパースできる', () => {
+    const result = parseCliOptions(['--checklist-display-columns', '2,3']);
+    expect(result.checklistDisplayColumns).toBe('2,3');
+  });
+
+  it('未指定の場合はCHECKLIST_DISPLAY_COLUMNS環境変数にフォールバックする', () => {
+    const result = parseCliOptions([], { CHECKLIST_DISPLAY_COLUMNS: '1,2' });
+    expect(result.checklistDisplayColumns).toBe('1,2');
+  });
+
+  it('CLIオプションが環境変数より優先される', () => {
+    const result = parseCliOptions(['--checklist-display-columns', '4'], {
+      CHECKLIST_DISPLAY_COLUMNS: '1,2',
+    });
+    expect(result.checklistDisplayColumns).toBe('4');
+  });
+
+  it('CLI・環境変数ともに未指定の場合はundefinedになる', () => {
+    const result = parseCliOptions([]);
+    expect(result.checklistDisplayColumns).toBeUndefined();
+  });
+});
+
+describe('buildChecklistDisplayParseOptions', () => {
+  /** テスト用の最小CliOptions */
+  const baseOptions = (overrides: Partial<CliOptions> = {}): CliOptions => ({
+    checklistNoHeader: false,
+    logLevel: 'info',
+    commentLanguage: 'Japanese',
+    prettyPrint: true,
+    gitlabApiUrl: 'https://gitlab.com/api/v4',
+    ...overrides,
+  });
+
+  it('表示列が指定された場合はその列が使われる', () => {
+    const result = buildChecklistDisplayParseOptions(
+      baseOptions({ checklistColumns: '1,2,3', checklistDisplayColumns: '2,3' }),
+    );
+    expect(result.columns).toEqual([2, 3]);
+  });
+
+  it('表示列が未指定の場合はAI指示用の列にフォールバックする', () => {
+    const result = buildChecklistDisplayParseOptions(baseOptions({ checklistColumns: '1,3' }));
+    expect(result.columns).toEqual([1, 3]);
+  });
+
+  it('表示列もAI指示用の列も未指定の場合はnull（全列）になる', () => {
+    const result = buildChecklistDisplayParseOptions(baseOptions());
+    expect(result.columns).toBeNull();
+  });
+
+  it('空白のみの表示列はAI指示用の列にフォールバックする', () => {
+    const result = buildChecklistDisplayParseOptions(
+      baseOptions({ checklistColumns: '2', checklistDisplayColumns: '  ' }),
+    );
+    expect(result.columns).toEqual([2]);
+  });
+
+  it('noHeaderはAI指示用と共通の値が使われる', () => {
+    const result = buildChecklistDisplayParseOptions(
+      baseOptions({ checklistNoHeader: true, checklistDisplayColumns: '2' }),
+    );
+    expect(result.noHeader).toBe(true);
+  });
+
+  it('不正な列番号を指定した場合はエラーになる', () => {
+    expect(() =>
+      buildChecklistDisplayParseOptions(baseOptions({ checklistDisplayColumns: '0' })),
+    ).toThrow('Invalid column number');
   });
 });

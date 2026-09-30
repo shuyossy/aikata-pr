@@ -62,6 +62,7 @@ function createCommand(overrides?: Partial<ReviewExecutionCommand>): ReviewExecu
       suggestEnabledRatingLabels: ['C'],
       qualityGate: QualityGate.none(),
       mrCommentTitle: 'AIKATA-PR レビュー結果',
+      reviewCommentLayout: 'table',
     }),
     skillsPaths: [],
     projectDir: '/test/project',
@@ -122,15 +123,17 @@ function createAikataComment(
     if (!rating) throw new Error(`Rating not found: ${item.ratingLabel}`);
     return ReviewResult.success(new CheckItem(item.content), rating, item.comment);
   });
-  const body = CommentFormatter.formatComment(
-    results,
-    ratings,
-    commitHash,
-    'test commit',
-    hiddenRatingLabels,
-    { passed: true, violations: [] },
-    'AIKATA-PR レビュー結果',
-  );
+  const body = CommentFormatter.formatComment({
+    results: results,
+    ratings: ratings,
+    commitHash: commitHash,
+    commitMessage: 'test commit',
+    hiddenRatingLabels: hiddenRatingLabels,
+    qualityGateResult: { passed: true, violations: [] },
+    mrCommentTitle: 'AIKATA-PR レビュー結果',
+    layout: 'table',
+    checkItemDisplayContents: new Map(),
+  });
   return { id: 1, body, createdAt };
 }
 
@@ -1672,6 +1675,7 @@ describe('ReviewExecutionService', () => {
           suggestEnabledRatingLabels: ['B', 'C'],
           qualityGate: QualityGate.none(),
           mrCommentTitle: 'AIKATA-PR レビュー結果',
+          reviewCommentLayout: 'table',
         }),
       });
       const mrContext = createMrContext({ diff: 'full diff content' });
@@ -1704,6 +1708,7 @@ describe('ReviewExecutionService', () => {
           suggestEnabledRatingLabels: [],
           qualityGate: QualityGate.none(),
           mrCommentTitle: 'AIKATA-PR レビュー結果',
+          reviewCommentLayout: 'table',
         }),
       });
       const mrContext = createMrContext();
@@ -1970,6 +1975,123 @@ describe('ReviewExecutionService', () => {
       const runCall = vi.mocked(workflowRunner.run).mock.calls[0][0];
       expect(runCall.suggestResultFilePath).toBeDefined();
       expect(runCall.suggestResultFilePath).toContain('aikata-suggest-');
+    });
+  });
+
+  describe('複数列チェックリストでの前回レビュー結果の再利用', () => {
+    const multiColumnContents = [
+      'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n命名規則が統一されているか\n---',
+      'カテゴリ:\n---\n設計\n---\n\nチェック項目:\n---\n責務が分離されているか\n---',
+    ];
+
+    it('表示用に変換される構造化チェック項目でも前回結果がPriorReviewContextに反映される', async () => {
+      const ratings = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+        new Rating('C', '満たしていない'),
+      ];
+      const command = createCommand({
+        checklist: new Checklist(multiColumnContents.map((c) => new CheckItem(c))),
+      });
+      const mrContext = createMrContext();
+
+      const priorComment = createAikataComment(
+        [
+          {
+            content: multiColumnContents[0]!,
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: '改善してください',
+          },
+          {
+            content: multiColumnContents[1]!,
+            ratingLabel: 'C',
+            ratingDefinition: '満たしていない',
+            comment: '分離が不十分です',
+          },
+        ],
+        'prior-commit-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(mrGateway.getCommitsSince).mockResolvedValue(['fix: improve code']);
+      vi.mocked(mrGateway.getDiffSince).mockResolvedValue('diff since prior');
+      vi.mocked(workflowRunner.run).mockResolvedValue(
+        createWorkflowResult({
+          results: multiColumnContents.map((content) => ({
+            checkItemContent: content,
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '問題ありません',
+            isError: false,
+          })),
+        }),
+      );
+
+      await service.execute(command);
+
+      const runCall = vi.mocked(workflowRunner.run).mock.calls[0]![0];
+      expect(runCall.priorReviewResults).toEqual([
+        {
+          checkItemContent: multiColumnContents[0]!,
+          ratingLabel: 'B',
+          ratingDefinition: '概ね満たしている',
+          comment: '改善してください',
+        },
+        {
+          checkItemContent: multiColumnContents[1]!,
+          ratingLabel: 'C',
+          ratingDefinition: '満たしていない',
+          comment: '分離が不十分です',
+        },
+      ]);
+    });
+
+    it('リトライ時（新規コミットなし）に前回成功結果がそのまま再利用される', async () => {
+      const ratings = [
+        new Rating('A', '完全に満たしている'),
+        new Rating('B', '概ね満たしている'),
+        new Rating('C', '満たしていない'),
+      ];
+      const command = createCommand({
+        checklist: new Checklist(multiColumnContents.map((c) => new CheckItem(c))),
+      });
+      const mrContext = createMrContext({ commitHash: 'same-commit-hash' });
+
+      const priorComment = createAikataComment(
+        [
+          {
+            content: multiColumnContents[0]!,
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: '問題ありません',
+          },
+          {
+            content: multiColumnContents[1]!,
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: '軽微な指摘',
+          },
+        ],
+        'same-commit-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
+      vi.mocked(mrGateway.getCommitsSince).mockResolvedValue([]);
+      vi.mocked(mrGateway.getDiffSince).mockResolvedValue('');
+
+      const result = await service.execute(command);
+
+      // 再レビュー対象が無いためワークフローは実行されない
+      expect(workflowRunner.run).not.toHaveBeenCalled();
+      expect(result.results.map((r) => r.checkItem.content)).toEqual(multiColumnContents);
+      expect(result.results.map((r) => r.rating.label)).toEqual(['A', 'B']);
     });
   });
 });
