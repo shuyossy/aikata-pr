@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CommentParser } from '../CommentParser.js';
-import { CommentFormatter, FOLD_THRESHOLD } from '../CommentFormatter.js';
+import { CommentFormatter, FOLD_THRESHOLD, REVIEW_COMMENT_CLOSE } from '../CommentFormatter.js';
 import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
 import { CheckItem } from '../../../../domain/review/checkItem/index.js';
 import { Rating } from '../../../../domain/review/rating/index.js';
@@ -640,6 +640,189 @@ describe('CommentParser', () => {
 
       expect(parsed!.results[0]!.isError).toBe(true);
       expect(parsed!.results[0]!.comment).toBe('API呼び出しエラー');
+    });
+  });
+
+  describe('コメント本文の復元（メタデータに本文を持たないフォーマット）', () => {
+    it('sectionsレイアウトで見出しを含むコメント本文も完全一致で復元できる', () => {
+      const comment1 =
+        '### 指摘1\n\n- a.ts の命名\n\n### 指摘2\n\n| ファイル | 内容 |\n| --- | --- |\n| b.ts | 型 |';
+      const comment2 = '### 良い点\n\n問題ありません';
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          comment1,
+        ),
+        ReviewResult.success(
+          new CheckItem('チェック項目2'),
+          new Rating('B', '概ね満たしている'),
+          comment2,
+        ),
+      ];
+
+      const body = CommentFormatter.formatComment({
+        results,
+        ratings,
+        commitHash,
+        commitMessage: 'test commit',
+        hiddenRatingLabels: [],
+        qualityGateResult: { passed: true, violations: [] },
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'sections',
+        checkItemDisplayContents: new Map(),
+      });
+
+      const parsed = CommentParser.parseComment(body);
+
+      expect(parsed!.results[0]!.comment).toBe(comment1);
+      expect(parsed!.results[1]!.comment).toBe(comment2);
+    });
+
+    it('tableレイアウトでパイプ・改行を含むコメント本文を復元できる', () => {
+      const comment = '注意: a|b の扱い\n2行目';
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          comment,
+        ),
+      ];
+
+      const body = CommentFormatter.formatComment({
+        results,
+        ratings,
+        commitHash,
+        commitMessage: 'test commit',
+        hiddenRatingLabels: [],
+        qualityGateResult: { passed: true, violations: [] },
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
+
+      const parsed = CommentParser.parseComment(body);
+
+      expect(parsed!.results[0]!.comment).toBe(comment);
+    });
+
+    it('非表示結果のコメント本文はメタデータから復元される', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          '非表示コメント',
+        ),
+        ReviewResult.success(
+          new CheckItem('チェック項目2'),
+          new Rating('B', '概ね満たしている'),
+          '表示コメント',
+        ),
+      ];
+
+      const body = CommentFormatter.formatComment({
+        results,
+        ratings,
+        commitHash,
+        commitMessage: 'test commit',
+        hiddenRatingLabels: ['A'],
+        qualityGateResult: { passed: true, violations: [] },
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'sections',
+        checkItemDisplayContents: new Map(),
+      });
+
+      const parsed = CommentParser.parseComment(body);
+
+      expect(parsed!.results[0]!.comment).toBe('表示コメント');
+      expect(parsed!.hiddenResults[0]!.checkItem.content).toBe('チェック項目1');
+      expect(parsed!.hiddenResults[0]!.comment).toBe('非表示コメント');
+    });
+
+    it('メタデータにコメント本文を持つフォーマットは表示部分より優先して復元する', () => {
+      // PBI2時点のフォーマット（可視結果にcommentを含む）
+      const body = [
+        '<!-- aikata-review -->',
+        `<!-- aikata-review-data: ${JSON.stringify({
+          ratings: ratings.map((r) => ({ label: r.label, definition: r.definition })),
+          commitHash,
+          visibleResults: [
+            {
+              checkItemContent: 'チェック項目1',
+              ratingLabel: 'A',
+              comment: 'メタデータのコメント',
+            },
+          ],
+        })} -->`,
+        '',
+        '## AIKATA-PR レビュー結果',
+        'レビュー時最新コミット: test commit',
+        '',
+        '| チェック項目 | 評定 | コメント |',
+        '| --- | --- | --- |',
+        '| 表示用チェック項目 | A | 表示用のコメント |',
+      ].join('\n');
+
+      const parsed = CommentParser.parseComment(body);
+
+      expect(parsed!.results[0]!.checkItem.content).toBe('チェック項目1');
+      expect(parsed!.results[0]!.comment).toBe('メタデータのコメント');
+    });
+
+    it('表示部分のコメントが失われている場合も例外を投げず空文字で復元する', () => {
+      // 表示部分が手編集などで削除されたコメントを想定
+      const body = [
+        '<!-- aikata-review -->',
+        `<!-- aikata-review-data: ${JSON.stringify({
+          ratings: ratings.map((r) => ({ label: r.label, definition: r.definition })),
+          commitHash,
+          visibleResults: [{ checkItemContent: 'チェック項目1', ratingLabel: 'A' }],
+        })} -->`,
+        '',
+        '## AIKATA-PR レビュー結果',
+      ].join('\n');
+
+      const parsed = CommentParser.parseComment(body);
+
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0]!.checkItem.content).toBe('チェック項目1');
+      expect(parsed!.results[0]!.comment).toBe('');
+    });
+
+    it('コメント本文の区切りマーカーが閉じていない場合も例外を投げない', () => {
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          '詳細コメント',
+        ),
+      ];
+      const body = CommentFormatter.formatComment({
+        results,
+        ratings,
+        commitHash,
+        commitMessage: 'test commit',
+        hiddenRatingLabels: [],
+        qualityGateResult: { passed: true, violations: [] },
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'sections',
+        checkItemDisplayContents: new Map(),
+      });
+      // 終了マーカーが失われた（手編集で切り詰められた）コメントを想定
+      const truncated = body.slice(0, body.indexOf(REVIEW_COMMENT_CLOSE));
+
+      const parsed = CommentParser.parseComment(truncated);
+
+      expect(parsed!.results).toHaveLength(1);
+      expect(parsed!.results[0]!.comment).toBe('');
+    });
+
+    it('マーカーはあるがメタデータを持たないコメントはエラーになる', () => {
+      const body = ['<!-- aikata-review -->', '', '## AIKATA-PR レビュー結果'].join('\n');
+
+      expect(() => CommentParser.parseComment(body)).toThrow(
+        'Review metadata not found in comment body',
+      );
     });
   });
 });

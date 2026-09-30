@@ -5,11 +5,29 @@ import {
   OUT_OF_SCOPE_RATING,
   OUT_OF_SCOPE_RATING_LABEL,
 } from '../../../domain/review/rating/index.js';
-import { REVIEW_MARKER, REVIEW_DATA_PREFIX, REVIEW_DATA_SUFFIX } from './CommentFormatter.js';
+import {
+  REVIEW_MARKER,
+  REVIEW_DATA_PREFIX,
+  REVIEW_DATA_SUFFIX,
+  REVIEW_COMMENT_OPEN,
+  REVIEW_COMMENT_CLOSE,
+} from './CommentFormatter.js';
 
 /** メタデータに格納されるレビュー結果 */
 interface MetadataResult {
   checkItemContent: string;
+  ratingLabel: string;
+  /**
+   * コメント本文
+   * 可視結果は表示部分から復元するため格納されない（表示部分を持たない非表示結果のみ格納される）
+   * 旧フォーマットのコメントでは可視結果にも格納されているため、その場合はそちらを優先する
+   */
+  comment?: string;
+}
+
+/** テーブル行から抽出したセル */
+interface TableRowCells {
+  content: string;
   ratingLabel: string;
   comment: string;
 }
@@ -54,16 +72,22 @@ export class CommentParser {
     const metadata = CommentParser.extractMetadata(lines);
     const ratings = metadata.ratings.map((r) => new Rating(r.label, r.definition));
 
-    // 可視結果はメタデータから復元する
-    // メタデータに含まれない場合は旧フォーマットのコメントなので表をパースする
-    const results =
-      metadata.visibleResults !== undefined
-        ? metadata.visibleResults.map((vr) => CommentParser.toReviewResult(vr, ratings))
-        : CommentParser.parseTableRows(lines, ratings);
+    // 可視結果はメタデータのチェック項目・評定と、表示部分のコメント本文を突き合わせて復元する
+    // メタデータに可視結果が含まれない場合は旧フォーマットのコメントなので表をパースする
+    let results: ReviewResult[];
+    if (metadata.visibleResults !== undefined) {
+      const visibleComments = CommentParser.extractVisibleComments(body, lines);
+      results = metadata.visibleResults.map((vr, index) =>
+        // 旧フォーマットではメタデータにコメント本文が含まれるため、その場合はそちらを優先する
+        CommentParser.toReviewResult(vr, vr.comment ?? visibleComments[index] ?? '', ratings),
+      );
+    } else {
+      results = CommentParser.parseTableRows(lines, ratings);
+    }
 
-    // メタデータから非表示結果を復元
+    // メタデータから非表示結果を復元（表示部分を持たないためコメント本文もメタデータに含まれる）
     const hiddenResults = (metadata.hiddenResults ?? []).map((hr) =>
-      CommentParser.toReviewResult(hr, ratings),
+      CommentParser.toReviewResult(hr, hr.comment ?? '', ratings),
     );
 
     return {
@@ -92,15 +116,58 @@ export class CommentParser {
   }
 
   /**
-   * メタデータのレビュー結果をReviewResultに復元する
+   * メタデータのレビュー結果とコメント本文をReviewResultに復元する
    */
-  private static toReviewResult(result: MetadataResult, ratings: Rating[]): ReviewResult {
+  private static toReviewResult(
+    result: MetadataResult,
+    comment: string,
+    ratings: Rating[],
+  ): ReviewResult {
     const checkItem = new CheckItem(result.checkItemContent);
     if (result.ratingLabel === ERROR_RATING_LABEL) {
-      return ReviewResult.error(checkItem, result.comment);
+      return ReviewResult.error(checkItem, comment);
     }
     const rating = CommentParser.findRating(result.ratingLabel, ratings);
-    return ReviewResult.success(checkItem, rating, result.comment);
+    return ReviewResult.success(checkItem, rating, comment);
+  }
+
+  /**
+   * 表示部分から可視結果のコメント本文を表示順に抽出する
+   *
+   * sectionsレイアウトは本文が生Markdown（見出しを含みうる）のため、不可視マーカーで囲まれた範囲を抽出する。
+   * マーカーが無い場合はtableレイアウトとみなし、3列テーブルのコメント列から抽出する。
+   * 抽出結果の並び順はメタデータのvisibleResultsと一致するため、インデックスで突合できる。
+   */
+  private static extractVisibleComments(body: string, lines: string[]): string[] {
+    const sectionComments = CommentParser.extractMarkedComments(body);
+    if (sectionComments.length > 0) {
+      return sectionComments;
+    }
+    return CommentParser.parseTableRowCells(lines).map((cells) => cells.comment);
+  }
+
+  /**
+   * 不可視マーカーで囲まれたコメント本文を出現順に抽出する（sectionsレイアウト）
+   */
+  private static extractMarkedComments(body: string): string[] {
+    const comments: string[] = [];
+    let searchFrom = 0;
+
+    for (;;) {
+      const openIndex = body.indexOf(REVIEW_COMMENT_OPEN, searchFrom);
+      if (openIndex === -1) {
+        break;
+      }
+      const bodyStart = openIndex + REVIEW_COMMENT_OPEN.length + 1; // マーカー行の改行を除く
+      const closeIndex = body.indexOf(REVIEW_COMMENT_CLOSE, bodyStart);
+      if (closeIndex === -1) {
+        break;
+      }
+      comments.push(body.slice(bodyStart, closeIndex - 1)); // 終了マーカー行の直前の改行を除く
+      searchFrom = closeIndex + REVIEW_COMMENT_CLOSE.length;
+    }
+
+    return comments;
   }
 
   /**
@@ -108,7 +175,21 @@ export class CommentParser {
    * 旧フォーマット（メタデータに可視結果を含まない）のコメント向けの後方互換パス
    */
   private static parseTableRows(lines: string[], ratings: Rating[]): ReviewResult[] {
-    const results: ReviewResult[] = [];
+    return CommentParser.parseTableRowCells(lines).map((cells) => {
+      const checkItem = new CheckItem(cells.content);
+      if (cells.ratingLabel === ERROR_RATING_LABEL) {
+        return ReviewResult.error(checkItem, cells.comment);
+      }
+      const rating = CommentParser.findRating(cells.ratingLabel, ratings);
+      return ReviewResult.success(checkItem, rating, cells.comment);
+    });
+  }
+
+  /**
+   * 3列テーブル（チェック項目・評定・コメント）のデータ行をパースしてセル値を返す
+   */
+  private static parseTableRowCells(lines: string[]): TableRowCells[] {
+    const rows: TableRowCells[] = [];
 
     const separatorPattern = /^\|\s*-+\s*\|\s*-+\s*\|\s*-+\s*\|$/;
 
@@ -142,23 +223,14 @@ export class CommentParser {
       }
 
       // データ行のパース（エスケープを復元）
-      const content = CommentParser.unescapeCell(cells[0]);
-      const ratingLabel = CommentParser.unescapeCell(cells[1]);
-      const comment = CommentParser.unescapeCell(cells[2]);
-
-      const checkItem = new CheckItem(content);
-
-      if (ratingLabel === ERROR_RATING_LABEL) {
-        // エラー行
-        results.push(ReviewResult.error(checkItem, comment));
-      } else {
-        // 正常行: メタデータからRating定義を参照
-        const rating = CommentParser.findRating(ratingLabel, ratings);
-        results.push(ReviewResult.success(checkItem, rating, comment));
-      }
+      rows.push({
+        content: CommentParser.unescapeCell(cells[0]),
+        ratingLabel: CommentParser.unescapeCell(cells[1]),
+        comment: CommentParser.unescapeCell(cells[2]),
+      });
     }
 
-    return results;
+    return rows;
   }
 
   /**

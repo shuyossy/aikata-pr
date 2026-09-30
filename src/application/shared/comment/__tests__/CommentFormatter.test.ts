@@ -4,6 +4,8 @@ import {
   REVIEW_MARKER,
   REVIEW_DATA_PREFIX,
   REVIEW_DATA_SUFFIX,
+  REVIEW_COMMENT_OPEN,
+  REVIEW_COMMENT_CLOSE,
   FOLD_THRESHOLD,
 } from '../CommentFormatter.js';
 import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
@@ -786,9 +788,39 @@ describe('CommentFormatter', () => {
       });
 
       expect(extractMetadata(output).visibleResults).toEqual([
-        { checkItemContent: 'チェック項目1', ratingLabel: 'A', comment: 'コメント1' },
-        { checkItemContent: 'チェック項目2', ratingLabel: 'B', comment: 'コメント2' },
+        { checkItemContent: 'チェック項目1', ratingLabel: 'A' },
+        { checkItemContent: 'チェック項目2', ratingLabel: 'B' },
       ]);
+    });
+
+    it('可視結果のコメント本文はメタデータに格納されない（表示部分と二重化しない）', () => {
+      const comment = 'このコメント本文は表示部分にのみ存在するべきである';
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          comment,
+        ),
+      ];
+
+      const output = CommentFormatter.formatComment({
+        results,
+        ratings,
+        commitHash,
+        commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
+
+      // コメント本文はコメント全体で1度しか出現しない
+      expect(output.split(comment)).toHaveLength(2);
+      const metadataLine = output
+        .split('\n')
+        .find((l) => l.startsWith(REVIEW_DATA_PREFIX)) as string;
+      expect(metadataLine).not.toContain(comment);
     });
 
     it('メタデータのcheckItemContentは表示用ではなくAI用の生contentが格納される', () => {
@@ -831,7 +863,7 @@ describe('CommentFormatter', () => {
       });
 
       expect(extractMetadata(output).visibleResults).toEqual([
-        { checkItemContent: 'チェック項目1', ratingLabel: 'エラー', comment: 'API呼び出しエラー' },
+        { checkItemContent: 'チェック項目1', ratingLabel: 'エラー' },
       ]);
     });
 
@@ -955,6 +987,21 @@ describe('CommentFormatter', () => {
       // テーブルセル向けのエスケープが行われていないこと
       expect(output).not.toContain('\\|');
       expect(output).not.toContain('| ファイル | 内容 |<br>');
+    });
+
+    it('コメント本文が区切りマーカーで囲まれる', () => {
+      const comment = '## 指摘事項\n\n- a.ts の命名';
+      const results = [
+        ReviewResult.success(
+          new CheckItem('チェック項目1'),
+          new Rating('A', '完全に満たしている'),
+          comment,
+        ),
+      ];
+
+      const output = formatSections(results);
+
+      expect(output).toContain(`${REVIEW_COMMENT_OPEN}\n${comment}\n${REVIEW_COMMENT_CLOSE}`);
     });
 
     it('件数が折りたたみ閾値以下の場合は詳細を折りたたまない', () => {

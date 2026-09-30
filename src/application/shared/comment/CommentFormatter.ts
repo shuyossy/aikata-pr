@@ -16,6 +16,15 @@ export const REVIEW_DATA_PREFIX = '<!-- aikata-review-data: ';
 /** メタデータマーカーのサフィックス */
 export const REVIEW_DATA_SUFFIX = ' -->';
 
+/**
+ * sectionsレイアウトにおけるコメント本文の開始マーカー
+ * コメント本文はメタデータに格納しないため、表示部分から本文を無損失に切り出すために用いる
+ */
+export const REVIEW_COMMENT_OPEN = '<!--aikata-c-->';
+
+/** sectionsレイアウトにおけるコメント本文の終了マーカー */
+export const REVIEW_COMMENT_CLOSE = '<!--/aikata-c-->';
+
 /** 折りたたみ表示にする閾値（この値を超えたら折りたたみ） */
 export const FOLD_THRESHOLD = 2;
 
@@ -65,14 +74,16 @@ export class CommentFormatter {
     lines.push(REVIEW_MARKER);
 
     // メタデータマーカー（評定基準、コミットハッシュ、レビュー結果を埋め込む）
-    // 表示部分は表示専用であり、再レビュー時の結果復元はこのメタデータから行う
+    // 表示部分は表示専用であり、再レビュー時のチェック項目・評定の復元はこのメタデータから行う
+    // 可視結果のコメント本文は表示部分に存在するため、文字数の二重化を避けてメタデータには含めない
+    // （非表示結果は表示部分を持たないため、コメント本文もメタデータに格納する）
     const metadata: Record<string, unknown> = {
       ratings: input.ratings.map((r) => ({ label: r.label, definition: r.definition })),
       commitHash: input.commitHash,
-      visibleResults: visibleResults.map((r) => CommentFormatter.toMetadataResult(r)),
+      visibleResults: visibleResults.map((r) => CommentFormatter.toMetadataResult(r, false)),
     };
     if (hiddenResults.length > 0) {
-      metadata.hiddenResults = hiddenResults.map((r) => CommentFormatter.toMetadataResult(r));
+      metadata.hiddenResults = hiddenResults.map((r) => CommentFormatter.toMetadataResult(r, true));
     }
     lines.push(`${REVIEW_DATA_PREFIX}${JSON.stringify(metadata)}${REVIEW_DATA_SUFFIX}`);
 
@@ -132,7 +143,10 @@ export class CommentFormatter {
       details.push('');
       // コメント本文はエスケープせず生Markdownとして出力する
       // （ネストしたテーブル・見出し・箇条書きを利用可能にするため）
+      // 本文中に見出しが含まれうるため、復元用に不可視マーカーで範囲を明示する
+      details.push(REVIEW_COMMENT_OPEN);
       details.push(result.comment);
+      details.push(REVIEW_COMMENT_CLOSE);
       details.push('');
     }
     // 末尾の余分な空行を除去
@@ -211,17 +225,21 @@ export class CommentFormatter {
   /**
    * レビュー結果をメタデータJSON用の構造に変換する
    * checkItemContentは突合キーであるため、表示用ではなくAI用の生contentを格納する
+   * includeCommentがtrueの場合のみコメント本文を含める（表示部分から復元できない非表示結果向け）
    */
-  private static toMetadataResult(result: ReviewResult): {
+  private static toMetadataResult(
+    result: ReviewResult,
+    includeComment: boolean,
+  ): {
     checkItemContent: string;
     ratingLabel: string;
-    comment: string;
+    comment?: string;
   } {
-    return {
+    const metadataResult = {
       checkItemContent: result.checkItem.content,
       ratingLabel: CommentFormatter.resolveRatingLabel(result),
-      comment: result.comment,
     };
+    return includeComment ? { ...metadataResult, comment: result.comment } : metadataResult;
   }
 
   /**

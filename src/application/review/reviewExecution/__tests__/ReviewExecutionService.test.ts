@@ -17,6 +17,7 @@ import { CheckItem } from '../../../../domain/review/checkItem/index.js';
 import { Checklist } from '../../../../domain/review/checklist/index.js';
 import { Rating } from '../../../../domain/review/rating/index.js';
 import { ReviewSettings } from '../../../../domain/review/reviewSettings/index.js';
+import type { ReviewCommentLayout } from '../../../../domain/review/reviewSettings/index.js';
 import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
 import { QualityGate } from '../../../../domain/review/qualityGate/index.js';
 import { CommentFormatter } from '../../../shared/comment/index.js';
@@ -114,6 +115,7 @@ function createAikataComment(
   ratings: Rating[],
   createdAt: string,
   hiddenRatingLabels: string[] = [],
+  layout: ReviewCommentLayout = 'table',
 ): MrComment {
   const results = items.map((item) => {
     if (item.isError) {
@@ -131,7 +133,7 @@ function createAikataComment(
     hiddenRatingLabels: hiddenRatingLabels,
     qualityGateResult: { passed: true, violations: [] },
     mrCommentTitle: 'AIKATA-PR レビュー結果',
-    layout: 'table',
+    layout: layout,
     checkItemDisplayContents: new Map(),
   });
   return { id: 1, body, createdAt };
@@ -874,6 +876,44 @@ describe('ReviewExecutionService', () => {
       expect(result.results[1].comment).toBe('もう少し');
       expect(result.commitHash).toBe('same-hash');
       expect(result.commitMessage).toBe('feat: test commit message');
+    });
+
+    it('sectionsレイアウトの前回コメントでも生Markdownのコメント本文が保持される', async () => {
+      const command = createCommand();
+      const mrContext = createMrContext({ commitHash: 'same-hash' });
+      // 見出しやネスト表を含む生Markdownのコメント本文
+      const richComment = '### 指摘\n\n| ファイル | 内容 |\n| --- | --- |\n| a.ts | 命名 |';
+
+      const priorComment = createAikataComment(
+        [
+          {
+            content: 'コードの可読性',
+            ratingLabel: 'A',
+            ratingDefinition: '完全に満たしている',
+            comment: richComment,
+          },
+          {
+            content: 'テストカバレッジ',
+            ratingLabel: 'B',
+            ratingDefinition: '概ね満たしている',
+            comment: 'もう少し',
+          },
+        ],
+        'same-hash',
+        ratings,
+        '2026-01-01T00:00:00Z',
+        [],
+        'sections',
+      );
+
+      vi.mocked(mrGateway.getMrContext).mockResolvedValue(mrContext);
+      vi.mocked(mrDiscussionGateway.getReviewDiscussions).mockResolvedValue([priorComment]);
+
+      const result = await service.execute(command);
+
+      expect(workflowRunner.run).not.toHaveBeenCalled();
+      expect(result.results[0].comment).toBe(richComment);
+      expect(result.results[1].comment).toBe('もう少し');
     });
 
     it('一部エラー・一部成功の場合、エラー項目のみworkflowで再レビューされマージされる', async () => {
