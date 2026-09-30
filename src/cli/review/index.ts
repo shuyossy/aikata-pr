@@ -67,13 +67,10 @@ export async function run(args: string[]): Promise<void> {
     const checklist = ChecklistParser.parse(checklistCsv, checklistParseOptions);
 
     // レビュー結果コメント表示用のチェック項目テキストを生成する
-    // 同一CSVの同一データ行を走査するためChecklistのitemsと順序が一致する
-    const displayContents = ChecklistParser.parseDisplayContents(
+    const checkItemDisplayContents = ChecklistParser.parseDisplayContentMap(
       checklistCsv,
+      checklistParseOptions,
       buildChecklistDisplayParseOptions(options),
-    );
-    const checkItemDisplayContents = new Map(
-      checklist.items.map((item, i) => [item.content, displayContents[i] ?? item.content]),
     );
 
     const reviewSettings = options.reviewSettings

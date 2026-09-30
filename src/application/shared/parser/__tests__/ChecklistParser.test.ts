@@ -159,53 +159,82 @@ describe('ChecklistParser', () => {
     });
   });
 
-  describe('parseDisplayContents', () => {
+  describe('parseDisplayContentMap', () => {
     const csv =
       'No,カテゴリ,チェック項目,説明\n' +
       '1,セキュリティ,SQLi対策,バインディング確認\n' +
       '2,性能,N+1問題,クエリ最適化確認';
 
-    it('parse()と同じ順序・同じフォーマットのテキスト配列を返す', () => {
-      const checklist = ChecklistParser.parse(csv, defaultOptions);
-      const contents = ChecklistParser.parseDisplayContents(csv, defaultOptions);
+    /** AI指示用: No列を除く3列 */
+    const aiOptions = { columns: [2, 3, 4], noHeader: false };
 
-      expect(contents).toEqual(checklist.items.map((i) => i.content));
-    });
-
-    it('AI用とは異なる列を指定して表示用テキストを生成できる', () => {
-      const contents = ChecklistParser.parseDisplayContents(csv, {
-        columns: [2, 3],
-        noHeader: false,
-      });
-
-      expect(contents).toEqual([
-        'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLi対策\n---',
-        'カテゴリ:\n---\n性能\n---\n\nチェック項目:\n---\nN+1問題\n---',
-      ]);
-    });
-
-    it('1列指定かつnoHeaderの場合は値のみを返す', () => {
-      const contents = ChecklistParser.parseDisplayContents(csv, {
+    it('AI用contentをキー、表示用contentを値とするマップを返す', () => {
+      const checklist = ChecklistParser.parse(csv, aiOptions);
+      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, {
         columns: [3],
         noHeader: true,
       });
 
-      expect(contents).toEqual(['SQLi対策', 'N+1問題']);
+      // キーはparse()が返すitemsのcontentと完全に一致する
+      expect([...map.keys()]).toEqual(checklist.items.map((i) => i.content));
+      expect(map.get(checklist.items[0]!.content)).toBe('SQLi対策');
+      expect(map.get(checklist.items[1]!.content)).toBe('N+1問題');
     });
 
-    it('空セルでも例外にならず空文字を返す（表示専用のため）', () => {
-      const csvWithEmpty = 'カテゴリ,チェック項目\n,コード可読性';
-      const contents = ChecklistParser.parseDisplayContents(csvWithEmpty, {
-        columns: [1],
-        noHeader: true,
+    it('表示列がAI指示用と同じ場合は値がAI用contentと一致する', () => {
+      const checklist = ChecklistParser.parse(csv, aiOptions);
+      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, aiOptions);
+
+      for (const item of checklist.items) {
+        expect(map.get(item.content)).toBe(item.content);
+      }
+    });
+
+    it('表示列を複数指定した場合はヘッダ付き構造化フォーマットになる', () => {
+      const checklist = ChecklistParser.parse(csv, aiOptions);
+      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, {
+        columns: [2, 3],
+        noHeader: false,
       });
 
-      expect(contents).toEqual(['']);
+      expect(map.get(checklist.items[0]!.content)).toBe(
+        'カテゴリ:\n---\nセキュリティ\n---\n\nチェック項目:\n---\nSQLi対策\n---',
+      );
     });
 
-    it('不正な列番号を指定した場合はエラーになる', () => {
+    it('表示列のセルが空でも例外にならず空文字がマップされる（表示専用のため）', () => {
+      const csvWithEmpty = 'チェック項目,備考\nコード可読性,';
+      const checklist = ChecklistParser.parse(csvWithEmpty, { columns: [1], noHeader: true });
+      const map = ChecklistParser.parseDisplayContentMap(
+        csvWithEmpty,
+        { columns: [1], noHeader: true },
+        { columns: [2], noHeader: true },
+      );
+
+      expect(map.get(checklist.items[0]!.content)).toBe('');
+    });
+
+    it('AI用contentが重複する行は後の行の表示用contentが優先される', () => {
+      const duplicatedCsv = 'カテゴリ,チェック項目\n設計,同一項目\n実装,同一項目';
+      const map = ChecklistParser.parseDisplayContentMap(
+        duplicatedCsv,
+        { columns: [2], noHeader: true },
+        { columns: [1], noHeader: true },
+      );
+
+      expect(map.size).toBe(1);
+      expect(map.get('同一項目')).toBe('実装');
+    });
+
+    it('AI指示用の不正な列番号を指定した場合はエラーになる', () => {
       expect(() =>
-        ChecklistParser.parseDisplayContents(csv, { columns: [99], noHeader: false }),
+        ChecklistParser.parseDisplayContentMap(csv, { columns: [99], noHeader: false }, aiOptions),
+      ).toThrow('Column number 99 exceeds the number of columns (4)');
+    });
+
+    it('表示用の不正な列番号を指定した場合はエラーになる', () => {
+      expect(() =>
+        ChecklistParser.parseDisplayContentMap(csv, aiOptions, { columns: [99], noHeader: false }),
       ).toThrow('Column number 99 exceeds the number of columns (4)');
     });
   });

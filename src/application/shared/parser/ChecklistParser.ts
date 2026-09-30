@@ -22,14 +22,21 @@ export class ChecklistParser {
   }
 
   /**
-   * CSV文字列からレビュー結果コメント表示用のテキスト配列を生成する
+   * AI指示用content -> レビュー結果コメント表示用content のマップを生成する
    *
-   * parse()と同じフォーマットロジックでデータ行ごとのテキストを返すが、
-   * CheckItemを経由しないため空セルでも例外にならない（表示専用のため）。
-   * 返却される配列の順序はparse()が返すChecklistのitemsと一致する。
+   * 同一CSVの同一データ行をそれぞれのオプションで走査するため、両者のインデックスは一致する。
+   * 表示用contentはCheckItemを経由しないため空セルでも例外にならない（表示専用のため）。
+   * AI指示用contentが重複する行がある場合は後の行の表示用contentが優先される。
    */
-  static parseDisplayContents(csv: string, options: ChecklistParseOptions): string[] {
-    return ChecklistParser.buildContents(csv, options);
+  static parseDisplayContentMap(
+    csv: string,
+    options: ChecklistParseOptions,
+    displayOptions: ChecklistParseOptions,
+  ): Map<string, string> {
+    const contents = ChecklistParser.buildContents(csv, options);
+    const displayContents = ChecklistParser.buildContents(csv, displayOptions);
+
+    return new Map(contents.map((content, i) => [content, displayContents[i] ?? content]));
   }
 
   /**

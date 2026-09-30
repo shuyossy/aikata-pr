@@ -113,6 +113,7 @@ node dist/index.js server                                       # APIサーバ�
 - 新機能（AIレビュー以外のジョブ）を追加する場合は `docs/archtecture/feature-extension.md` を参照すること
   - CLIはサブコマンド方式（`node dist/index.js <feature> [options]`）で動作するので、新機能のCLI実装は `src/cli/<feature>/` に配置し `CliFeatureModule` をエクスポートして `src/cli/dispatch.ts` の `defaultFeatures` に追加する
 - GitLabはv16を想定すること
+- review機能のユーザガイドが`docs/user-guide.md`に配置してある。review機能を更新する際はユーザガイドに変更が必要かどうか確認すること。ユーザガイドは簡潔に、ユーザのメンタルモデルに沿った理解しやすい構成にすること
 
 # PBI
 @PBI.md

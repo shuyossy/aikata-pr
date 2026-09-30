@@ -998,5 +998,17 @@ describe('CommentFormatter', () => {
       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
       expect(output).not.toContain('| チェック項目 | 評定 |');
     });
+
+    it('複数行のセル値を持つチェック項目でも見出しは1行に収まる', () => {
+      const aiContent = 'カテゴリ:\n---\n設計\n---\n\n説明:\n---\n観点A\n観点B\n---';
+      const results = [
+        ReviewResult.success(new CheckItem(aiContent), new Rating('A', '完全に満たしている'), 'OK'),
+      ];
+
+      const output = formatSections(results);
+
+      const headingLines = output.split('\n').filter((line) => line.startsWith('### '));
+      expect(headingLines).toEqual(['### 設計 / 観点A / 観点B']);
+    });
   });
 });

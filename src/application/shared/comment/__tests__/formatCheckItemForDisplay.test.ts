@@ -127,12 +127,38 @@ describe('formatCheckItemForDisplay', () => {
       expect(result).toBe('命名規則');
     });
 
-    it('値の中の改行は保持されず前後の空白が除去される', () => {
+    it('値の前後の空白は除去される', () => {
       const content = 'チェック項目:\n---\n  命名規則  \n---';
 
       const result = formatCheckItemForHeading(content);
 
       expect(result).toBe('命名規則');
+    });
+
+    it('複数行の値を持つ列は改行が区切り文字に置換され1行になる', () => {
+      const content = 'チェック項目:\n---\n複数行の\n説明文です\n---';
+
+      const result = formatCheckItemForHeading(content);
+
+      expect(result).toBe('複数行の / 説明文です');
+      expect(result).not.toContain('\n');
+    });
+
+    it('複数列かつ複数行の値を持つ場合も全体が1行になる', () => {
+      const content = 'カテゴリ:\n---\n設計\n---\n\n説明:\n---\n観点A\n観点B\n---';
+
+      const result = formatCheckItemForHeading(content);
+
+      expect(result).toBe('設計 / 観点A / 観点B');
+      expect(result).not.toContain('\n');
+    });
+
+    it('複数行の値のうち空行は連結対象から除外される', () => {
+      const content = 'チェック項目:\n---\n観点A\n\n観点B\n---';
+
+      const result = formatCheckItemForHeading(content);
+
+      expect(result).toBe('観点A / 観点B');
     });
   });
 });

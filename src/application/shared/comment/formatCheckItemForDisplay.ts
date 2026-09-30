@@ -42,24 +42,33 @@ export function formatCheckItemForDisplay(content: string): string {
 const HEADING_SEPARATOR = ' / ';
 
 /**
+ * 複数行テキストを区切り文字で連結して1行にする
+ * 各行の前後の空白は除去し、空行は連結対象から除外する
+ */
+function toSingleLine(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .join(HEADING_SEPARATOR);
+}
+
+/**
  * チェック項目のcontentをMarkdown見出し用の1行テキストに変換する
  *
  * Markdownの見出しは複数行にできないため、各列の値のみを区切り文字で連結して1行にする。
+ * セル値自体が複数行の場合も改行を区切り文字に置換して1行にする。
  * 構造化フォーマットでない場合は改行を区切り文字に置換して1行にする。
  */
 export function formatCheckItemForHeading(content: string): string {
   const columns = extractColumns(content);
 
   if (columns.length === 0) {
-    return content
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== '')
-      .join(HEADING_SEPARATOR);
+    return toSingleLine(content);
   }
 
   return columns
-    .map((c) => c.value.trim())
+    .map((c) => toSingleLine(c.value))
     .filter((value) => value !== '')
     .join(HEADING_SEPARATOR);
 }
