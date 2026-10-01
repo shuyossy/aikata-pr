@@ -413,7 +413,7 @@ describe('CommentFormatter', () => {
       });
 
       expect(output).toContain(
-        '| <カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>--- | C | 対策が不十分です |',
+        '| &lt;カテゴリ&gt;<br>セキュリティ<br>---<br>&lt;チェック項目&gt;<br>SQLインジェクション対策<br>--- | C | 対策が不十分です |',
       );
     });
   });
@@ -915,21 +915,43 @@ describe('CommentFormatter', () => {
     it('表示用contentが登録されている場合はテーブルの表示に使われる', () => {
       const output = format('table', new Map([[aiContent, displayContent]]));
 
-      expect(output).toContain('| <チェック項目><br>命名規則<br>--- | A | OK |');
-      expect(output).not.toContain('<カテゴリ>');
+      expect(output).toContain('| &lt;チェック項目&gt;<br>命名規則<br>--- | A | OK |');
+      expect(output).not.toContain('&lt;カテゴリ&gt;');
     });
 
     it('表示用contentが未登録の場合はAI用contentがそのまま表示される', () => {
       const output = format('table', new Map());
 
-      expect(output).toContain('<カテゴリ><br>設計<br>---<br><チェック項目><br>命名規則<br>---');
+      expect(output).toContain(
+        '&lt;カテゴリ&gt;<br>設計<br>---<br>&lt;チェック項目&gt;<br>命名規則<br>---',
+      );
     });
 
-    it('sectionsレイアウトの見出しにも表示用contentが使われる', () => {
+    it('sectionsレイアウトの詳細にも表示用contentが使われる', () => {
       const output = format('sections', new Map([[aiContent, displayContent]]));
 
-      expect(output).toContain('### 命名規則');
-      expect(output).not.toContain('### 設計 / 命名規則');
+      expect(output).toContain('&lt;チェック項目&gt;<br>\n命名規則');
+      expect(output).not.toContain('&lt;カテゴリ&gt;');
+    });
+  });
+
+  describe('tableレイアウト', () => {
+    it('#列は追加されず従来の3列テーブルのまま出力される', () => {
+      const output = CommentFormatter.formatComment({
+        results: createResults(2),
+        ratings,
+        commitHash,
+        commitMessage,
+        hiddenRatingLabels: [],
+        qualityGateResult: PASSED_GATE,
+        mrCommentTitle: 'AIKATA-PR レビュー結果',
+        layout: 'table',
+        checkItemDisplayContents: new Map(),
+      });
+
+      expect(output).toContain('| チェック項目 | 評定 | コメント |');
+      expect(output).toContain('| チェック項目1 | A | コメント1 |');
+      expect(output).not.toContain('| # |');
     });
   });
 
@@ -947,27 +969,73 @@ describe('CommentFormatter', () => {
         checkItemDisplayContents: new Map(),
       });
 
-    it('チェック項目と評定の2列サマリテーブルを生成する', () => {
+    it('#・チェック項目・評定のサマリテーブルを生成する', () => {
       const output = formatSections(createResults(2));
 
-      expect(output).toContain('| チェック項目 | 評定 |');
-      expect(output).toContain('| --- | --- |');
-      expect(output).toContain('| チェック項目1 | A |');
-      expect(output).toContain('| チェック項目2 | B |');
-      // 3列テーブルのヘッダは出力されない
+      expect(output).toContain('| # | チェック項目 | 評定 |');
+      expect(output).toContain('| --- | --- | --- |');
+      expect(output).toContain('| 1 | チェック項目1 | A |');
+      expect(output).toContain('| 2 | チェック項目2 | B |');
+      // tableレイアウトのヘッダは出力されない
       expect(output).not.toContain('| チェック項目 | 評定 | コメント |');
     });
 
-    it('サマリテーブルの下にチェック項目ごとの詳細セクションを展開する', () => {
+    it('サマリテーブルの下にチェック項目ごとの折りたたみを#番号付きで展開する', () => {
       const output = formatSections(createResults(2));
 
-      expect(output).toContain('### チェック項目1');
-      expect(output).toContain('**評定**: A');
-      expect(output).toContain('### チェック項目2');
-      expect(output).toContain('**評定**: B');
+      expect(output).toContain(
+        [
+          '<details>',
+          '<summary>#1</summary>',
+          '',
+          'チェック項目1',
+          '',
+          '**評定: A**',
+          '',
+          REVIEW_COMMENT_OPEN,
+          'コメント1',
+          REVIEW_COMMENT_CLOSE,
+          '',
+          '</details>',
+        ].join('\n'),
+      );
+      expect(output).toContain('<summary>#2</summary>');
+      expect(output).toContain('**評定: B**');
       // サマリテーブルより後に詳細が出力される
-      expect(output.indexOf('### チェック項目1')).toBeGreaterThan(
-        output.indexOf('| チェック項目1 | A |'),
+      expect(output.indexOf('<summary>#1</summary>')).toBeGreaterThan(
+        output.indexOf('| 1 | チェック項目1 | A |'),
+      );
+    });
+
+    it('件数が折りたたみ閾値以下でも項目ごとに折りたたむ', () => {
+      const output = formatSections(createResults(1));
+
+      expect(output).toContain('<summary>#1</summary>');
+      expect(output).not.toContain('<summary>レビュー結果');
+    });
+
+    it('件数が折りたたみ閾値を超えても全体はまとめて折りたたまずサマリテーブルを常に表示する', () => {
+      const count = FOLD_THRESHOLD + 1;
+      const output = formatSections(createResults(count));
+
+      expect(output.match(/<details>/g)).toHaveLength(count);
+      expect(output.match(/<\/details>/g)).toHaveLength(count);
+      // サマリテーブルは折りたたみの外側にある
+      expect(output.indexOf('| # | チェック項目 | 評定 |')).toBeLessThan(
+        output.indexOf('<details>'),
+      );
+    });
+
+    it('複数列のチェック項目は列名と値を改行を保って表示する', () => {
+      const aiContent = 'カテゴリ:\n---\n設計\n---\n\n説明:\n---\n観点A\n観点B\n---';
+      const results = [
+        ReviewResult.success(new CheckItem(aiContent), new Rating('A', '完全に満たしている'), 'OK'),
+      ];
+
+      const output = formatSections(results);
+
+      expect(output).toContain(
+        '<summary>#1</summary>\n\n&lt;カテゴリ&gt;<br>\n設計<br>\n&lt;説明&gt;<br>\n観点A<br>\n観点B\n\n**評定: A**',
       );
     });
 
@@ -1004,58 +1072,32 @@ describe('CommentFormatter', () => {
       expect(output).toContain(`${REVIEW_COMMENT_OPEN}\n${comment}\n${REVIEW_COMMENT_CLOSE}`);
     });
 
-    it('件数が折りたたみ閾値以下の場合は詳細を折りたたまない', () => {
-      const output = formatSections(createResults(FOLD_THRESHOLD));
-
-      expect(output).not.toContain('<details>');
-    });
-
-    it('件数が折りたたみ閾値を超える場合は詳細のみを折りたたみサマリテーブルは常に表示する', () => {
-      const output = formatSections(createResults(FOLD_THRESHOLD + 1));
-
-      expect(output).toContain('<details>');
-      expect(output).toContain(`<summary>レビュー詳細（${FOLD_THRESHOLD + 1}件）</summary>`);
-      expect(output).toContain('</details>');
-      // サマリテーブルは折りたたみの外側にある
-      expect(output.indexOf('| チェック項目 | 評定 |')).toBeLessThan(output.indexOf('<details>'));
-    });
-
     it('エラー結果は評定にエラーラベルとエラーメッセージが表示される', () => {
       const results = [ReviewResult.error(new CheckItem('チェック項目1'), 'API呼び出しエラー')];
 
       const output = formatSections(results);
 
-      expect(output).toContain('| チェック項目1 | エラー |');
-      expect(output).toContain('**評定**: エラー');
+      expect(output).toContain('| 1 | チェック項目1 | エラー |');
+      expect(output).toContain('**評定: エラー**');
       expect(output).toContain('API呼び出しエラー');
     });
 
-    it('非表示評定の結果はサマリにも詳細にも出力されない', () => {
+    it('非表示評定の結果はサマリにも詳細にも出力されず#番号は表示対象のみで振られる', () => {
       const output = formatSections(createResults(2), ['A']);
 
-      expect(output).not.toContain('| チェック項目1 | A |');
-      expect(output).not.toContain('### チェック項目1');
-      expect(output).toContain('| チェック項目2 | B |');
-      expect(output).toContain('### チェック項目2');
+      // 非表示結果はメタデータにのみ格納され、表示部分には現れない
+      expect(output).not.toContain('| チェック項目1 |');
+      expect(output).not.toContain('\nチェック項目1\n');
+      expect(output).toContain('| 1 | チェック項目2 | B |');
+      expect(output).toContain('<summary>#1</summary>');
+      expect(output).not.toContain('<summary>#2</summary>');
     });
 
     it('全ての結果が非表示の場合はレイアウトによらず専用メッセージを出力する', () => {
       const output = formatSections(createResults(1), ['A']);
 
       expect(output).toContain('全てのチェック項目が非表示の評定に該当しました。');
-      expect(output).not.toContain('| チェック項目 | 評定 |');
-    });
-
-    it('複数行のセル値を持つチェック項目でも見出しは1行に収まる', () => {
-      const aiContent = 'カテゴリ:\n---\n設計\n---\n\n説明:\n---\n観点A\n観点B\n---';
-      const results = [
-        ReviewResult.success(new CheckItem(aiContent), new Rating('A', '完全に満たしている'), 'OK'),
-      ];
-
-      const output = formatSections(results);
-
-      const headingLines = output.split('\n').filter((line) => line.startsWith('### '));
-      expect(headingLines).toEqual(['### 設計 / 観点A / 観点B']);
+      expect(output).not.toContain('| # | チェック項目 | 評定 |');
     });
   });
 });

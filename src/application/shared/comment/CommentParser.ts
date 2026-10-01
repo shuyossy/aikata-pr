@@ -136,12 +136,12 @@ export class CommentParser {
    *
    * sectionsレイアウトは本文が生Markdown（見出しを含みうる）のため、不可視マーカーで囲まれた範囲を抽出する。
    * マーカーが無い場合はtableレイアウトとみなし、3列テーブルのコメント列から抽出する。
+   * sectionsのサマリテーブルも3列であるため、開始マーカーが1つでもあればテーブルへはフォールバックしない。
    * 抽出結果の並び順はメタデータのvisibleResultsと一致するため、インデックスで突合できる。
    */
   private static extractVisibleComments(body: string, lines: string[]): string[] {
-    const sectionComments = CommentParser.extractMarkedComments(body);
-    if (sectionComments.length > 0) {
-      return sectionComments;
+    if (body.includes(REVIEW_COMMENT_OPEN)) {
+      return CommentParser.extractMarkedComments(body);
     }
     return CommentParser.parseTableRowCells(lines).map((cells) => cells.comment);
   }

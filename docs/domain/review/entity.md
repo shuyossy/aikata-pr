@@ -96,7 +96,7 @@
   - 関連型
     - ReviewCommentLayout: 'table' | 'sections'
       - 'table': チェック項目・評定・コメントの3列テーブル（従来形式）
-      - 'sections': チェック項目・評定の2列サマリテーブル＋テーブル外に詳細をMarkdownで展開
+      - 'sections': #・チェック項目・評定のサマリテーブル＋チェック項目ごとに折りたたんだ詳細（Markdown）
 
 - チェックリスト
   - 識別子: Checklist

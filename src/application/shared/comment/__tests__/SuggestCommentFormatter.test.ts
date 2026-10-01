@@ -117,7 +117,7 @@ describe('SuggestCommentFormatter', () => {
       });
       const output = SuggestCommentFormatter.format(resolved, new Map());
       expect(output).toContain(
-        '**チェック項目:**<br><カテゴリ><br>セキュリティ<br>---<br><チェック項目><br>SQLインジェクション対策<br>---',
+        '**チェック項目:**<br>&lt;カテゴリ&gt;<br>セキュリティ<br>---<br>&lt;チェック項目&gt;<br>SQLインジェクション対策<br>---',
       );
     });
 
@@ -176,8 +176,8 @@ describe('SuggestCommentFormatter', () => {
         new Map([[aiContent, 'チェック項目:\n---\n命名規則\n---']]),
       );
 
-      expect(output).toContain('**チェック項目:**<br><チェック項目><br>命名規則<br>---');
-      expect(output).not.toContain('<カテゴリ>');
+      expect(output).toContain('**チェック項目:**<br>&lt;チェック項目&gt;<br>命名規則<br>---');
+      expect(output).not.toContain('&lt;カテゴリ&gt;');
     });
 
     it('メタデータのcheckItemContentは表示用ではなくAI用contentのままになる', () => {
@@ -194,7 +194,7 @@ describe('SuggestCommentFormatter', () => {
     it('表示用contentが未登録の場合はAI用contentがそのまま表示される', () => {
       const output = SuggestCommentFormatter.format(createResolved(), new Map());
 
-      expect(output).toContain('<カテゴリ><br>設計<br>---');
+      expect(output).toContain('&lt;カテゴリ&gt;<br>設計<br>---');
     });
   });
 });

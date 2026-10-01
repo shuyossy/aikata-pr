@@ -4,7 +4,7 @@ import type { QualityGateResult } from '../../../domain/review/qualityGate/index
 import type { ReviewCommentLayout } from '../../../domain/review/reviewSettings/index.js';
 import {
   formatCheckItemForDisplay,
-  formatCheckItemForHeading,
+  formatCheckItemForDetail,
 } from './formatCheckItemForDisplay.js';
 
 /** aikataレビューコメント識別用マーカー */
@@ -25,7 +25,14 @@ export const REVIEW_COMMENT_OPEN = '<!--aikata-c-->';
 /** sectionsレイアウトにおけるコメント本文の終了マーカー */
 export const REVIEW_COMMENT_CLOSE = '<!--/aikata-c-->';
 
-/** 折りたたみ表示にする閾値（この値を超えたら折りたたみ） */
+/**
+ * レビュー結果テーブルの種類
+ * - full: チェック項目・評定・コメントの3列（tableレイアウト）
+ * - summary: #・チェック項目・評定の3列（sectionsレイアウトのサマリ）
+ */
+type ReviewTableKind = 'full' | 'summary';
+
+/** tableレイアウトで折りたたみ表示にする閾値（この値を超えたら折りたたみ） */
 export const FOLD_THRESHOLD = 2;
 
 /**
@@ -121,44 +128,43 @@ export class CommentFormatter {
     visibleResults: ReviewResult[],
     input: FormatCommentInput,
   ): string[] {
-    const table = CommentFormatter.buildTable(visibleResults, input, true);
+    const table = CommentFormatter.buildTable(visibleResults, input, 'full');
     return CommentFormatter.withFold(table.split('\n'), visibleResults.length, 'レビュー結果');
   }
 
   /**
-   * sectionsレイアウト（2列サマリテーブル + テーブル外の詳細）を生成する
-   * サマリテーブルは常に表示し、詳細部分のみ折りたたみ対象とする
+   * sectionsレイアウト（#付きサマリテーブル + 項目ごとに折りたたんだ詳細）を生成する
+   * サマリテーブルは常に表示し、詳細は件数によらず項目ごとに折りたたむ
+   * 折りたたみのタイトルはサマリテーブルの#列と対応する番号とする
    */
   private static buildSectionsLayout(
     visibleResults: ReviewResult[],
     input: FormatCommentInput,
   ): string[] {
-    const summary = CommentFormatter.buildTable(visibleResults, input, false);
+    const lines = ['', CommentFormatter.buildTable(visibleResults, input, 'summary')];
 
-    const details: string[] = [];
-    for (const result of visibleResults) {
-      const displayContent = CommentFormatter.resolveDisplayContent(result, input);
-      details.push(`### ${formatCheckItemForHeading(displayContent)}`);
-      details.push(`**評定**: ${CommentFormatter.resolveRatingLabel(result)}`);
-      details.push('');
-      // コメント本文はエスケープせず生Markdownとして出力する
-      // （ネストしたテーブル・見出し・箇条書きを利用可能にするため）
-      // 本文中に見出しが含まれうるため、復元用に不可視マーカーで範囲を明示する
-      details.push(REVIEW_COMMENT_OPEN);
-      details.push(result.comment);
-      details.push(REVIEW_COMMENT_CLOSE);
-      details.push('');
-    }
-    // 末尾の余分な空行を除去
-    if (details[details.length - 1] === '') {
-      details.pop();
-    }
+    visibleResults.forEach((result, index) => {
+      lines.push(
+        '',
+        '<details>',
+        `<summary>#${index + 1}</summary>`,
+        '',
+        formatCheckItemForDetail(CommentFormatter.resolveDisplayContent(result, input)),
+        '',
+        `**評定: ${CommentFormatter.resolveRatingLabel(result)}**`,
+        '',
+        // コメント本文はエスケープせず生Markdownとして出力する
+        // （ネストしたテーブル・見出し・箇条書きを利用可能にするため）
+        // 本文中に見出しが含まれうるため、復元用に不可視マーカーで範囲を明示する
+        REVIEW_COMMENT_OPEN,
+        result.comment,
+        REVIEW_COMMENT_CLOSE,
+        '',
+        '</details>',
+      );
+    });
 
-    return [
-      '',
-      summary,
-      ...CommentFormatter.withFold(details, visibleResults.length, 'レビュー詳細'),
-    ];
+    return lines;
   }
 
   /**
@@ -181,26 +187,25 @@ export class CommentFormatter {
 
   /**
    * レビュー結果からMarkdownテーブルを生成する
-   * includeCommentがtrueの場合はコメント列を含む3列、falseの場合は2列のサマリになる
+   * fullはチェック項目・評定・コメントの3列、summaryは#・チェック項目・評定の3列になる
    */
   private static buildTable(
     results: ReviewResult[],
     input: FormatCommentInput,
-    includeComment: boolean,
+    kind: ReviewTableKind,
   ): string {
-    const header = includeComment
-      ? '| チェック項目 | 評定 | コメント |'
-      : '| チェック項目 | 評定 |';
-    const separator = includeComment ? '| --- | --- | --- |' : '| --- | --- |';
-    const rows = results.map((result) => {
+    const header =
+      kind === 'full' ? '| チェック項目 | 評定 | コメント |' : '| # | チェック項目 | 評定 |';
+    const separator = '| --- | --- | --- |';
+    const rows = results.map((result, index) => {
       const ratingLabel = CommentFormatter.resolveRatingLabel(result);
-      const displayContent = formatCheckItemForDisplay(
-        CommentFormatter.resolveDisplayContent(result, input),
+      const displayContent = CommentFormatter.escapeCell(
+        formatCheckItemForDisplay(CommentFormatter.resolveDisplayContent(result, input)),
       );
-      const cells = [CommentFormatter.escapeCell(displayContent), ratingLabel];
-      if (includeComment) {
-        cells.push(CommentFormatter.escapeCell(result.comment));
-      }
+      const cells =
+        kind === 'full'
+          ? [displayContent, ratingLabel, CommentFormatter.escapeCell(result.comment)]
+          : [String(index + 1), displayContent, ratingLabel];
       return `| ${cells.join(' | ')} |`;
     });
 

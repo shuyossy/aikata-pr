@@ -18,5 +18,5 @@ export type { ParsedSuggestComment, SuggestionRange } from './SuggestCommentPars
 export type { FormatCommentInput } from './CommentFormatter.js';
 export {
   formatCheckItemForDisplay,
-  formatCheckItemForHeading,
+  formatCheckItemForDetail,
 } from './formatCheckItemForDisplay.js';

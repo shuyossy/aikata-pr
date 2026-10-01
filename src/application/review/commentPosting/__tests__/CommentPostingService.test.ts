@@ -527,15 +527,15 @@ describe('CommentPostingService', () => {
       formatSpy.mockRestore();
     });
 
-    it('sectionsレイアウトを指定した場合は詳細セクション付きのコメントが投稿されること', async () => {
+    it('sectionsレイアウトを指定した場合は項目ごとの折りたたみ付きのコメントが投稿されること', async () => {
       const command = createCommand({ reviewCommentLayout: 'sections' });
 
       await service.execute(command);
 
       const body = vi.mocked(mrDiscussionGateway.postReviewDiscussion).mock.calls[0]![2];
-      expect(body).toContain('| チェック項目 | 評定 |');
-      expect(body).toContain('### コードの可読性');
-      expect(body).toContain('**評定**: A');
+      expect(body).toContain('| # | チェック項目 | 評定 |');
+      expect(body).toContain('<summary>#1</summary>');
+      expect(body).toContain('**評定: A**');
     });
   });
 });

@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { CommentParser } from '../CommentParser.js';
-import { CommentFormatter, FOLD_THRESHOLD, REVIEW_COMMENT_CLOSE } from '../CommentFormatter.js';
+import {
+  CommentFormatter,
+  FOLD_THRESHOLD,
+  REVIEW_MARKER,
+  REVIEW_DATA_PREFIX,
+  REVIEW_DATA_SUFFIX,
+  REVIEW_COMMENT_OPEN,
+  REVIEW_COMMENT_CLOSE,
+} from '../CommentFormatter.js';
 import { ReviewResult } from '../../../../domain/review/reviewResult/index.js';
 import { CheckItem } from '../../../../domain/review/checkItem/index.js';
 import { Rating } from '../../../../domain/review/rating/index.js';
@@ -677,6 +685,36 @@ describe('CommentParser', () => {
 
       expect(parsed!.results[0]!.comment).toBe(comment1);
       expect(parsed!.results[1]!.comment).toBe(comment2);
+    });
+
+    it('見出し形式の旧sectionsレイアウトのコメントからもコメント本文を復元できる', () => {
+      const metadata = {
+        ratings: [{ label: 'A', definition: '完全に満たしている' }],
+        commitHash,
+        visibleResults: [{ checkItemContent: 'チェック項目1', ratingLabel: 'A' }],
+      };
+      const body = [
+        REVIEW_MARKER,
+        `${REVIEW_DATA_PREFIX}${JSON.stringify(metadata)}${REVIEW_DATA_SUFFIX}`,
+        '',
+        '## AIKATA-PR レビュー結果',
+        'レビュー時最新コミット: test commit',
+        '',
+        '| チェック項目 | 評定 |',
+        '| --- | --- |',
+        '| チェック項目1 | A |',
+        '',
+        '### チェック項目1',
+        '**評定**: A',
+        '',
+        REVIEW_COMMENT_OPEN,
+        '### 指摘\n\n- a.ts',
+        REVIEW_COMMENT_CLOSE,
+      ].join('\n');
+
+      const parsed = CommentParser.parseComment(body);
+
+      expect(parsed!.results[0]!.comment).toBe('### 指摘\n\n- a.ts');
     });
 
     it('tableレイアウトでパイプ・改行を含むコメント本文を復元できる', () => {
