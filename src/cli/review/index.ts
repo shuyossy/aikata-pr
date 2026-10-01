@@ -3,6 +3,7 @@ import {
   parseCliOptions,
   buildChecklistParseOptions,
   buildChecklistDisplayParseOptions,
+  detectChecklistFormat,
 } from './parseReviewArgs.js';
 import { initializeLogger, getLogger, flushLogger, runWithLogContext } from '../../lib/logger.js';
 import {
@@ -61,14 +62,16 @@ export async function run(args: string[]): Promise<void> {
       process.env as Record<string, string | undefined>,
     );
 
-    // 入力ファイル読み込み
-    const checklistCsv = fs.readFileSync(validated.checklistPath, 'utf-8');
+    // 入力ファイル読み込み（拡張子でCSV/Markdownテーブルを判定）
+    const checklistText = fs.readFileSync(validated.checklistPath, 'utf-8');
+    const checklistFormat = detectChecklistFormat(validated.checklistPath);
     const checklistParseOptions = buildChecklistParseOptions(options);
-    const checklist = ChecklistParser.parse(checklistCsv, checklistParseOptions);
+    const checklist = ChecklistParser.parse(checklistText, checklistFormat, checklistParseOptions);
 
     // レビュー結果コメント表示用のチェック項目テキストを生成する
     const checkItemDisplayContents = ChecklistParser.parseDisplayContentMap(
-      checklistCsv,
+      checklistText,
+      checklistFormat,
       checklistParseOptions,
       buildChecklistDisplayParseOptions(options),
     );

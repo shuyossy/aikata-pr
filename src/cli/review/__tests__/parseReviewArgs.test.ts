@@ -3,6 +3,7 @@ import {
   parseCliOptions,
   buildChecklistParseOptions,
   buildChecklistDisplayParseOptions,
+  detectChecklistFormat,
 } from '../parseReviewArgs.js';
 import type { CliOptions } from '../parseReviewArgs.js';
 
@@ -510,5 +511,20 @@ describe('buildChecklistDisplayParseOptions', () => {
     expect(() =>
       buildChecklistDisplayParseOptions(baseOptions({ checklistDisplayColumns: '0' })),
     ).toThrow('Invalid column number');
+  });
+});
+
+describe('detectChecklistFormat', () => {
+  it.each([
+    ['.aikata-pr/checklist.md', 'markdown'],
+    ['checklist.MD', 'markdown'],
+    ['docs/checklist.markdown', 'markdown'],
+    ['checklist.Markdown', 'markdown'],
+    ['.aikata-pr/checklist.csv', 'csv'],
+    ['checklist.txt', 'csv'],
+    ['checklist', 'csv'],
+    ['dir.md/checklist', 'csv'],
+  ] as const)('%s は %s として判定される', (path, expected) => {
+    expect(detectChecklistFormat(path)).toBe(expected);
   });
 });

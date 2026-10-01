@@ -68,8 +68,8 @@ CLIはサブコマンド方式で動作する。`aikata-pr review [options]` の
     - `--aikata-api-url` / `AIKATA_API_URL`: APIサーバーURL（設定時はAPIモードで動作）
   - review サブコマンド固有CLIオプション
     - `--mr-iid` / `GITLAB_MR_IID`: MR IID
-    - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス
-    - `--checklist-columns` / `CHECKLIST_COLUMNS`: チェックリストCSVの抽出列番号（カンマ区切り、1始まり）
+    - `--checklist` / `CHECKLIST_PATH`: チェックリストファイルパス（拡張子`.md`/`.markdown`はMarkdownテーブル、それ以外はCSV）
+    - `--checklist-columns` / `CHECKLIST_COLUMNS`: チェックリストの抽出列番号（カンマ区切り、1始まり）
     - `--checklist-no-header` / `CHECKLIST_NO_HEADER`: 抽出列が1列の場合にヘッダを除外するか（デフォルト: `false`）
     - `--checklist-display-columns` / `CHECKLIST_DISPLAY_COLUMNS`: レビュー結果コメントに表示する列番号（カンマ区切り、1始まり）。未指定時は `--checklist-columns` と同じ列を使用
     - `--review-settings` / `REVIEW_SETTINGS_PATH`: レビュー設定ファイルパス

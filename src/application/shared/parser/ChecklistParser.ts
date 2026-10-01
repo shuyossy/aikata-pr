@@ -1,21 +1,23 @@
 import { parse } from 'csv-parse/sync';
 import { Checklist } from '../../../domain/review/checklist/index.js';
 import { CheckItem } from '../../../domain/review/checkItem/index.js';
+import type { ChecklistFormat } from './ChecklistFormat.js';
 import type { ChecklistParseOptions } from './ChecklistParseOptions.js';
+import { parseMarkdownTable } from './MarkdownTableParser.js';
 
 /**
- * チェックリストCSVパーサー
- * CSV文字列をチェックリストドメインオブジェクトに変換する
+ * チェックリストパーサー
+ * CSVまたはMarkdownテーブルの文字列をチェックリストドメインオブジェクトに変換する
  */
 export class ChecklistParser {
   /**
-   * CSV文字列からChecklistを生成する
+   * チェックリスト文字列からChecklistを生成する
    *
-   * CSVの先頭行をヘッダとして扱い、各データ行を1つのチェック項目に変換する。
+   * 先頭行をヘッダとして扱い、各データ行を1つのチェック項目に変換する。
    * デフォルトでは全列をヘッダ付きフォーマットで出力する。
    */
-  static parse(csv: string, options: ChecklistParseOptions): Checklist {
-    const items = ChecklistParser.buildContents(csv, options).map(
+  static parse(text: string, format: ChecklistFormat, options: ChecklistParseOptions): Checklist {
+    const items = ChecklistParser.buildContents(text, format, options).map(
       (content) => new CheckItem(content),
     );
     return new Checklist(items);
@@ -24,31 +26,42 @@ export class ChecklistParser {
   /**
    * AI指示用content -> レビュー結果コメント表示用content のマップを生成する
    *
-   * 同一CSVの同一データ行をそれぞれのオプションで走査するため、両者のインデックスは一致する。
+   * 同一チェックリストの同一データ行をそれぞれのオプションで走査するため、両者のインデックスは一致する。
    * 表示用contentはCheckItemを経由しないため空セルでも例外にならない（表示専用のため）。
    * AI指示用contentが重複する行がある場合は後の行の表示用contentが優先される。
    */
   static parseDisplayContentMap(
-    csv: string,
+    text: string,
+    format: ChecklistFormat,
     options: ChecklistParseOptions,
     displayOptions: ChecklistParseOptions,
   ): Map<string, string> {
-    const contents = ChecklistParser.buildContents(csv, options);
-    const displayContents = ChecklistParser.buildContents(csv, displayOptions);
+    const contents = ChecklistParser.buildContents(text, format, options);
+    const displayContents = ChecklistParser.buildContents(text, format, displayOptions);
 
     return new Map(contents.map((content, i) => [content, displayContents[i] ?? content]));
   }
 
   /**
-   * CSV文字列を解析し、データ行ごとのチェック項目テキストを生成する
+   * チェックリスト文字列を形式に応じて解析し、ヘッダ行 + データ行のレコードを返す
    */
-  private static buildContents(csv: string, options: ChecklistParseOptions): string[] {
-    if (csv.trim() === '') {
+  private static readRecords(text: string, format: ChecklistFormat): string[][] {
+    if (format === 'markdown') {
+      const records = parseMarkdownTable(text);
+      if (records.length < 2) {
+        throw new Error(
+          'Markdown checklist table must contain at least a header row and one data row',
+        );
+      }
+      return records;
+    }
+
+    if (text.trim() === '') {
       throw new Error('CSV content must not be empty');
     }
 
     // RFC 4180準拠のCSVパース
-    const records: string[][] = parse(csv, {
+    const records: string[][] = parse(text, {
       columns: false,
       skip_empty_lines: true,
       relax_column_count: true,
@@ -57,7 +70,18 @@ export class ChecklistParser {
     if (records.length < 2) {
       throw new Error('CSV must contain at least a header row and one data row');
     }
+    return records;
+  }
 
+  /**
+   * チェックリスト文字列を解析し、データ行ごとのチェック項目テキストを生成する
+   */
+  private static buildContents(
+    text: string,
+    format: ChecklistFormat,
+    options: ChecklistParseOptions,
+  ): string[] {
+    const records = ChecklistParser.readRecords(text, format);
     const headers = records[0]!;
     const dataRows = records.slice(1);
 

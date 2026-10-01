@@ -15,8 +15,8 @@
 | GitLab | GITLAB_MR_IID | reviewで必須 | - | マージリクエストIID（review機能で必須） | --mr-iid | - |
 | GitLab | GITLAB_PIPELINE_ID | pipeline-reportで必須 | - | 分析対象のパイプラインID（pipeline-report機能で必須。CI環境では `CI_PIPELINE_ID` を `.ci-template/variable/pipeline-report.yml` で継承） | --pipeline-id | - |
 | GitLab | GITLAB_SELF_JOB_ID | No | - | 本機能自身のジョブID。分析対象から除外される（pipeline-report専用。CI環境では `CI_JOB_ID` を `.ci-template/variable/pipeline-report.yml` で継承） | --self-job-id | - |
-| 入力 | CHECKLIST_PATH | reviewで必須 | - | チェックリストファイルパス | --checklist | - |
-| 入力 | CHECKLIST_COLUMNS | No | - | チェックリストCSVの抽出列番号（カンマ区切り、1始まり）。未指定時は全列を抽出 | --checklist-columns | - |
+| 入力 | CHECKLIST_PATH | reviewで必須 | - | チェックリストファイルパス。拡張子が`.md`/`.markdown`の場合はMarkdownテーブル、それ以外はCSVとして読み込む | --checklist | - |
+| 入力 | CHECKLIST_COLUMNS | No | - | チェックリストの抽出列番号（カンマ区切り、1始まり）。未指定時は全列を抽出 | --checklist-columns | - |
 | 入力 | CHECKLIST_NO_HEADER | No | false | 抽出列が1列の場合にヘッダを除外するか | --checklist-no-header | - |
 | 入力 | CHECKLIST_DISPLAY_COLUMNS | No | - | レビュー結果コメントに表示する列番号（カンマ区切り、1始まり）。未指定時は `CHECKLIST_COLUMNS` と同じ列を使用（＝AIへの指示文と同一表示） | --checklist-display-columns | - |
 | 入力 | REVIEW_SETTINGS_PATH | No | - | レビュー設定ファイルパス | --review-settings | - |

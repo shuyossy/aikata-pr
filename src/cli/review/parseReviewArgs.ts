@@ -1,4 +1,11 @@
-import type { ChecklistParseOptions } from '../../application/shared/parser/index.js';
+import path from 'node:path';
+import type {
+  ChecklistFormat,
+  ChecklistParseOptions,
+} from '../../application/shared/parser/index.js';
+
+/** Markdownテーブル形式として扱うチェックリストファイルの拡張子 */
+const MARKDOWN_CHECKLIST_EXTENSIONS = new Set(['.md', '.markdown']);
 
 /** 既定のGitLab APIベースURL */
 const DEFAULT_GITLAB_API_URL = 'https://gitlab.com/api/v4';
@@ -181,4 +188,13 @@ export function buildChecklistDisplayParseOptions(options: CliOptions): Checklis
     columns: displayColumns ?? parseColumnNumbers(options.checklistColumns),
     noHeader: options.checklistNoHeader,
   };
+}
+
+/**
+ * チェックリストファイルのパスから形式を判定する
+ * 拡張子が.md/.markdown（大文字小文字無視）の場合はMarkdownテーブル、それ以外は従来どおりCSVとする
+ */
+export function detectChecklistFormat(checklistPath: string): ChecklistFormat {
+  const extension = path.extname(checklistPath).toLowerCase();
+  return MARKDOWN_CHECKLIST_EXTENSIONS.has(extension) ? 'markdown' : 'csv';
 }

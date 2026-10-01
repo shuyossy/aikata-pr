@@ -12,7 +12,7 @@ describe('ChecklistParser', () => {
         'カテゴリ,チェック項目,説明\n' +
         'セキュリティ,SQLインジェクション対策,バインディング確認\n' +
         'パフォーマンス,N+1問題,クエリ最適化確認';
-      const checklist = ChecklistParser.parse(csv, defaultOptions);
+      const checklist = ChecklistParser.parse(csv, 'csv', defaultOptions);
 
       expect(checklist.size).toBe(2);
       expect(checklist.items[0].content).toBe(
@@ -25,7 +25,7 @@ describe('ChecklistParser', () => {
 
     it('1列のみのCSVでもヘッダ付きフォーマットになる', () => {
       const csv = 'チェック項目\nコード可読性\nテスト網羅性';
-      const checklist = ChecklistParser.parse(csv, defaultOptions);
+      const checklist = ChecklistParser.parse(csv, 'csv', defaultOptions);
 
       expect(checklist.size).toBe(2);
       expect(checklist.items[0].content).toBe('チェック項目:\n---\nコード可読性\n---');
@@ -40,7 +40,7 @@ describe('ChecklistParser', () => {
         '1,セキュリティ,SQLi対策,バインディング確認\n' +
         '2,パフォーマンス,N+1問題,クエリ最適化';
       const options: ChecklistParseOptions = { columns: [2, 3], noHeader: false };
-      const checklist = ChecklistParser.parse(csv, options);
+      const checklist = ChecklistParser.parse(csv, 'csv', options);
 
       expect(checklist.size).toBe(2);
       expect(checklist.items[0].content).toBe(
@@ -53,7 +53,7 @@ describe('ChecklistParser', () => {
     it('1列指定でもヘッダ付きフォーマットになる', () => {
       const csv = 'No,チェック項目,説明\n1,コード可読性,可読性確認\n2,テスト網羅性,カバレッジ確認';
       const options: ChecklistParseOptions = { columns: [2], noHeader: false };
-      const checklist = ChecklistParser.parse(csv, options);
+      const checklist = ChecklistParser.parse(csv, 'csv', options);
 
       expect(checklist.size).toBe(2);
       expect(checklist.items[0].content).toBe('チェック項目:\n---\nコード可読性\n---');
@@ -64,7 +64,7 @@ describe('ChecklistParser', () => {
     it('生の値がそのままcontentになる', () => {
       const csv = 'No,チェック項目,説明\n1,コード可読性,可読性確認\n2,テスト網羅性,カバレッジ確認';
       const options: ChecklistParseOptions = { columns: [2], noHeader: true };
-      const checklist = ChecklistParser.parse(csv, options);
+      const checklist = ChecklistParser.parse(csv, 'csv', options);
 
       expect(checklist.size).toBe(2);
       expect(checklist.items[0].content).toBe('コード可読性');
@@ -76,7 +76,7 @@ describe('ChecklistParser', () => {
     it('CSVが元々1列の場合もnoHeaderが��効で生の値がそのままcontentになる', () => {
       const csv = 'チェック項目\nコード可読性\nテスト網羅性';
       const options: ChecklistParseOptions = { columns: null, noHeader: true };
-      const checklist = ChecklistParser.parse(csv, options);
+      const checklist = ChecklistParser.parse(csv, 'csv', options);
 
       expect(checklist.size).toBe(2);
       expect(checklist.items[0].content).toBe('コード可読性');
@@ -88,7 +88,7 @@ describe('ChecklistParser', () => {
     it('抽出列が複数の場合はnoHeaderが指定されてもヘッダ付きフォーマットになる', () => {
       const csv = 'カテゴリ,チェック項目\nセキュリティ,SQLi対策\nパフォーマンス,N+1問題';
       const options: ChecklistParseOptions = { columns: null, noHeader: true };
-      const checklist = ChecklistParser.parse(csv, options);
+      const checklist = ChecklistParser.parse(csv, 'csv', options);
 
       expect(checklist.size).toBe(2);
       expect(checklist.items[0].content).toBe(
@@ -100,7 +100,7 @@ describe('ChecklistParser', () => {
   describe('RFC 4180準拠のCSV処理', () => {
     it('カンマを含むクォート付きフィールドを正しくパースできる', () => {
       const csv = 'ヘッダ1,ヘッダ2\n"値1,値1続き",値2';
-      const checklist = ChecklistParser.parse(csv, defaultOptions);
+      const checklist = ChecklistParser.parse(csv, 'csv', defaultOptions);
 
       expect(checklist.size).toBe(1);
       expect(checklist.items[0].content).toBe(
@@ -110,7 +110,7 @@ describe('ChecklistParser', () => {
 
     it('フィールド内改行を正しくパースできる', () => {
       const csv = 'ヘッダ1,ヘッダ2\n"行1\n行2",値2';
-      const checklist = ChecklistParser.parse(csv, defaultOptions);
+      const checklist = ChecklistParser.parse(csv, 'csv', defaultOptions);
 
       expect(checklist.size).toBe(1);
       expect(checklist.items[0].content).toBe(
@@ -120,7 +120,7 @@ describe('ChecklistParser', () => {
 
     it('ダブルクォートのエ��ケープを正しくパースできる', () => {
       const csv = 'ヘッダ1\n"値に""クォート""あり"';
-      const checklist = ChecklistParser.parse(csv, defaultOptions);
+      const checklist = ChecklistParser.parse(csv, 'csv', defaultOptions);
 
       expect(checklist.size).toBe(1);
       expect(checklist.items[0].content).toBe('ヘッダ1:\n---\n値に"クォート"あり\n---');
@@ -130,7 +130,7 @@ describe('ChecklistParser', () => {
   describe('空セルの処理', () => {
     it('空セルを含む行も正常にパースできる', () => {
       const csv = 'ヘッダ1,ヘッダ2\n値1,\n,値4';
-      const checklist = ChecklistParser.parse(csv, defaultOptions);
+      const checklist = ChecklistParser.parse(csv, 'csv', defaultOptions);
 
       expect(checklist.size).toBe(2);
       expect(checklist.items[0].content).toBe('ヘッダ1:\n---\n値1\n---\n\nヘッダ2:\n---\n\n---');
@@ -139,23 +139,23 @@ describe('ChecklistParser', () => {
 
   describe('エラーケース', () => {
     it('空のCSVではエラーになる', () => {
-      expect(() => ChecklistParser.parse('', defaultOptions)).toThrow();
+      expect(() => ChecklistParser.parse('', 'csv', defaultOptions)).toThrow();
     });
 
     it('ヘッダのみ（データ行なし）ではエラーになる', () => {
-      expect(() => ChecklistParser.parse('ヘッダ1,ヘッダ2', defaultOptions)).toThrow();
+      expect(() => ChecklistParser.parse('ヘッダ1,ヘッダ2', 'csv', defaultOptions)).toThrow();
     });
 
     it('存在しない列番号を指定するとエラーになる', () => {
       const csv = 'ヘッダ1,ヘッダ2\n値1,値2';
       const options: ChecklistParseOptions = { columns: [5], noHeader: false };
-      expect(() => ChecklistParser.parse(csv, options)).toThrow();
+      expect(() => ChecklistParser.parse(csv, 'csv', options)).toThrow();
     });
 
     it('列番号0以下を指定するとエラーになる', () => {
       const csv = 'ヘッダ1,ヘッダ2\n値1,値2';
       const options: ChecklistParseOptions = { columns: [0], noHeader: false };
-      expect(() => ChecklistParser.parse(csv, options)).toThrow();
+      expect(() => ChecklistParser.parse(csv, 'csv', options)).toThrow();
     });
   });
 
@@ -169,8 +169,8 @@ describe('ChecklistParser', () => {
     const aiOptions = { columns: [2, 3, 4], noHeader: false };
 
     it('AI用contentをキー、表示用contentを値とするマップを返す', () => {
-      const checklist = ChecklistParser.parse(csv, aiOptions);
-      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, {
+      const checklist = ChecklistParser.parse(csv, 'csv', aiOptions);
+      const map = ChecklistParser.parseDisplayContentMap(csv, 'csv', aiOptions, {
         columns: [3],
         noHeader: true,
       });
@@ -182,8 +182,8 @@ describe('ChecklistParser', () => {
     });
 
     it('表示列がAI指示用と同じ場合は値がAI用contentと一致する', () => {
-      const checklist = ChecklistParser.parse(csv, aiOptions);
-      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, aiOptions);
+      const checklist = ChecklistParser.parse(csv, 'csv', aiOptions);
+      const map = ChecklistParser.parseDisplayContentMap(csv, 'csv', aiOptions, aiOptions);
 
       for (const item of checklist.items) {
         expect(map.get(item.content)).toBe(item.content);
@@ -191,8 +191,8 @@ describe('ChecklistParser', () => {
     });
 
     it('表示列を複数指定した場合はヘッダ付き構造化フォーマットになる', () => {
-      const checklist = ChecklistParser.parse(csv, aiOptions);
-      const map = ChecklistParser.parseDisplayContentMap(csv, aiOptions, {
+      const checklist = ChecklistParser.parse(csv, 'csv', aiOptions);
+      const map = ChecklistParser.parseDisplayContentMap(csv, 'csv', aiOptions, {
         columns: [2, 3],
         noHeader: false,
       });
@@ -204,9 +204,13 @@ describe('ChecklistParser', () => {
 
     it('表示列のセルが空でも例外にならず空文字がマップされる（表示専用のため）', () => {
       const csvWithEmpty = 'チェック項目,備考\nコード可読性,';
-      const checklist = ChecklistParser.parse(csvWithEmpty, { columns: [1], noHeader: true });
+      const checklist = ChecklistParser.parse(csvWithEmpty, 'csv', {
+        columns: [1],
+        noHeader: true,
+      });
       const map = ChecklistParser.parseDisplayContentMap(
         csvWithEmpty,
+        'csv',
         { columns: [1], noHeader: true },
         { columns: [2], noHeader: true },
       );
@@ -218,6 +222,7 @@ describe('ChecklistParser', () => {
       const duplicatedCsv = 'カテゴリ,チェック項目\n設計,同一項目\n実装,同一項目';
       const map = ChecklistParser.parseDisplayContentMap(
         duplicatedCsv,
+        'csv',
         { columns: [2], noHeader: true },
         { columns: [1], noHeader: true },
       );
@@ -228,14 +233,96 @@ describe('ChecklistParser', () => {
 
     it('AI指示用の不正な列番号を指定した場合はエラーになる', () => {
       expect(() =>
-        ChecklistParser.parseDisplayContentMap(csv, { columns: [99], noHeader: false }, aiOptions),
+        ChecklistParser.parseDisplayContentMap(
+          csv,
+          'csv',
+          { columns: [99], noHeader: false },
+          aiOptions,
+        ),
       ).toThrow('Column number 99 exceeds the number of columns (4)');
     });
 
     it('表示用の不正な列番号を指定した場合はエラーになる', () => {
       expect(() =>
-        ChecklistParser.parseDisplayContentMap(csv, aiOptions, { columns: [99], noHeader: false }),
+        ChecklistParser.parseDisplayContentMap(csv, 'csv', aiOptions, {
+          columns: [99],
+          noHeader: false,
+        }),
       ).toThrow('Column number 99 exceeds the number of columns (4)');
+    });
+  });
+
+  describe('Markdownテーブル形式', () => {
+    const md =
+      '# レビューチェックリスト\n\n' +
+      '| No | カテゴリ | チェック項目 | 説明 |\n' +
+      '| :-: | --- | --- | --- |\n' +
+      '| 1 | セキュリティ | SQLi対策 | バインディング確認<br>動的SQLは必ず指摘 |\n' +
+      '| 2 | 性能 | N+1問題 | クエリ最適化確認 |\n';
+
+    it('全列をヘッダ付き構造化フォーマットでChecklistに変換できる', () => {
+      const checklist = ChecklistParser.parse(md, 'markdown', defaultOptions);
+
+      expect(checklist.size).toBe(2);
+      expect(checklist.items[0]!.content).toBe(
+        'No:\n---\n1\n---\n\nカテゴリ:\n---\nセキュリティ\n---\n\n' +
+          'チェック項目:\n---\nSQLi対策\n---\n\n説明:\n---\nバインディング確認\n動的SQLは必ず指摘\n---',
+      );
+    });
+
+    it('同じ内容のCSVと同一のcontentになる', () => {
+      const csv =
+        'No,カテゴリ,チェック項目,説明\n' +
+        '1,セキュリティ,SQLi対策,"バインディング確認\n動的SQLは必ず指摘"\n' +
+        '2,性能,N+1問題,クエリ最適化確認';
+      const options: ChecklistParseOptions = { columns: [2, 3, 4], noHeader: false };
+
+      const fromMd = ChecklistParser.parse(md, 'markdown', options);
+      const fromCsv = ChecklistParser.parse(csv, 'csv', options);
+
+      expect(fromMd.items.map((i) => i.content)).toEqual(fromCsv.items.map((i) => i.content));
+    });
+
+    it('列指定（1列）+ noHeaderで生の値がそのままcontentになる', () => {
+      const checklist = ChecklistParser.parse(md, 'markdown', { columns: [3], noHeader: true });
+
+      expect(checklist.items.map((i) => i.content)).toEqual(['SQLi対策', 'N+1問題']);
+    });
+
+    it('parseDisplayContentMapで表示用contentのマップを生成できる', () => {
+      const aiOptions: ChecklistParseOptions = { columns: [2, 3, 4], noHeader: false };
+      const checklist = ChecklistParser.parse(md, 'markdown', aiOptions);
+      const map = ChecklistParser.parseDisplayContentMap(md, 'markdown', aiOptions, {
+        columns: [3],
+        noHeader: true,
+      });
+
+      expect(map.get(checklist.items[0]!.content)).toBe('SQLi対策');
+      expect(map.get(checklist.items[1]!.content)).toBe('N+1問題');
+    });
+
+    it('空文字ではエラーになる', () => {
+      expect(() => ChecklistParser.parse('', 'markdown', defaultOptions)).toThrow(
+        'Markdown checklist must not be empty',
+      );
+    });
+
+    it('テーブルが無い場合はエラーになる', () => {
+      expect(() => ChecklistParser.parse('# 見出しのみ', 'markdown', defaultOptions)).toThrow(
+        'Markdown checklist must contain a table (header row and delimiter row)',
+      );
+    });
+
+    it('データ行が無い場合はエラーになる', () => {
+      expect(() =>
+        ChecklistParser.parse('| A | B |\n|---|---|\n|   |   |', 'markdown', defaultOptions),
+      ).toThrow('Markdown checklist table must contain at least a header row and one data row');
+    });
+
+    it('存在しない列番号を指定するとエラーになる', () => {
+      expect(() =>
+        ChecklistParser.parse(md, 'markdown', { columns: [5], noHeader: false }),
+      ).toThrow('Column number 5 exceeds the number of columns (4)');
     });
   });
 });
